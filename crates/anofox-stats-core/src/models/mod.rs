@@ -67,7 +67,10 @@ pub use ols::fit_ols;
 pub use passive_aggressive::{
     fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
 };
-pub use path::{cv_reg_path, fit_reg_path, lars_path, CvPathResult, RegPathOptions, RegPathResult};
+pub use path::{
+    cv_reg_path, cv_reg_path_strategy, fit_reg_path, lars_path, nested_cv_reg_path, CvPathResult,
+    CvSpec, CvStrategy, NestedCvResult, RegPathOptions, RegPathResult,
+};
 pub use pls::fit_pls;
 pub use predict::predict;
 pub use predict_se::{

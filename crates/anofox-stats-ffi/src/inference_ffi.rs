@@ -5,11 +5,12 @@
 
 use super::*;
 use anofox_stats_core::models::{
-    coefficient_vcov, cv_reg_path, fit_reg_path, lars_path, partial_residuals_binomial,
-    partial_residuals_gamma, partial_residuals_logistic, partial_residuals_negbinomial,
-    partial_residuals_ols, partial_residuals_poisson, partial_residuals_tweedie,
-    partial_residuals_wls, predict_se_glm, predict_se_linear, quantile_process,
-    PartialResidualsResult, PredictInterval, QuantileSeType, RegPathOptions, RegPathResult,
+    coefficient_vcov, cv_reg_path_strategy, fit_reg_path, lars_path, nested_cv_reg_path,
+    partial_residuals_binomial, partial_residuals_gamma, partial_residuals_logistic,
+    partial_residuals_negbinomial, partial_residuals_ols, partial_residuals_poisson,
+    partial_residuals_tweedie, partial_residuals_wls, predict_se_glm, predict_se_linear,
+    quantile_process, CvSpec, CvStrategy, PartialResidualsResult, PredictInterval, QuantileSeType,
+    RegPathOptions, RegPathResult,
 };
 use std::ffi::CStr;
 
@@ -87,6 +88,66 @@ impl Default for CvPathResultFFI {
             index_min: 0,
             index_1se: 0,
             n_folds: 0,
+            n_observations: 0,
+        }
+    }
+}
+
+/// CV strategy of `anofox_cv_reg_path` / `anofox_nested_cv_reg_path` (#204).
+pub const CV_STRATEGY_KFOLD: i32 = 0;
+pub const CV_STRATEGY_FOLD_IDS: i32 = 1;
+pub const CV_STRATEGY_GROUP: i32 = 2;
+pub const CV_STRATEGY_LOGO: i32 = 3;
+pub const CV_STRATEGY_STRATIFIED: i32 = 4;
+pub const CV_STRATEGY_TIME_SERIES: i32 = 5;
+
+/// How the CV splits are built (mirrors `CvSpec`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CvSpecFFI {
+    pub strategy: i32,
+    pub n_folds: usize,
+    pub seed: u64,
+    pub repeats: usize,
+    pub test_size: usize,
+    pub gap: usize,
+    pub max_train_size: usize,
+    pub n_bins: usize,
+    pub mae: bool,
+    pub inner_folds: usize,
+    pub one_se: bool,
+}
+
+/// Nested CV: one entry per outer split, plus the mean and its standard error.
+#[repr(C)]
+#[derive(Debug)]
+pub struct NestedCvResultFFI {
+    pub lambda: *mut f64,
+    pub test_error: *mut f64,
+    pub inner_cv_mean: *mut f64,
+    pub inner_cv_se: *mut f64,
+    pub n_train: *mut f64,
+    pub n_test: *mut f64,
+    pub n_inner_folds: *mut f64,
+    pub n_folds: usize,
+    pub mean: f64,
+    pub se: f64,
+    pub n_observations: usize,
+}
+
+impl Default for NestedCvResultFFI {
+    fn default() -> Self {
+        Self {
+            lambda: std::ptr::null_mut(),
+            test_error: std::ptr::null_mut(),
+            inner_cv_mean: std::ptr::null_mut(),
+            inner_cv_se: std::ptr::null_mut(),
+            n_train: std::ptr::null_mut(),
+            n_test: std::ptr::null_mut(),
+            n_inner_folds: std::ptr::null_mut(),
+            n_folds: 0,
+            mean: f64::NAN,
+            se: f64::NAN,
             n_observations: 0,
         }
     }
@@ -250,6 +311,29 @@ unsafe fn path_options(options: &RegPathOptionsFFI) -> RegPathOptions {
     }
 }
 
+fn cv_spec(spec: &CvSpecFFI) -> CvSpec {
+    CvSpec {
+        strategy: match spec.strategy {
+            CV_STRATEGY_FOLD_IDS => CvStrategy::FoldIds,
+            CV_STRATEGY_GROUP => CvStrategy::Group,
+            CV_STRATEGY_LOGO => CvStrategy::Logo,
+            CV_STRATEGY_STRATIFIED => CvStrategy::Stratified,
+            CV_STRATEGY_TIME_SERIES => CvStrategy::TimeSeries,
+            _ => CvStrategy::Kfold,
+        },
+        n_folds: spec.n_folds,
+        seed: spec.seed,
+        repeats: spec.repeats,
+        test_size: spec.test_size,
+        gap: spec.gap,
+        max_train_size: spec.max_train_size,
+        n_bins: spec.n_bins,
+        mae: spec.mae,
+        inner_folds: spec.inner_folds,
+        one_se: spec.one_se,
+    }
+}
+
 unsafe fn write_path(
     r: &RegPathResult,
     out: *mut RegPathResultFFI,
@@ -386,22 +470,21 @@ pub unsafe extern "C" fn anofox_free_reg_path_result(result: *mut RegPathResultF
     })
 }
 
-/// k-fold cross-validation curve of the ridge / elastic-net path
-/// (`solvers::path::cv_path`, cv.glmnet's `type.measure = "mse"`). Folds come
-/// from `fold_ids` (one label per row; NULL to draw `n_folds` seeded folds
-/// with `kfold_ids(n, n_folds, seed)` over the usable rows in input order).
+/// Cross-validation curve of the ridge / elastic-net path
+/// (`solvers::cv::cv_path_splits`, cv.glmnet's `type.measure = "mse"` or
+/// `"mae"`) on the splits of a CV strategy (#204). `keys` holds one value per
+/// row (fold label, group, stratum or time, by strategy) or is NULL.
 ///
 /// # Safety
-/// As [`anofox_reg_path`]; `fold_ids` is NULL or has the length of `y`.
+/// As [`anofox_reg_path`]; `keys` is NULL or has the length of `y`.
 /// Release `out` with `anofox_free_cv_path_result`.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_cv_reg_path(
     y: DataArray,
     x: *const DataArray,
     x_count: usize,
-    fold_ids: *const i64,
-    n_folds: usize,
-    seed: u64,
+    keys: *const f64,
+    spec: CvSpecFFI,
     options: RegPathOptionsFFI,
     out: *mut CvPathResultFFI,
     out_error: *mut AnofoxError,
@@ -418,14 +501,15 @@ pub unsafe extern "C" fn anofox_cv_reg_path(
         *out = CvPathResultFFI::default();
         let y_vec = y.to_vec();
         let x_vecs = read_x(x, x_count);
-        let folds = if fold_ids.is_null() {
+        let key_vec = if keys.is_null() {
             None
         } else {
-            Some(slice::from_raw_parts(fold_ids, y_vec.len()).to_vec())
+            Some(slice::from_raw_parts(keys, y_vec.len()).to_vec())
         };
         let opts = path_options(&options);
+        let spec = cv_spec(&spec);
         let Some(r) = run_core("cross-validation", out_error, || {
-            cv_reg_path(&y_vec, &x_vecs, folds.as_deref(), n_folds, seed, &opts)
+            cv_reg_path_strategy(&y_vec, &x_vecs, key_vec.as_deref(), &spec, &opts)
         }) else {
             return false;
         };
@@ -457,6 +541,107 @@ pub unsafe extern "C" fn anofox_cv_reg_path(
         }
         *out = res;
         true
+    })
+}
+
+/// Nested cross-validation of the ridge / elastic-net path
+/// (`solvers::cv::nested_cv_path`, #204): outer splits from the strategy,
+/// inner folds from each outer training set only.
+///
+/// # Safety
+/// As [`anofox_cv_reg_path`]. Release `out` with `anofox_free_nested_cv_result`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_nested_cv_reg_path(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    keys: *const f64,
+    spec: CvSpecFFI,
+    options: RegPathOptionsFFI,
+    out: *mut NestedCvResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if out.is_null() || x.is_null() || x_count == 0 {
+            set_error(
+                out_error,
+                ErrorCode::InvalidInput,
+                "x or out is NULL or empty",
+            );
+            return false;
+        }
+        *out = NestedCvResultFFI::default();
+        let y_vec = y.to_vec();
+        let x_vecs = read_x(x, x_count);
+        let key_vec = if keys.is_null() {
+            None
+        } else {
+            Some(slice::from_raw_parts(keys, y_vec.len()).to_vec())
+        };
+        let opts = path_options(&options);
+        let spec = cv_spec(&spec);
+        let Some(r) = run_core("nested cross-validation", out_error, || {
+            nested_cv_reg_path(&y_vec, &x_vecs, key_vec.as_deref(), &spec, &opts)
+        }) else {
+            return false;
+        };
+        let as_f64 = |v: &[usize]| v.iter().map(|&a| a as f64).collect::<Vec<f64>>();
+        let mut res = NestedCvResultFFI {
+            lambda: alloc_f64(&r.lambda),
+            test_error: alloc_f64(&r.test_error),
+            inner_cv_mean: alloc_f64(&r.inner_cv_mean),
+            inner_cv_se: alloc_f64(&r.inner_cv_se),
+            n_train: alloc_f64(&as_f64(&r.n_train)),
+            n_test: alloc_f64(&as_f64(&r.n_test)),
+            n_inner_folds: alloc_f64(&as_f64(&r.n_inner_folds)),
+            n_folds: r.lambda.len(),
+            mean: r.mean,
+            se: r.se,
+            n_observations: r.n_observations,
+        };
+        if res.n_folds > 0
+            && (res.lambda.is_null()
+                || res.test_error.is_null()
+                || res.inner_cv_mean.is_null()
+                || res.inner_cv_se.is_null()
+                || res.n_train.is_null()
+                || res.n_test.is_null()
+                || res.n_inner_folds.is_null())
+        {
+            anofox_free_nested_cv_result(&mut res);
+            set_error(
+                out_error,
+                ErrorCode::AllocationFailure,
+                "Failed to allocate nested CV result",
+            );
+            return false;
+        }
+        *out = res;
+        true
+    })
+}
+
+/// Release the arrays of a `NestedCvResultFFI` (NULL-safe, idempotent).
+///
+/// # Safety
+/// `result` must be NULL or come from `anofox_nested_cv_reg_path`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_nested_cv_result(result: *mut NestedCvResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        let r = &mut *result;
+        free_all(&mut [
+            &mut r.lambda,
+            &mut r.test_error,
+            &mut r.inner_cv_mean,
+            &mut r.inner_cv_se,
+            &mut r.n_train,
+            &mut r.n_test,
+            &mut r.n_inner_folds,
+        ]);
+        r.n_folds = 0;
     })
 }
 
@@ -1073,20 +1258,47 @@ mod tests {
             assert_eq!(*out.df, 0.0);
             anofox_free_reg_path_result(&mut out);
             anofox_free_reg_path_result(&mut out);
+            let spec = CvSpecFFI {
+                strategy: CV_STRATEGY_KFOLD,
+                n_folds: 5,
+                seed: 1,
+                repeats: 1,
+                test_size: 0,
+                gap: 0,
+                max_train_size: 0,
+                n_bins: 5,
+                mae: false,
+                inner_folds: 3,
+                one_se: false,
+            };
             let mut cv = CvPathResultFFI::default();
             assert!(anofox_cv_reg_path(
                 arr(&y),
                 x.as_ptr(),
                 2,
                 std::ptr::null(),
-                5,
-                1,
+                spec,
                 opts,
                 &mut cv,
                 &mut err
             ));
             assert_eq!(cv.n_folds, 5);
             anofox_free_cv_path_result(&mut cv);
+            let mut nested = NestedCvResultFFI::default();
+            assert!(anofox_nested_cv_reg_path(
+                arr(&y),
+                x.as_ptr(),
+                2,
+                std::ptr::null(),
+                spec,
+                opts,
+                &mut nested,
+                &mut err
+            ));
+            assert_eq!(nested.n_folds, 5);
+            assert!(nested.mean.is_finite());
+            anofox_free_nested_cv_result(&mut nested);
+            anofox_free_nested_cv_result(&mut nested);
         }
     }
 

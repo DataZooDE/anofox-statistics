@@ -10,6 +10,31 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-validation strategies and nested CV for ridge / elastic net (#204).** The fold
+  generators, explicit splits and the nested loop are anofox-regression 0.5.30's
+  `solvers::cv` (validated against scikit-learn); the extension maps arguments.
+  - `ridge_cv_agg` / `elasticnet_cv_agg` take a `cv_key` argument of any type and a
+    `cv_strategy` option: `'kfold'` (default without a key), `'fold_id'` (default with a
+    key: the key is the fold, as the previous BIGINT `fold_id` form, which keeps working),
+    `'group'` (group k-fold balanced by rows, sklearn `GroupKFold`), `'logo'`
+    (leave one group out), `'stratified'` (stratum key, or without a key `n_bins` quantile
+    bins of y) and `'time_series'` (rolling origin over a numeric / date / timestamp key
+    with `test_size` (alias `horizon`), `gap`, `window`, `max_train_size`; the splits are
+    over the distinct times, so all series of a date stay on one side). Several group
+    variables form one key as a STRUCT (`{'store': store, 'region': region}`), hashed in
+    the extension. New options `repeats` (repeated k-fold / stratified) and `metric`
+    (`'mse'`, `'mae'`).
+  - `ridge_nested_cv_agg` / `elasticnet_nested_cv_agg` (and `ridge_nested_cv_by` /
+    `elasticnet_nested_cv_by`): lambda is chosen by an inner CV (`inner_folds`, built from
+    each outer training set only with the same key; `rule` `'min'` or `'1se'`; per-fold
+    default grids) and scored on the outer test rows. They return `curve` rows
+    (`curve_type = 'nested_cv'`): one per outer fold (`series = 'fold'`, with `lambda`,
+    `test_error`, `inner_cv_mean`, `inner_cv_se`, `n_train`, `n_test`, `n_inner_folds`) and
+    a summary row (`series = 'mean'`, the test-size weighted mean and `test_se`).
+  - `ridge_cv_by` / `elasticnet_cv_by` and the nested macros take `cv_key := column`.
+
 ### Changed
 
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every

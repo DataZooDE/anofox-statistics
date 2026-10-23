@@ -17,7 +17,7 @@ description: >
   _augment_by, <model>_partial_residuals_by, <model>_prediction_by (23
   models), <model>_effects_by (marginal effects), <model>_rolling_tidy_by
   (rolling coefficients), ridge/elasticnet/lars_path_by,
-  ridge/elasticnet_cv_by, quantile_process_by, acf_by / pacf_by,
+  ridge/elasticnet_cv_by, ridge/elasticnet_nested_cv_by, quantile_process_by, acf_by / pacf_by,
   kaplan_meier_by, roc/pr/calibration_curve_by and
   pairwise_t_test_by / tukey_hsd_by / dunn_test_by, per-group aggregate
   fitting with GROUP BY plus predict / tidy / glance on the per-group model
@@ -131,7 +131,8 @@ When you want a **report table** per group instead of predictions, use the outpu
 | `<model>_effects_by` | `(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := …, level := 0.95, names := […]])` | `id, model_name, focal, x, y (NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit, focal_name` (`names[focal]`, else `'x' \|\| focal` like `_tidy_by` terms) |
 | `<model>_rolling_tidy_by` | `(source, group_col, order_col, y_col, x_cols [, weight_col] [, window_size := 30, min_obs := NULL, options := …, names := […]])` | `window_end` + the tidy columns (`index_name = 'window_end'`, `index_value` = window position) + `n_window` |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `quantile_process_by` | `(source, group_col, y_col, x_cols [, options := …, names := […]])` | the tidy columns, `index_name` `'lambda'` (`'alpha'` for LARS, `'tau'` for the quantile process) |
-| `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
+| `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …, cv_key := col])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
+| `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | `(source, group_col, y_col, x_cols [, options := …, cv_key := col])` | `curve_type ('nested_cv'), series ('fold' / 'mean'), x, y, y_low, y_high, threshold, weight, n_censor, fold, lambda, test_error, test_se, inner_cv_mean, inner_cv_se, n_train, n_test, n_inner_folds, n_folds, metric` |
 
 Model coverage:
 - `_tidy_by` / `_glance_by` (25): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`). Not `glmm`, `isotonic`.

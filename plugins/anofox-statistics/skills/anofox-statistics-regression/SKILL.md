@@ -19,7 +19,9 @@ description: >
   predict(model, x) with se_fit / confidence and prediction intervals,
   linear_predict, tidy and glance, regularisation paths and
   cross-validation (ridge_path_agg, elasticnet_path_agg, lars_path_agg,
-  ridge_cv_agg, elasticnet_cv_agg, lambda.min / lambda.1se), and the AFT
+  ridge_cv_agg, elasticnet_cv_agg, lambda.min / lambda.1se, group /
+  leave-one-group-out / stratified / time-series folds via cv_strategy,
+  nested CV with ridge_nested_cv_agg / elasticnet_nested_cv_agg), and the AFT
   aft_cdf / aft_quantile / aft_survival helpers. Use when picking a
   regression method, choosing a penalty, getting standard errors or
   intervals for predictions, or writing ols_fit_agg / ridge_fit /
@@ -103,9 +105,10 @@ Pick the penalty from a path or a CV curve instead of guessing `alpha`. Each agg
 |---|---|
 | `ridge_path_agg(y, x[, opts])`, `elasticnet_path_agg(y, x[, opts])` | `terms` rows (`term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value`), `index_name = 'lambda'`; inference columns NULL |
 | `lars_path_agg(y, x[, opts])` | `terms` rows per knot, **`index_name = 'alpha'`** (upstream's LARS scale, not glmnet's lambda — don't overlay on a ridge path); `method` (`'lasso'` default / `'lar'`), `standardize` (true), `n_nonzero_coefs` |
-| `ridge_cv_agg(y, x[, opts])`, `ridge_cv_agg(y, x, fold_id, opts)`, same for `elasticnet_cv_agg` | `curve` rows: `curve_type = 'lambda_cv'`, `x` (= lambda), `y` (= cv_mean), `y_low`/`y_high` (± cv_se), `threshold`, `lambda`, `cv_mean`, `cv_se`, `n_nonzero`, `is_min`, `is_1se`, `n_folds` |
+| `ridge_cv_agg(y, x[, opts])`, `ridge_cv_agg(y, x, cv_key, opts)`, same for `elasticnet_cv_agg` | `curve` rows: `curve_type = 'lambda_cv'`, `x` (= lambda), `y` (= cv_mean), `y_low`/`y_high` (± cv_se), `threshold`, `lambda`, `cv_mean`, `cv_se`, `n_nonzero`, `is_min`, `is_1se`, `n_folds` |
+| `ridge_nested_cv_agg(y, x[, cv_key], opts)`, same for `elasticnet_nested_cv_agg` | `curve` rows, `curve_type = 'nested_cv'`: per outer fold (`series = 'fold'`: `fold`, chosen `lambda`, `test_error`, `inner_cv_mean`, `inner_cv_se`, `n_train`, `n_test`, `n_inner_folds`) and a summary (`series = 'mean'`: `test_error` = weighted mean, `test_se`, `y_low`/`y_high`) |
 
-Path options: `lambdas` (glmnet scale, default glmnet's grid), `n_lambda` (100), `lambda_min_ratio`, `l1_ratio` (EN, 0.5), `standardize` (false), `fit_intercept`, `feature_names`. CV adds `folds` (10, ≥ 3) and `seed` (42); with a `fold_id` column (≥ 3 distinct labels) the folds are given. The path `lambda` is glmnet's per-observation penalty, **not** the `alpha`/`lambda` option of `ridge_fit_agg` (raw scaling). Per-group table macros: `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `ridge_cv_by`, `elasticnet_cv_by` (batch skill).
+Path options: `lambdas` (glmnet scale, default glmnet's grid), `n_lambda` (100), `lambda_min_ratio`, `l1_ratio` (EN, 0.5), `standardize` (false), `fit_intercept`, `feature_names`. CV adds `folds` (10, ≥ 3) and `seed` (42), `repeats`, `metric` (`'mse'` / `'mae'`). **CV strategies** (`cv_strategy`, the `cv_key` argument holds the key): `'kfold'` (default without key), `'fold_id'` (default with key: the key is the fold, ≥ 3 labels), `'group'` (a group never spans two folds, sklearn `GroupKFold`; several group variables as a STRUCT key `{'store': store, 'region': region}`), `'logo'`, `'stratified'` (key = stratum; without key, `n_bins` quantile bins of y), `'time_series'` (key = time, a number / date / timestamp: rolling origin with `test_size` (alias `horizon`), `gap`, `max_train_size` (sliding window), default 5 splits). **Nested CV** (`*_nested_cv_agg`) is the honest error of "pick lambda by CV, then refit": outer folds from the strategy (`folds`, default 5), inner folds (`inner_folds`, 5) built from each outer training set only with the same key, `rule` `'min'` / `'1se'`; the min of a plain CV curve is optimistic. The path `lambda` is glmnet's per-observation penalty, **not** the `alpha`/`lambda` option of `ridge_fit_agg` (raw scaling). Per-group table macros: `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `ridge_cv_by`, `elasticnet_cv_by` (batch skill).
 
 ### Robust (outlier-resistant)
 
@@ -291,6 +294,16 @@ FROM range(1, 81) t(i);
 SELECT c."lambda", round(c.cv_mean, 4) AS cv_mean, c.is_min, c.is_1se
 FROM (SELECT unnest(ridge_cv_agg(y, [x1, x2, x3], fold, {'n_lambda': 30})) AS c FROM cv_demo)
 WHERE c.is_min OR c.is_1se;
+
+-- Time-series CV (rolling origin over i, 4 test blocks of 8, 2-step embargo), then the nested estimate
+SELECT c."lambda", c.is_min, c.is_1se
+FROM (SELECT unnest(ridge_cv_agg(y, [x1, x2, x3], x1,
+        {'cv_strategy': 'time_series', 'folds': 4, 'test_size': 8, 'gap': 2, 'n_lambda': 20})) AS c FROM cv_demo)
+WHERE c.is_min OR c.is_1se;
+SELECT round(n.test_error, 4) AS nested_mse, round(n.test_se, 4) AS se
+FROM (SELECT unnest(ridge_nested_cv_agg(y, [x1, x2, x3], fold, {'inner_folds': 4, 'n_lambda': 20})) AS n
+      FROM cv_demo)
+WHERE n.series = 'mean';
 
 -- The lasso path at three penalties (glmnet scale), as terms rows
 SELECT e.index_value AS lambda_, e.term, round(e.estimate, 4) AS estimate

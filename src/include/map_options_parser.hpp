@@ -255,6 +255,17 @@ struct RegressionMapOptions {
 	std::optional<uint32_t> n_lambda;        // Size of the default grid
 	std::optional<double> lambda_min_ratio;  // Smallest / largest lambda of the default grid
 	std::optional<uint32_t> folds;           // Number of CV folds
+	// CV strategies and nested CV (#204)
+	std::optional<string> cv_strategy;       // 'kfold' | 'fold_id' | 'group' | 'logo' | 'stratified' | 'time_series'
+	std::optional<uint32_t> repeats;         // Repeated k-fold
+	std::optional<uint32_t> test_size;       // time_series: time points per test block (alias 'horizon')
+	std::optional<uint32_t> gap;             // time_series: time points between train and test
+	std::optional<string> window;            // time_series: 'expanding' | 'sliding'
+	std::optional<uint32_t> max_train_size;  // time_series: sliding window length
+	std::optional<uint32_t> n_bins;          // stratified without a key: quantile bins of y
+	std::optional<string> cv_metric;         // 'mse' | 'mae'
+	std::optional<uint32_t> inner_folds;     // Nested CV: inner folds
+	std::optional<string> lambda_rule;       // Nested CV: 'min' | '1se'
 	// Quantile inference (#157)
 	std::optional<vector<double>> taus;      // Quantiles of the process
 	std::optional<string> se_type;           // 'iid' | 'nid' | 'boot'

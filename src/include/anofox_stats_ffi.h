@@ -2890,15 +2890,66 @@ bool anofox_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 bool anofox_lars_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLarsOptions options,
                       AnofoxRegPathResult *out, AnofoxError *out_error);
 void anofox_free_reg_path_result(AnofoxRegPathResult *result);
+/** CV strategy (#204): how the splits of anofox_cv_reg_path / anofox_nested_cv_reg_path are built. */
+typedef enum {
+	ANOFOX_CV_KFOLD = 0,
+	ANOFOX_CV_FOLD_IDS = 1,
+	ANOFOX_CV_GROUP = 2,
+	ANOFOX_CV_LOGO = 3,
+	ANOFOX_CV_STRATIFIED = 4,
+	ANOFOX_CV_TIME_SERIES = 5,
+} AnofoxCvStrategy;
+
+typedef struct {
+	int32_t strategy;
+	/** k of the k-fold strategies, n_splits of time_series (outer folds of nested CV). */
+	size_t n_folds;
+	uint64_t seed;
+	/** kfold / stratified: repetitions with seeds seed, seed + 1, ... */
+	size_t repeats;
+	/** time_series: time points per test block (0: n / (n_splits + 1)), gap, sliding window (0: expanding). */
+	size_t test_size;
+	size_t gap;
+	size_t max_train_size;
+	/** stratified without a key: quantile bins of y. */
+	size_t n_bins;
+	/** Mean absolute error instead of the mean squared error. */
+	bool mae;
+	/** Nested CV: inner folds and the lambda rule (lambda_1se instead of lambda_min). */
+	size_t inner_folds;
+	bool one_se;
+} AnofoxCvSpec;
+
 /**
- * k-fold CV of the ridge / elastic-net path (solvers::path::cv_path). fold_ids
- * (one label per row, any values) or, when NULL, n_folds folds drawn with
- * kfold_ids(n, n_folds, seed) over the usable rows in input order.
+ * CV of the ridge / elastic-net path on the splits of a CV strategy
+ * (solvers::cv::cv_path_splits). keys: one value per row (fold label, group,
+ * stratum or time, by strategy) or NULL.
  */
-bool anofox_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int64_t *fold_ids,
-                        size_t n_folds, uint64_t seed, AnofoxRegPathOptions options, AnofoxCvPathResult *out,
+bool anofox_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *keys,
+                        AnofoxCvSpec spec, AnofoxRegPathOptions options, AnofoxCvPathResult *out,
                         AnofoxError *out_error);
 void anofox_free_cv_path_result(AnofoxCvPathResult *result);
+
+/** Nested CV (#204): one entry per outer split (arrays of n_folds), plus the weighted mean and its se. */
+typedef struct {
+	double *lambda;
+	double *test_error;
+	double *inner_cv_mean;
+	double *inner_cv_se;
+	double *n_train;
+	double *n_test;
+	double *n_inner_folds;
+	size_t n_folds;
+	double mean;
+	double se;
+	size_t n_observations;
+} AnofoxNestedCvResult;
+
+/** Nested CV of the ridge / elastic-net path (solvers::cv::nested_cv_path). */
+bool anofox_nested_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *keys,
+                               AnofoxCvSpec spec, AnofoxRegPathOptions options, AnofoxNestedCvResult *out,
+                               AnofoxError *out_error);
+void anofox_free_nested_cv_result(AnofoxNestedCvResult *result);
 
 /*
  * ============================================================================

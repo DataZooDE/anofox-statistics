@@ -64,7 +64,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | lmDynamic | `lm_dynamic_fit_agg`, `lm_dynamic_fit_predict_agg` | Time-varying coefficients by pointwise information-criterion averaging of all regressor subsets (greybox `lmDynamic`) | [online_dynamic](docs/api/regression/online_dynamic.md) |
 | LOWESS | `lowess_agg`, `lowess_by` | Robust locally weighted scatterplot smoother (R `lowess`), as a curve | [online_dynamic](docs/api/regression/online_dynamic.md) |
 | Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg`, `quantile_process_agg` | Quantile / median regression; standard errors with `{'se': 'iid' \| 'nid' \| 'boot'}` (as `quantreg::summary.rq`); the regression-quantile process over a grid of `taus` | [quantile](docs/api/regression/quantile.md) |
-| Paths & CV | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `ridge_cv_agg`, `elasticnet_cv_agg` | Coefficient paths over a penalty grid and k-fold CV curves (glmnet's objective, grid and `cv.glmnet` `lambda.min` / `lambda.1se`) | [paths](docs/api/regression/paths.md) |
+| Paths & CV | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `ridge_cv_agg`, `elasticnet_cv_agg`, `ridge_nested_cv_agg`, `elasticnet_nested_cv_agg` | Coefficient paths over a penalty grid, CV curves (glmnet's objective, grid and `cv.glmnet` `lambda.min` / `lambda.1se`) with k-fold, group, leave-one-group-out, stratified or time-series folds, and nested CV | [paths](docs/api/regression/paths.md) |
 
 ### Generalized Linear, Survival and Hierarchical Models
 
@@ -110,7 +110,8 @@ These table macros fit one model per group of a table and return long tables in 
 | `<model>_effects_by` | OLS, WLS, Ridge, the six GLMs | Marginal-effect grid over one focal feature, other features at their means, with a confidence band (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_rolling_tidy_by` | OLS, WLS, Ridge, Elastic Net, Huber, Poisson | Coefficients of every trailing window of `window_size` rows ordered by `order_col` (`terms`, `index_name = 'window_end'`) | [model_tools](docs/api/regression/model_tools.md#rolling_tidy_by) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | — | Coefficient path per group (`terms`, `index_name = 'lambda'`; `'alpha'` for LARS) | [paths](docs/api/regression/paths.md) |
-| `ridge_cv_by`, `elasticnet_cv_by` | — | k-fold CV curve per group with `is_min` / `is_1se` (`curve`, `curve_type = 'lambda_cv'`) | [paths](docs/api/regression/paths.md) |
+| `ridge_cv_by`, `elasticnet_cv_by` | — | CV curve per group with `is_min` / `is_1se` (`curve`, `curve_type = 'lambda_cv'`) | [paths](docs/api/regression/paths.md) |
+| `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | — | nested CV per group: chosen lambda and outer error per fold, plus the mean (`curve`, `curve_type = 'nested_cv'`) | [paths](docs/api/regression/paths.md) |
 | `quantile_process_by` | — | Coefficients and intervals over a grid of `taus` (`terms`, `index_name = 'tau'`) | [quantile](docs/api/regression/quantile.md#quantile_process_agg) |
 
 The prediction and rolling macros take a position column: `<model>_prediction_by(source, group_col, x_col, y_col, x_cols[, level := 0.95, split := ...])` and `<model>_rolling_tidy_by(source, group_col, order_col, y_col, x_cols[, window_size := 30, min_obs := ...])`.
@@ -459,7 +460,7 @@ Model STRUCTs are convenient in SQL but awkward to chart. The `_by` table macros
 | `summary` | `model_id, model_type, metric, value` | `<model>_glance_by` |
 | `obs` | `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` |
 | `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` | `<model>_prediction_by`, `<model>_effects_by` |
-| `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `ridge_cv_by`, `elasticnet_cv_by`, `kaplan_meier_by`, `acf_by`, `pacf_by` |
+| `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `ridge_cv_by`, `elasticnet_cv_by`, `ridge_nested_cv_by`, `elasticnet_nested_cv_by`, `kaplan_meier_by`, `acf_by`, `pacf_by` |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, …` | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`; the test aggregates return the same fields as a STRUCT |
 
 ```sql

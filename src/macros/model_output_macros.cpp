@@ -233,15 +233,17 @@ string PosthocSql(const PosthocMacro &m) {
 	       "ORDER BY group_col, _i";
 }
 
-// Coefficient paths, CV curves and the quantile process per group (#154, #157):
-// the `terms` schema with index_name 'lambda' / 'tau' and the `curve` schema with
-// curve_type 'lambda_cv'.
+// Coefficient paths, CV curves, nested CV and the quantile process per group
+// (#154, #157, #204): the `terms` schema with index_name 'lambda' / 'tau' and the
+// `curve` schema with curve_type 'lambda_cv' / 'nested_cv'.
 struct PathMacro {
 	const char *agg;
 	const char *label;
 	bool curve;
 	//! The model, reported as model_id / model_name.
 	const char *method;
+	//! Nested CV (the `curve` schema with the nested fields).
+	bool nested = false;
 };
 
 const PathMacro PATH_MACROS[] = {
@@ -251,14 +253,26 @@ const PathMacro PATH_MACROS[] = {
     {"quantile_process", "the regression-quantile process (one quantile regression per tau, with inference)", false, "quantile"},
     {"ridge_cv", "the k-fold cross-validation curve of the ridge path (cv.glmnet)", true, "ridge"},
     {"elasticnet_cv", "the k-fold cross-validation curve of the elastic-net path (cv.glmnet)", true, "elasticnet"},
+    {"ridge_nested_cv", "the nested cross-validation of the ridge path", true, "ridge", true},
+    {"elasticnet_nested_cv", "the nested cross-validation of the elastic-net path", true, "elasticnet", true},
 };
 
 string PathSql(const PathMacro &m) {
+	// The CV aggregates take the cv_key (NULL by default: no key).
+	string args = m.curve ? "y_col, x_cols, cv_key, options" : "y_col, x_cols, options";
 	string inner = "FROM (SELECT group_col, id, model_id, model_name, unnest(range(len(_l))) AS _i, unnest(_l) AS _t "
 	               "FROM (SELECT group_col, " +
-	               ModelIds(m.method) + ", " +
-	               string(m.agg) + "_agg(y_col, x_cols, options) AS _l FROM query_table(source::VARCHAR) "
-	                               "GROUP BY group_col)) ORDER BY group_col, _i";
+	               ModelIds(m.method) + ", " + string(m.agg) + "_agg(" + args +
+	               ") AS _l FROM query_table(source::VARCHAR) GROUP BY group_col)) ORDER BY group_col, _i";
+	if (m.nested) {
+		return "SELECT group_col, id, model_id, model_name, (_t).curve_type AS curve_type, (_t).series AS series, "
+		       "(_t).x AS x, (_t).y AS y, (_t).y_low AS y_low, (_t).y_high AS y_high, (_t).threshold AS threshold, "
+		       "NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor, (_t).fold AS fold, (_t).lambda AS lambda, "
+		       "(_t).test_error AS test_error, (_t).test_se AS test_se, (_t).inner_cv_mean AS inner_cv_mean, "
+		       "(_t).inner_cv_se AS inner_cv_se, (_t).n_train AS n_train, (_t).n_test AS n_test, "
+		       "(_t).n_inner_folds AS n_inner_folds, (_t).n_folds AS n_folds, (_t).metric AS metric " +
+		       inner;
+	}
 	if (m.curve) {
 		return "SELECT group_col, id, model_id, model_name, (_t).curve_type AS curve_type, NULL::VARCHAR AS series, (_t).x AS x, "
 		       "(_t).y AS y, (_t).y_low AS y_low, (_t).y_high AS y_high, (_t).threshold AS threshold, "
@@ -538,10 +552,17 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		string description =
 		    "Table macro: computes " + string(m.label) + " per group of source with " + m.agg +
 		    "_agg (same options) and returns " +
-		    (m.curve ? string("one row per lambda in the integration contract's `curve` schema: the group column, "
+		    (m.nested ? string("one row per outer fold plus a summary row in the integration contract's `curve` "
+		                       "schema: the group column, id (the group), model_id and model_name (the method), "
+		                       "curve_type ('nested_cv'), series ('fold' | 'mean'), x (fold), y (test error), y_low, "
+		                       "y_high (mean -/+ se on the summary row), threshold, weight, n_censor, fold, lambda, "
+		                       "test_error, test_se, inner_cv_mean, inner_cv_se, n_train, n_test, n_inner_folds, "
+		                       "n_folds, metric. cv_key := column (or a STRUCT of columns) passes the cv_key.")
+		     : m.curve ? string("one row per lambda in the integration contract's `curve` schema: the group column, "
 		                      "id (the group), model_id and model_name (the method), curve_type ('lambda_cv'), series, x (lambda), y (cv_mean), y_low, y_high "
 		                      "(cv_mean -/+ cv_se), threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, "
-		                      "is_min, is_1se, n_folds.")
+		                      "is_min, is_1se, n_folds. cv_key := column (or a STRUCT of columns) passes the cv_key "
+		                      "of the cv_strategy option.")
 		             : string("one row per index value and term in the `terms` schema: the group column, id (the group), model_id and model_name (the method), "
 		                      "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, "
 		                      "index_name ('") +
@@ -550,6 +571,8 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		vector<pair<string, string>> named = {{"options", "NULL"}};
 		if (!m.curve) {
 			named.push_back({"names", "NULL"});
+		} else {
+			named.push_back({"cv_key", "NULL"});
 		}
 		auto macro = CreateTableMacro(name, {"source", "group_col", "y_col", "x_cols"}, named, PathSql(m),
 		                              description, name + "('my_table', group_col, y, [x1, x2])");
