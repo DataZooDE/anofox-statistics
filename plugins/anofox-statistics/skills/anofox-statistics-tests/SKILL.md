@@ -22,7 +22,8 @@ description: >
   (Diebold-Mariano, Clark-West), residual autocorrelation and
   heteroskedasticity tests (Ljung-Box, Box-Pierce, Durbin-Watson with
   p-value, Breusch-Pagan, White), survival tests (Kaplan-Meier,
-  log-rank), and classifier evaluation (ROC / PR / calibration curves, AUC,
+  log-rank), causal mediation analysis (mediation_by / mediation_agg:
+  ACME, ADE, total effect, proportion mediated), and classifier evaluation (ROC / PR / calibration curves, AUC,
   Brier score, log loss, roc_curve_by). Use when running a significance
   test, comparing many groups, measuring association/effect size,
   evaluating a classifier, or comparing distributions or survival in SQL.
@@ -174,6 +175,25 @@ R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferr
 | `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := 0.95, conf_type := 'log'])` | One KM curve per stratum in the `curve` schema (`curve_type = 'km'`) |
 
 `event` is BOOLEAN or numeric (true / non-zero = event observed, else right-censored). Group is VARCHAR or BIGINT.
+
+### Causal mediation
+| Function | Returns |
+|---|---|
+| `mediation_by(source, group_col, treatment, mediator, outcome[, covariates := [c1, ...]][, options := {...}])` | Per group, one row per effect (`term` = `acme`, `ade`, `total`, `prop_mediated`) in the `terms` schema (`id` = group, `model_id = 'mediation'`) plus `method`, `n_obs`, `n_sims` |
+| `mediation_agg(y, m, x[, covariates[, options]])` | The same four rows as `LIST<STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, method, n_obs, n_sims)>` |
+
+Linear models as R `mediation::mediate`: `m ~ x + covariates` (a) and `y ~ x + m + covariates` (b, c'); ACME = a·b·Δ, ADE = c'·Δ, Δ = `treat_value` − `control_value` (default 1 − 0). Options: `method` `'bootstrap'` (default; case resampling, `n_bootstrap` 1000, `seed` 42, `ci_type` `'percentile'` / `'bca'`, p-value as `mediate`), `'sobel'` (delta method, z/t tests) or `'quasi_bayesian'`; `confidence_level`. Rows with a NULL anywhere are dropped from both models. Continuous mediator and outcome only; no treatment × mediator interaction.
+
+```sql
+CREATE OR REPLACE TABLE med_demo AS
+SELECT i, 's' || (i % 2) AS site, ((i // 2) % 2)::DOUBLE AS treat, sin(i * 1.3) AS age_z,
+       0.5 + 0.8 * ((i // 2) % 2) + sin(i * 2.1 + 0.4) * 0.9 AS m
+FROM range(100) t(i);
+CREATE OR REPLACE TABLE med_demo AS SELECT *, 1 + 0.4 * treat + 0.6 * m + cos(i * 1.7) * 0.8 AS y FROM med_demo;
+
+SELECT site, term, round(estimate, 3) AS estimate, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM mediation_by('med_demo', site, treatment := treat, mediator := m, outcome := y, covariates := [age_z]);
+```
 
 ### Classifier evaluation
 | Function | Returns |

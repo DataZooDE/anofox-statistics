@@ -33,6 +33,7 @@ passed through and the prediction columns appended.
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
+| `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |

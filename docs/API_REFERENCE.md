@@ -32,6 +32,7 @@ page under [`docs/api/`](#detailed-documentation) with longer explanations.
 - [AFT Survival Regression](#aft-survival-regression)
 - [Mixed-Effects GLMs](#mixed-effects-glms)
 - [Empirical-Bayes Shrinkage](#empirical-bayes-shrinkage)
+- [Causal Mediation Analysis](#causal-mediation-analysis)
 - [AID Demand Classification](#aid-demand-classification)
 - [Statistical Hypothesis Tests](#statistical-hypothesis-tests)
 - [Classifier Evaluation](#classifier-evaluation)
@@ -142,6 +143,7 @@ fitted model struct).
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
+| Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
 
 ### Diagnostics and Utilities
 
@@ -871,6 +873,64 @@ eb_shrink_by(source VARCHAR, estimate_col, se_col [, options]) -> TABLE
 
 ```sql
 SELECT store, est, shrunken FROM eb_shrink_by('store_slopes', est, se) ORDER BY store;
+```
+
+---
+
+## Causal Mediation Analysis
+
+Mediation analysis as R's `mediation::mediate` for linear models: per group, the
+mediator model `m ~ x + covariates` (path `a`) and the outcome model
+`y ~ x + m + covariates` (`b`, direct path `c'`) are fitted by OLS on the same
+complete rows. See [Mediation](api/statistics/mediation.md) for the inference
+details.
+
+### mediation_by
+
+```sql skip
+mediation_by(source VARCHAR, group_col, treatment, mediator, outcome
+             [, covariates := [c1, ...]] [, options := {...}]) -> TABLE
+```
+
+One row per group and effect (`term` = `acme` `a·b·Δ`, `ade` `c'·Δ`, `total`,
+`prop_mediated`, with `Δ = treat_value − control_value`) in the contract `terms`
+schema (`id` = group, `model_id = model_name = 'mediation'`), plus `method`,
+`n_obs` and `n_sims`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| method | VARCHAR | 'bootstrap' | `'bootstrap'` (case resampling), `'sobel'` (delta method) or `'quasi_bayesian'` (`mediate`'s Monte Carlo) |
+| ci_type | VARCHAR | 'percentile' | Bootstrap interval: `'percentile'` or `'bca'` |
+| n_bootstrap (aliases `n_sims`, `sims`) | INTEGER | 1000 | Resamples / draws |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the draws; results are reproducible |
+| confidence_level | DOUBLE | 0.95 | Interval level |
+| treat_value, control_value | DOUBLE | 1, 0 | Treatment contrast |
+
+```sql
+CREATE OR REPLACE TABLE med_data AS
+SELECT i, 'g' || (i % 2) AS grp, ((i // 2) % 2)::DOUBLE AS x, sin(i * 1.3) AS c1,
+       0.5 + 0.8 * ((i // 2) % 2) + 0.3 * sin(i * 1.3) + sin(i * 2.1 + 0.4) * 0.9 AS m
+FROM range(120) t(i);
+CREATE OR REPLACE TABLE med_data AS
+SELECT *, 1 + 0.4 * x + 0.6 * m - 0.2 * c1 + cos(i * 1.7 + 0.2) * 0.8 AS y FROM med_data;
+
+SELECT grp, term, round(estimate, 3) AS estimate, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM mediation_by('med_data', grp, treatment := x, mediator := m, outcome := y, covariates := [c1]);
+```
+
+### mediation_agg
+
+```sql skip
+mediation_agg(y DOUBLE, m DOUBLE, x DOUBLE [, covariates DOUBLE[] [, options]]) -> LIST(STRUCT)
+```
+
+The aggregate behind `mediation_by`; returns the four effect rows
+`STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high,
+conf_level, method, n_obs, n_sims)`, or NULL for a degenerate group.
+
+```sql
+SELECT grp, (mediation_agg(y, m, x, [c1], {'method': 'sobel'}))[1].p_value AS acme_p
+FROM med_data GROUP BY grp ORDER BY grp;
 ```
 
 ---
@@ -2033,7 +2093,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
 - **Survival:** [AFT](api/survival/aft.md)
-- **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)
+- **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md) | [Mediation](api/statistics/mediation.md)
 - **Demand:** [AID](api/aid/aid.md)
 - **Diagnostics:** [Model diagnostics](api/diagnostics/diagnostics.md)
 - **Background:** [API conventions](API_CONVENTIONS.md) | [Methodology](METHODOLOGY.md) | [NULL semantics](NULL_SEMANTICS.md) | [Migration from v0.9](MIGRATION.md)

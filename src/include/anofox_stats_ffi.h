@@ -3325,6 +3325,64 @@ bool anofox_lowess(AnofoxDataArray x, AnofoxDataArray y, double frac, uint32_t i
 /** Free the arrays of a LOWESS result. */
 void anofox_free_lowess_result(AnofoxLowessResult *result);
 
+/* ============================================================================
+ * Causal mediation analysis -- issue #223
+ * ============================================================================ */
+
+typedef enum {
+	ANOFOX_MEDIATION_BOOTSTRAP = 0,
+	ANOFOX_MEDIATION_SOBEL = 1,
+	ANOFOX_MEDIATION_QUASI_BAYESIAN = 2,
+} AnofoxMediationMethod;
+
+typedef enum {
+	ANOFOX_MEDIATION_CI_PERCENTILE = 0,
+	ANOFOX_MEDIATION_CI_BCA = 1,
+} AnofoxMediationCi;
+
+typedef struct {
+	AnofoxMediationMethod method;
+	AnofoxMediationCi ci_type;
+	uint32_t n_sims;
+	uint64_t seed;
+	double conf_level;
+	double treat_value;
+	double control_value;
+} AnofoxMediationOptions;
+
+/** One effect; non-finite values mean "not available". */
+typedef struct {
+	double estimate;
+	double std_error;
+	double statistic;
+	double p_value;
+	double conf_low;
+	double conf_high;
+} AnofoxMediationEffect;
+
+/** Mediation result (owns no memory). */
+typedef struct {
+	AnofoxMediationEffect acme;
+	AnofoxMediationEffect ade;
+	AnofoxMediationEffect total;
+	AnofoxMediationEffect prop_mediated;
+	double a;
+	double b;
+	double c_prime;
+	double r_squared_mediator;
+	double r_squared_outcome;
+	size_t n_obs;
+	size_t n_sims;
+} AnofoxMediationResult;
+
+/**
+ * Causal mediation analysis of x -> m -> y with covariate_count covariates
+ * (mediator model m ~ x + C, outcome model y ~ x + m + C, both OLS).
+ */
+bool anofox_mediation(AnofoxDataArray y, AnofoxDataArray m, AnofoxDataArray x, const AnofoxDataArray *covariates,
+                      size_t covariate_count, AnofoxMediationOptions options, AnofoxMediationResult *out_result,
+                      AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

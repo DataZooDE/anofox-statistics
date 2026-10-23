@@ -64,6 +64,26 @@ Breaking changes are called out explicitly.
   an extension's window aggregate is not told which row of a whole-partition frame it is
   computing (follow-up for DuckDB 2.0: #224).
 
+- **`mediation_by` and `mediation_agg`: causal mediation analysis per group (#223).**
+  `mediation_by(source, group_col, treatment, mediator, outcome, covariates := [...],
+  options := {...})` fits the mediator model `m ~ x + covariates` and the outcome model
+  `y ~ x + m + covariates` by OLS on the same complete rows (rows with a NULL anywhere
+  are dropped from both) and returns, per group, the ACME (indirect effect `a·b`), the
+  ADE (direct effect `c'`), the total effect and the proportion mediated for the
+  contrast `treat_value − control_value`, in the contract `terms` schema (`id` = group,
+  `model_id = 'mediation'`) plus `method`, `n_obs` and `n_sims`. Inference by a
+  nonparametric case-resampling bootstrap (default: `n_bootstrap` 1000, `seed` 42,
+  percentile or `mediate`'s BCa interval, `mediate`'s p-value), the Sobel / delta
+  method (`method := 'sobel'`) or `mediate`'s quasi-Bayesian Monte Carlo. Bootstrap
+  results are reproducible: the rows are put in a canonical order before resampling,
+  so neither the thread count nor the input order changes them. `mediation_agg(y, m, x
+  [, covariates [, options]])` is the aggregate building block. The computation is
+  upstream (anofox-regression 0.5.31, `solvers::mediation`), validated against R
+  `mediation::mediate`, `lavaan` and `bda::mediation.test`. Linear models only for now:
+  binary outcomes or mediators, a treatment × mediator interaction, multiple mediators
+  and the sensitivity analysis are not supported. See
+  [Mediation](docs/api/statistics/mediation.md).
+
 ### Changed
 
 - **Behaviour change: the Monte Carlo tests are seeded by default (#214).**

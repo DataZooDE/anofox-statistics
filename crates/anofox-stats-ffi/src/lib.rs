@@ -10128,3 +10128,98 @@ pub unsafe extern "C" fn anofox_classifier_metric(
         }
     })
 }
+
+// =============================================================================
+// Causal mediation analysis — issue #223
+// =============================================================================
+
+fn mediation_effect_ffi(e: &anofox_stats_core::models::MediationEffect) -> MediationEffectFFI {
+    MediationEffectFFI {
+        estimate: e.estimate,
+        std_error: e.std_error,
+        statistic: e.statistic,
+        p_value: e.p_value,
+        conf_low: e.conf_low,
+        conf_high: e.conf_high,
+    }
+}
+
+/// Causal mediation analysis of the effect of `x` on `y` through `m` with
+/// `covariate_count` covariates (the linear case of R's `mediation::mediate`).
+///
+/// # Safety
+/// `y`, `m`, `x` and the `covariate_count` arrays at `covariates` must be valid
+/// `AnofoxDataArray`s of equal length (`covariates` may be NULL when the count is
+/// 0). `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_mediation(
+    y: DataArray,
+    m: DataArray,
+    x: DataArray,
+    covariates: *const DataArray,
+    covariate_count: usize,
+    options: MediationOptionsFFI,
+    out_result: *mut MediationResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    use anofox_stats_core::models::{mediate, BootCi, MediationMethod, MediationOptions};
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if out_result.is_null() || (covariates.is_null() && covariate_count > 0) {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "NULL pointer argument");
+            }
+            return false;
+        }
+        let covs: Vec<Vec<f64>> = if covariate_count == 0 {
+            Vec::new()
+        } else {
+            slice::from_raw_parts(covariates, covariate_count)
+                .iter()
+                .map(|c| c.to_vec())
+                .collect()
+        };
+        let opts = MediationOptions {
+            method: match options.method {
+                MediationMethodFFI::Bootstrap => MediationMethod::Bootstrap,
+                MediationMethodFFI::Sobel => MediationMethod::Sobel,
+                MediationMethodFFI::QuasiBayesian => MediationMethod::QuasiBayesian,
+            },
+            boot_ci: match options.ci_type {
+                MediationCiFFI::Percentile => BootCi::Percentile,
+                MediationCiFFI::Bca => BootCi::Bca,
+            },
+            n_sims: options.n_sims as usize,
+            seed: options.seed,
+            conf_level: options.conf_level,
+            treat_value: options.treat_value,
+            control_value: options.control_value,
+        };
+        match mediate(&y.to_vec(), &m.to_vec(), &x.to_vec(), &covs, &opts) {
+            Ok(r) => {
+                *out_result = MediationResultFFI {
+                    acme: mediation_effect_ffi(&r.acme),
+                    ade: mediation_effect_ffi(&r.ade),
+                    total: mediation_effect_ffi(&r.total),
+                    prop_mediated: mediation_effect_ffi(&r.prop_mediated),
+                    a: r.a,
+                    b: r.b,
+                    c_prime: r.c_prime,
+                    r_squared_mediator: r.r_squared_mediator,
+                    r_squared_outcome: r.r_squared_outcome,
+                    n_obs: r.n_obs,
+                    n_sims: r.n_sims,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}

@@ -632,4 +632,19 @@ struct CohenKappaMapOptions {
 	static CohenKappaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+/**
+ * Options for causal mediation analysis (mediation_agg / mediation_by)
+ */
+struct MediationMapOptions {
+	std::optional<string> method;   // 'bootstrap' | 'sobel' | 'quasi_bayesian'
+	std::optional<string> ci_type;  // 'percentile' | 'bca' (bootstrap only)
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<double> confidence_level;
+	std::optional<double> treat_value;
+	std::optional<double> control_value;
+
+	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
 } // namespace duckdb

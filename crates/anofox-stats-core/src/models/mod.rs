@@ -16,6 +16,7 @@ mod isotonic;
 mod lars;
 mod lm_dynamic;
 mod lowess;
+mod mediation;
 mod ols;
 mod passive_aggressive;
 mod path;
@@ -63,6 +64,9 @@ pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
+pub use mediation::{
+    mediate, BootCi, MediationEffect, MediationMethod, MediationOptions, MediationResult,
+};
 pub use ols::fit_ols;
 pub use passive_aggressive::{
     fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
