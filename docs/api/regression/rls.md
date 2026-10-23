@@ -68,9 +68,11 @@ the rows reach the fit in scan order, which is not deterministic under
 parallel scans, so the result can change from run to run.
 
 ```sql
--- Coefficients per segment (before / after the slope change), rows fed in t order
+-- Coefficients per segment (before / after the slope change), rows fed in t order.
+-- source is a table or view name, so derive the segment column in a view first.
+CREATE OR REPLACE VIEW rls_demo_seg AS SELECT *, t > 20 AS seg FROM rls_demo;
 SELECT seg, term, estimate
-FROM rls_tidy_by('(SELECT *, t > 20 AS seg FROM rls_demo)', seg, y, [x],
+FROM rls_tidy_by('rls_demo_seg', seg, y, [x],
     options := {'forgetting_factor': 0.9}, order_by := t);
 ```
 
