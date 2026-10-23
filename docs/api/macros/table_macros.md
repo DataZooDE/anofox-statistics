@@ -43,6 +43,8 @@ passed through and the prediction columns appended.
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
 | `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`), see [Regularisation paths](../regression/paths.md) |
 | `quantile_process_by` | `quantile_process_agg` | one row per tau and term (`terms`), see [Quantile](../regression/quantile.md#quantile_process_agg) |
+| `<model>_glance_by` | `<model>_fit_agg` + `glance` | one row per group and fit statistic (`summary`); `ols_glance_by` / `wls_glance_by` include the leave-one-out `press`, `press_rmse`, `loo_r_squared`, see [Model tools](../regression/model_tools.md#leave-one-out-diagnostics) |
+| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `<model>_augment_agg` | one row per input row (`obs`: fitted, residuals, leverage, Cook's distance, DFFITS; OLS / WLS also `loo_residual`, `loo_fitted`), see [Model tools](../regression/model_tools.md#augment_by) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
 | `<model>_prediction_by` | `<model>_fit_predict_by` | one row per input row (`prediction` schema), see [Model tools](../regression/model_tools.md#prediction_by-and-effects_by) |

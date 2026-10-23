@@ -144,6 +144,8 @@ struct RegressionMapOptions {
 	// Common options
 	std::optional<bool> fit_intercept;
 	std::optional<bool> compute_inference;
+	//! Leave-one-out statistics (press, press_rmse, loo_r_squared) of OLS / WLS fits (#220)
+	std::optional<bool> compute_loo;
 	std::optional<double> confidence_level;
 
 	// Ridge/ElasticNet regularization

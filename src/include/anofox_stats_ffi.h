@@ -70,6 +70,10 @@ typedef struct {
 	double intercept_p_value;
 	double intercept_conf_low;
 	double intercept_conf_high;
+	/* Leave-one-out fit statistics (#220); NaN except for OLS / WLS. */
+	double press;
+	double press_rmse;
+	double loo_r_squared;
 } AnofoxModelSummaryFFI;
 
 #define ANOFOX_TEST_METHOD_LEN 96
@@ -190,6 +194,8 @@ typedef struct {
 	AnofoxHcType hc_type;
 	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
 	double alias_tolerance;
+	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#220) */
+	bool compute_loo;
 } AnofoxOlsOptions;
 
 /**
@@ -515,6 +521,8 @@ typedef struct {
 	AnofoxHcType hc_type;
 	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
 	double alias_tolerance;
+	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#220) */
+	bool compute_loo;
 } AnofoxWlsOptions;
 
 /**
@@ -2851,6 +2859,8 @@ typedef struct {
 	double *leverage;
 	double *cooks_d;
 	double *dffits;
+	double *loo_residual; /* leave-one-out (PRESS) residual, #220 */
+	double *loo_fitted;
 	bool *used;
 	size_t len;
 	size_t n_params;

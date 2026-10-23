@@ -88,6 +88,7 @@ ORDER BY region;
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
 | `hc_type` | VARCHAR | `'none'` | Robust standard errors: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `compute_loo` | BOOLEAN | `false` | Fill the leave-one-out fields `press`, `press_rmse`, `loo_r_squared` (one more QR of the design); independent of `compute_inference` |
 | `alias_tolerance` | DOUBLE | `1e-7` | Tolerance of the collinearity (aliasing) test, as R `lm`'s `tol`: a column whose residual norm, relative to its own norm, is below it after projecting out the earlier columns is aliased (NaN coefficient). Must be > 0 |
 
 Option keys the function does not support raise an error.
@@ -149,6 +150,24 @@ Always present:
 | `link` | `VARCHAR` | `'identity'` |
 | `vcov` | `DOUBLE[]` | Coefficient covariance `σ²(X'X)⁻¹`, row-major `k × k`, intercept first; only with `compute_inference` (used by [`predict`](model_tools.md#standard-errors-and-intervals) for `se_fit` / intervals) |
 | `df_residual` | `DOUBLE` | `n − k`; only with `compute_inference` |
+| `press` | `DOUBLE` | Leave-one-out prediction sum of squares `Σ (eᵢ / (1 − hᵢᵢ))²` (R: `sum(rstandard(fit, type = "predictive")^2)`); NULL unless `compute_loo`, and if a row has leverage 1 |
+| `press_rmse` | `DOUBLE` | `sqrt(press / n_observations)` |
+| `loo_r_squared` | `DOUBLE` | Predicted R² (Q²) `1 − press / SST`, with the SST of `r_squared`; never above `r_squared` |
+
+The leave-one-out fields come from the hat-matrix diagonal, without refitting
+(#220). They cost one more QR of the design, so they are opt-in
+(`compute_loo`); `ols_glance_by` turns it on and reports them as metrics and `ols_augment_by` has the
+per-row `loo_residual` / `loo_fitted`. See
+[Leave-one-out diagnostics](model_tools.md#leave-one-out-diagnostics).
+
+```sql
+-- Predicted R² next to R² per group
+SELECT region, round((m).r_squared, 4) AS r2, round((m).loo_r_squared, 4) AS q2,
+       round((m).press_rmse, 4) AS press_rmse
+FROM (SELECT region, ols_fit_agg(sales, [price, ads], {'compute_loo': true}) AS m
+      FROM ols_demo GROUP BY region)
+ORDER BY region;
+```
 
 ## NULL handling
 

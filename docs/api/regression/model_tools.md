@@ -235,7 +235,7 @@ supported.
 glance(model STRUCT) -> STRUCT(model_type, family, link, n_observations, n_features,
     r_squared, adj_r_squared, residual_std_error, f_statistic, f_pvalue,
     log_likelihood, aic, bic, deviance, null_deviance, pseudo_r_squared,
-    dispersion, iterations, converged)
+    dispersion, iterations, converged, press, press_rmse, loo_r_squared)
 ```
 
 Returns the same fields for every model, in the style of R's `broom::glance`;
@@ -287,7 +287,9 @@ with `index_name = 'window_end'`), `bls`, `nnls`,
   term. Inference is computed by default for models that have it, also when
   other `options` are passed.
 - `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type`, `metric`, `value`,
-  one row per available numeric metric.
+  one row per available numeric metric. `ols_glance_by` and `wls_glance_by`
+  include the leave-one-out metrics `press`, `press_rmse` and `loo_r_squared`
+  (see [Leave-one-out diagnostics](#leave-one-out-diagnostics)).
 
 ```sql
 SELECT * FROM ols_tidy_by('mt_demo', grp, y, [x1, x2], names := ['trend', 'cycle']);
@@ -385,8 +387,9 @@ with the integration contract's `obs` columns appended: `model_id` and
 (source row number), `fitted`, `residual` (response residual), `resid_type`
 (`'response'`), `std_residual` (R `rstandard`), `stud_residual` (R `rstudent`),
 `leverage` (R `hatvalues`), `cooks_d` (R `cooks.distance`), `dffits`, `weight`
-(the prior weight; 1 for OLS), `is_training` and `n_params` (coefficients
-including the intercept).
+(the prior weight; 1 for OLS), `is_training`, `n_params` (coefficients
+including the intercept), and the leave-one-out columns `loo_residual` and
+`loo_fitted` (see [Leave-one-out diagnostics](#leave-one-out-diagnostics)).
 
 Training rows follow the `_fit_predict_by` macros: `y_col` NOT NULL and `split`
 NULL or `'train'` (WLS also needs a positive weight). Every other row gets the
@@ -413,6 +416,55 @@ ORDER BY id;
 The window aggregates behind them, `ols_augment_agg(y, x [, options])` and
 `wls_augment_agg(y, x, weight [, options])`, return one STRUCT with these fields
 per row of a whole-partition frame, in frame order.
+
+### Leave-one-out diagnostics
+
+For OLS and WLS the exact leave-one-out quantities follow from the leverage
+`h` without refitting (#220):
+
+| Column / metric | Where | Definition | R |
+|---|---|---|---|
+| `loo_residual` | `ols_augment_by`, `wls_augment_by` | `residual / (1 - leverage)`: `y` minus the prediction of the fit without the row (the PRESS residual) | `residuals(fit) / (1 - hatvalues(fit))`; OLS: `rstandard(fit, type = "predictive")` |
+| `loo_fitted` | `ols_augment_by`, `wls_augment_by` | `y - loo_residual`, the prediction for the row from the fit without it | |
+| `press` | `ols_glance_by`, `wls_glance_by`; `ols_fit_agg`, `wls_fit_agg`, `ols_fit`, `wls_fit` with `compute_loo` (and `glance()` of them) | `sum(weight * loo_residual^2)` | `sum(rstandard(fit, type = "predictive")^2)` |
+| `press_rmse` | as `press` | `sqrt(press / n)` | |
+| `loo_r_squared` | as `press` | predicted R² (Q²) `1 - press / SST`, with the SST of `r_squared` (centred with an intercept, uncentred without) | |
+
+For WLS `loo_residual` is on the response scale like `residual`, the leverage
+is that of the weighted fit, and `press` weights the squares by the prior
+weights (R's predictive residual is `sqrt(w)` times `loo_residual`).
+`loo_r_squared` is never above `r_squared`; a large gap points to rows that
+the fit leans on.
+
+On the fit functions the three statistics cost one more QR of the design and
+are opt-in: pass `{'compute_loo': true}` (independent of `compute_inference`);
+otherwise the fields are NULL. `ols_glance_by` / `wls_glance_by` turn it on
+(an explicit `compute_loo := false` in `options` wins). The `_augment_by`
+columns are always computed, from the leverage they already have.
+
+A row with leverage 1 (for example the only observation of a dummy level, or
+any row of a fit with as many coefficients as rows) determines its own fitted
+value and has no leave-one-out prediction: its `loo_residual` and `loo_fitted`
+are NULL, and `press`, `press_rmse` and `loo_r_squared` of the group are NULL
+(absent from `_glance_by`). Rows outside training (`split`, NULL `y`) have NULL
+leave-one-out columns. The GLM `_augment_by` macros do not have these columns,
+and the other models' `glance()` has them as NULL. Ridge is not covered yet.
+
+```sql
+-- How far each fitted value moves when its row is left out, and PRESS per group
+SELECT grp, id, round(fitted, 3) AS fitted, round(loo_fitted, 3) AS loo_fitted,
+       round(loo_residual, 3) AS loo_residual
+FROM ols_augment_by('mt_demo', grp, y, [x1, x2])
+QUALIFY row_number() OVER (PARTITION BY grp ORDER BY abs(loo_residual) DESC) <= 3
+ORDER BY grp, abs(loo_residual) DESC;
+```
+
+```sql
+SELECT grp, metric, round(value, 4) AS value
+FROM ols_glance_by('mt_demo', grp, y, [x1, x2])
+WHERE metric IN ('r_squared', 'press', 'press_rmse', 'loo_r_squared')
+ORDER BY grp, metric;
+```
 
 The GLMs have the same macros: `poisson_augment_by`, `binomial_augment_by`,
 `logistic_augment_by`, `negbinom_augment_by`, `gamma_augment_by` and

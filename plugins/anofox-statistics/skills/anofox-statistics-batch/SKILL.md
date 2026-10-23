@@ -123,8 +123,8 @@ When you want a **report table** per group instead of predictions, use the outpu
 | Macro | Signature | Main columns (besides group, `id`, `model_id`, `model_name`) |
 |---|---|---|
 | `<model>_tidy_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …, names := […]])` | `term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (one row per term, intercept first) |
-| `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic) |
-| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
+| `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic; OLS / WLS add `press`, `press_rmse`, `loo_r_squared`) |
+| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS) |
 | `glmm_tidy_by` | `(source, group_col, y_col, x_cols, re_group [, options := …, names := […], re_names := […]])` | the tidy columns + `effect` (`'fixed'` / `'ran_pars'` / `'ran_vals'`), `re_group`, `re_level`, `df` (Satterthwaite for gaussian) |
 | `glmm_glance_by` | `(source, group_col, y_col, x_cols, re_group [, options := …])` | the glance columns (`n_groups`, `sigma`, `df_residual`, `icc`, `var_group`, …) |
 | `glmm_augment_by` | `(source, group_col, y_col, x_cols, re_group [, options := …, order_by := …])` | the augment columns + `fitted_population`, `pearson_residual` |

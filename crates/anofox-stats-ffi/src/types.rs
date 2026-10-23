@@ -251,6 +251,10 @@ pub struct ModelSummaryFFI {
     pub intercept_p_value: f64,
     pub intercept_conf_low: f64,
     pub intercept_conf_high: f64,
+    /// Leave-one-out fit statistics (#220); NaN except for OLS / WLS.
+    pub press: f64,
+    pub press_rmse: f64,
+    pub loo_r_squared: f64,
 }
 
 /// Copy `name` into a NUL-terminated buffer, truncating to fit.
@@ -279,6 +283,9 @@ impl Default for ModelSummaryFFI {
             intercept_p_value: f64::NAN,
             intercept_conf_low: f64::NAN,
             intercept_conf_high: f64::NAN,
+            press: f64::NAN,
+            press_rmse: f64::NAN,
+            loo_r_squared: f64::NAN,
         }
     }
 }
@@ -297,6 +304,9 @@ impl From<&anofox_stats_core::ModelSummary> for ModelSummaryFFI {
             intercept_p_value: s.intercept_p_value,
             intercept_conf_low: s.intercept_conf_low,
             intercept_conf_high: s.intercept_conf_high,
+            press: s.press,
+            press_rmse: s.press_rmse,
+            loo_r_squared: s.loo_r_squared,
         }
     }
 }
@@ -581,14 +591,17 @@ mod layout_tests {
     fn augment_result_layout_matches_c_header() {
         use super::AugmentResultFFI;
         use std::mem::{offset_of, size_of};
-        assert_eq!(offset_of!(AugmentResultFFI, len), 8 * size_of::<*mut f64>());
+        assert_eq!(
+            offset_of!(AugmentResultFFI, len),
+            10 * size_of::<*mut f64>()
+        );
         assert_eq!(
             offset_of!(AugmentResultFFI, resid_type),
-            8 * size_of::<*mut f64>() + 2 * size_of::<usize>()
+            10 * size_of::<*mut f64>() + 2 * size_of::<usize>()
         );
         assert_eq!(
             size_of::<AugmentResultFFI>(),
-            8 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
+            10 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
         );
     }
 
@@ -597,7 +610,7 @@ mod layout_tests {
         use std::mem::size_of;
         assert_eq!(
             size_of::<ModelSummaryFFI>(),
-            3 * MODEL_NAME_LEN + 8 * size_of::<f64>()
+            3 * MODEL_NAME_LEN + 11 * size_of::<f64>()
         );
         assert_eq!(
             size_of::<FitResultCore>(),
@@ -743,6 +756,8 @@ pub struct OlsOptionsFFI {
     pub hc_type: HcTypeFFI,
     /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
     pub alias_tolerance: f64,
+    /// Compute the leave-one-out statistics in the summary (#220)
+    pub compute_loo: bool,
 }
 
 impl Default for OlsOptionsFFI {
@@ -754,6 +769,7 @@ impl Default for OlsOptionsFFI {
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
             alias_tolerance: 0.0,
+            compute_loo: false,
         }
     }
 }
@@ -1101,6 +1117,8 @@ pub struct WlsOptionsFFI {
     pub hc_type: HcTypeFFI,
     /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
     pub alias_tolerance: f64,
+    /// Compute the leave-one-out statistics in the summary (#220)
+    pub compute_loo: bool,
 }
 
 impl Default for WlsOptionsFFI {
@@ -1112,6 +1130,7 @@ impl Default for WlsOptionsFFI {
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
             alias_tolerance: 0.0,
+            compute_loo: false,
         }
     }
 }
@@ -3219,6 +3238,10 @@ pub struct AugmentResultFFI {
     pub leverage: *mut f64,
     pub cooks_d: *mut f64,
     pub dffits: *mut f64,
+    /// Leave-one-out (PRESS) residual and prediction (#220); NaN for GLMs and
+    /// rows with leverage 1.
+    pub loo_residual: *mut f64,
+    pub loo_fitted: *mut f64,
     /// Whether the row was used to fit the model.
     pub used: *mut bool,
     pub len: usize,
@@ -3238,6 +3261,8 @@ impl Default for AugmentResultFFI {
             leverage: std::ptr::null_mut(),
             cooks_d: std::ptr::null_mut(),
             dffits: std::ptr::null_mut(),
+            loo_residual: std::ptr::null_mut(),
+            loo_fitted: std::ptr::null_mut(),
             used: std::ptr::null_mut(),
             len: 0,
             n_params: 0,
