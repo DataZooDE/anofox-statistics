@@ -262,6 +262,11 @@ Breaking changes are called out explicitly.
   rows with a NULL split value that the aggregates predict. A macro and its aggregate called
   with the same split column now train on the same rows (#205).
 
+- `rls_tidy_by` / `rls_glance_by` without `order_by` fit the rows in scan order,
+  which is not deterministic under parallel scans, so the coefficients could
+  change between runs (#206). Pass `order_by := t` for a reproducible fit; the
+  docs now say the order is undefined without it.
+
 ### Behaviour change
 
 - **Gaussian `glmm_fit_agg` inference uses Satterthwaite t tests by default.** With
@@ -271,6 +276,11 @@ Breaking changes are called out explicitly.
   `t_values` field and `z_values` is NULL (a non-NULL `df` also marks t tests);
   under Wald inference `z_values` is filled and `t_values` is NULL. The standard
   errors are unchanged. `{'ddf': 'wald'}` restores the previous values.
+
+- `rls_tidy_by` and `rls_glance_by` take an optional named `order_by := <column>`
+  (#206). Recursive least squares depends on the row order; with `order_by` each
+  group's rows are fed to `rls_fit_agg` in that order (`ORDER BY order_by`), as
+  `rls_fit_predict_by` already did. Existing calls are unchanged.
 
 ## [0.12.2] - 2026-10-22
 

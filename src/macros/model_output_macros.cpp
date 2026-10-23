@@ -44,10 +44,14 @@ struct ModelOutputModel {
 	//! The fit has the opt-in leave-one-out statistics (#220): <prefix>_glance_by
 	//! turns compute_loo on, so press / press_rmse / loo_r_squared are reported.
 	bool loo = false;
+	//! Order-dependent models that predate `ordered` (#206): the macros take an optional named
+	//! order_by := <column> and fit with ORDER BY order_by. The default NULL keeps the old
+	//! signature; the row order is then undefined.
+	bool order_by = false;
 };
 
 // Positional initialisers: {prefix, label, extra_col, inference, ordered, dynamic_terms, credible,
-// tidy_defaults, loo}. Keep the field order of ModelOutputModel in mind when adding a field.
+// tidy_defaults, loo, order_by}. Keep the field order of ModelOutputModel in mind when adding a field.
 // clang-format off
 const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"ols", "an OLS regression", nullptr, true, false, false, false, nullptr, true},
@@ -58,7 +62,7 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"ransac", "a RANSAC regression", nullptr, true},
     {"theil_sen", "a Theil-Sen regression", nullptr, true, false, false, false,
      "'ci_method': 'exact_or_none', 'n_boot': '199'"},
-    {"rls", "a recursive least squares regression", nullptr, false},
+    {"rls", "a recursive least squares regression", nullptr, false, false, false, false, nullptr, false, true},
     {"lars", "a LARS / Lasso-LARS regression", nullptr, false},
     {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, false, false, false, true},
     {"ard", "an ARD (automatic relevance determination) regression", nullptr, false, false, false, true},
@@ -88,7 +92,11 @@ const char *const GLANCE_METRICS[] = {"n_observations", "n_features",     "r_squ
 
 string FitCall(const ModelOutputModel &m) {
 	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
-	       ", options" + (m.ordered ? " ORDER BY order_col" : "") + ")";
+	       ", options" +
+	       // coalesce(order_by): with the default order_by := NULL a bare `ORDER BY order_by` expands to the literal
+	       // `ORDER BY NULL`, which DuckDB rejects in an aggregate ("ORDER BY non-integer literal has no effect").
+	       // The one-argument coalesce is the identity for a column and not a literal for the default.
+	       (m.ordered ? " ORDER BY order_col" : m.order_by ? " ORDER BY coalesce(order_by)" : "") + ")";
 }
 
 //! The fit call of <model>_tidy_by: inference on by default (compute_inference := true merged under the
@@ -674,11 +682,22 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		string args = string(m.ordered ? "'my_table', group_col, t, y, [x1, x2]" : "'my_table', group_col, y, [x1, x2]") +
 		              (!m.extra_col ? "" : string(m.extra_col) == "weight_col" ? ", w" : ", event");
 		string prefix = m.prefix;
-		const string order_note = m.ordered ? " Rows are fitted in order_col order (the model is sequential). " : " ";
+		const string order_note =
+		    m.ordered    ? " Rows are fitted in order_col order (the model is sequential). "
+		    : m.order_by ? " The model is sequential: order_by := <column> fits the rows in that order (without it the "
+		                   "row order, and so the fit, is undefined). "
+		                 : " ";
+		vector<pair<string, string>> tidy_named = {{"options", "NULL"}, {"names", "NULL"}};
+		vector<pair<string, string>> glance_named = {{"options", "NULL"}};
+		if (m.order_by) {
+			tidy_named.emplace_back("order_by", "NULL");
+			glance_named.emplace_back("order_by", "NULL");
+		}
+		const string order_example = m.order_by ? ", order_by := t" : "";
 
 		auto tidy = CreateTableMacro(
 		    prefix + "_tidy_by", params,
-		    {{"options", "NULL"}, {"names", "NULL"}}, m.dynamic_terms ? DynamicTidySql(m) : TidySql(m),
+		    tidy_named, m.dynamic_terms ? DynamicTidySql(m) : TidySql(m),
 		    m.dynamic_terms
 		        ? "Table macro: fits " + string(m.label) +
 		              " per group of source (rows in order_col order) and returns the time-varying coefficients of "
@@ -698,16 +717,16 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		                              "not a frequentist confidence interval; statistic and p_value are NULL. "
 		                            : "The model has no coefficient inference. ") +
 		              "names := [...] labels the terms.",
-		    prefix + "_tidy_by(" + args + ", names := ['x1', 'x2'])");
+		    prefix + "_tidy_by(" + args + ", names := ['x1', 'x2']" + order_example + ")");
 		loader.RegisterFunction(*tidy);
 
 		auto glance = CreateTableMacro(
-		    prefix + "_glance_by", params, {{"options", "NULL"}}, GlanceSql(m),
+		    prefix + "_glance_by", params, glance_named, GlanceSql(m),
 		    "Table macro: fits " + string(m.label) +
 		        " per group of source and returns its fit statistics in long form, one row per available metric: "
 		        "the group column, id (the group), model_id and model_name (the method), model_type, metric, value." +
-		        (m.ordered ? " Rows are fitted in order_col order (the model is sequential)." : ""),
-		    prefix + "_glance_by(" + args + ")");
+		        (m.ordered || m.order_by ? order_note.substr(0, order_note.size() - 1) : ""),
+		    prefix + "_glance_by(" + args + order_example + ")");
 		loader.RegisterFunction(*glance);
 
 		bool rolling = false;
