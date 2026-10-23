@@ -96,6 +96,7 @@ static LogicalType GetOlsAggResultType() {
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
     AppendCovarianceFields(children);
+    AppendLooFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -309,6 +310,7 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         options.solver = ConvertSolverType(state.solver);
         options.hc_type = ConvertHcType(state.hc_type);
         options.alias_tolerance = state.alias_tolerance;
+        options.compute_loo = true;
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;

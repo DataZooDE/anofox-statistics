@@ -147,6 +147,22 @@ Always present:
 | `link` | `VARCHAR` | `'identity'` |
 | `vcov` | `DOUBLE[]` | Coefficient covariance `σ²(X'X)⁻¹`, row-major `k × k`, intercept first; only with `compute_inference` (used by [`predict`](model_tools.md#standard-errors-and-intervals) for `se_fit` / intervals) |
 | `df_residual` | `DOUBLE` | `n − k`; only with `compute_inference` |
+| `press` | `DOUBLE` | Leave-one-out prediction sum of squares `Σ (eᵢ / (1 − hᵢᵢ))²` (R: `sum(rstandard(fit, type = "predictive")^2)`); NULL if a row has leverage 1 |
+| `press_rmse` | `DOUBLE` | `sqrt(press / n_observations)` |
+| `loo_r_squared` | `DOUBLE` | Predicted R² (Q²) `1 − press / SST`, with the SST of `r_squared`; never above `r_squared` |
+
+The leave-one-out fields come from the hat-matrix diagonal, without refitting
+(#220); `ols_glance_by` reports them as metrics and `ols_augment_by` has the
+per-row `loo_residual` / `loo_fitted`. See
+[Leave-one-out diagnostics](model_tools.md#leave-one-out-diagnostics).
+
+```sql
+-- Predicted R² next to R² per group
+SELECT region, round((m).r_squared, 4) AS r2, round((m).loo_r_squared, 4) AS q2,
+       round((m).press_rmse, 4) AS press_rmse
+FROM (SELECT region, ols_fit_agg(sales, [price, ads]) AS m FROM ols_demo GROUP BY region)
+ORDER BY region;
+```
 
 ## NULL handling
 

@@ -35,6 +35,7 @@ static LogicalType GetOlsResultType() {
     // without compute_inference.
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
+    AppendLooFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -185,6 +186,7 @@ static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
         options.solver = ConvertSolverType(bind_data.solver);
         options.hc_type = ConvertHcType(bind_data.hc_type);
         options.alias_tolerance = bind_data.alias_tolerance;
+        options.compute_loo = true;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

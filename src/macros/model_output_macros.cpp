@@ -72,7 +72,8 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
 const char *const GLANCE_METRICS[] = {"n_observations", "n_features",     "r_squared",        "adj_r_squared",
                                       "residual_std_error", "f_statistic", "f_pvalue",         "log_likelihood",
                                       "aic",            "bic",            "deviance",         "null_deviance",
-                                      "pseudo_r_squared", "dispersion",   "iterations"};
+                                      "pseudo_r_squared", "dispersion",   "iterations",
+                                      "press",          "press_rmse",     "loo_r_squared"};
 
 string FitCall(const ModelOutputModel &m) {
 	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +

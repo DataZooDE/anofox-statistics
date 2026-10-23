@@ -10,6 +10,28 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Leave-one-out diagnostics for OLS and WLS (#220).** Exact, from the hat-matrix
+  diagonal, without refitting (computed upstream in anofox-regression,
+  `diagnostics::press` and `Augment::loo_residual` / `loo_fitted`):
+  - `ols_augment_by` / `wls_augment_by` (and `ols_augment_agg` / `wls_augment_agg`)
+    add `loo_residual = residual / (1 - leverage)`, the error of the fit without the
+    row (R `rstandard(fit, type = "predictive")` for OLS), and `loo_fitted = y -
+    loo_residual`, the prediction from the fit without the row.
+  - `ols_glance_by` / `wls_glance_by` add the metrics `press` (Σ loo_residual², weighted
+    by the prior weights for WLS), `press_rmse = sqrt(press / n)` and `loo_r_squared`, the
+    predicted R² (Q²) `1 - press / SST` with the SST of `r_squared`. They come from new
+    fields of the `ols_fit_agg`, `wls_fit_agg`, `ols_fit` and `wls_fit` STRUCT, and
+    `glance()` has them for every model (NULL where not computed).
+  - A row with leverage 1 (e.g. the only observation of a dummy level, or a fit with zero
+    residual degrees of freedom) has NULL `loo_residual` / `loo_fitted`, and the group's
+    `press`, `press_rmse` and `loo_r_squared` are NULL; rows outside training have NULL
+    leave-one-out columns. Validated against R `lm()` (`residuals / (1 - hatvalues)`,
+    `rstandard(type = "predictive")`, explicit refits).
+  - Additive to the integration contract v1 (`obs`, `summary`). Ridge and the GLMs have no
+    leave-one-out columns yet.
+
 ### Changed
 
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every

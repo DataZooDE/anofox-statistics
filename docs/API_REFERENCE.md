@@ -1523,7 +1523,8 @@ ORDER BY category;
 ```sql skip
 glance(model STRUCT) -> STRUCT(model_type, family, link, n_observations, n_features,
     r_squared, adj_r_squared, residual_std_error, f_statistic, f_pvalue, log_likelihood,
-    aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, iterations, converged)
+    aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, iterations, converged,
+    press, press_rmse, loo_r_squared)
 ```
 
 The same fields for every model; those a model does not have are NULL.
@@ -1599,6 +1600,8 @@ with the integration contract's `obs` columns appended (tagged
 | `weight` | DOUBLE | prior weight (`weight_col` for WLS, 1 for OLS) |
 | `is_training` | BOOLEAN | the row was used to fit |
 | `n_params` | INTEGER | estimated coefficients, intercept included |
+| `loo_residual` | DOUBLE | leave-one-out (PRESS) residual `residual / (1 - leverage)`, `y` minus the prediction of the fit without the row (R `rstandard(fit, type = "predictive")` for OLS); OLS / WLS only, NULL where `leverage = 1` |
+| `loo_fitted` | DOUBLE | `y - loo_residual`, the leave-one-out prediction; OLS / WLS only |
 
 Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
 `'train'` and, for WLS, a positive weight. Other rows get the prediction as
@@ -1606,6 +1609,16 @@ Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
 The measures come from `anofox_regression::diagnostics::augment` and match R
 `lm()` (with `weights =` for WLS). A group with fewer than two training rows
 gives NULL columns.
+
+**Leave-one-out (#220).** `ols_glance_by` / `wls_glance_by` (and the
+`ols_fit_agg` / `wls_fit_agg` / `ols_fit` / `wls_fit` STRUCT, so `glance()`)
+add `press = sum(weight * loo_residual^2)`, `press_rmse = sqrt(press / n)` and
+the predicted R² `loo_r_squared = 1 - press / SST` (SST as for `r_squared`).
+For WLS `loo_residual` is on the response scale and `press` is weighted by the
+prior weights, which equals R's `sum(rstandard(fit, type = "predictive")^2)`.
+A row with leverage 1 (e.g. the only observation of a dummy level) has NULL
+leave-one-out columns and makes the group's `press` metrics NULL. See
+[model_tools](api/regression/model_tools.md#leave-one-out-diagnostics).
 
 **GLMs.** `poisson_augment_by`, `binomial_augment_by`, `logistic_augment_by`,
 `negbinom_augment_by`, `gamma_augment_by` and `tweedie_augment_by` (same

@@ -869,6 +869,7 @@ pub unsafe extern "C" fn anofox_ols_partial_residuals(
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: false,
         };
         partial_entry("OLS partial residuals", x, x_count, out, out_error, |xv| {
             partial_residuals_ols(&y_vec, &xv, &opts)
@@ -900,6 +901,7 @@ pub unsafe extern "C" fn anofox_wls_partial_residuals(
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: false,
         };
         partial_entry("WLS partial residuals", x, x_count, out, out_error, |xv| {
             partial_residuals_wls(&y_vec, &xv, &w_vec, &opts)

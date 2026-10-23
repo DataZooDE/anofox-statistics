@@ -297,6 +297,9 @@ const GlanceField GLANCE_FIELDS[] = {
     {"null_deviance", LogicalTypeId::DOUBLE}, {"pseudo_r_squared", LogicalTypeId::DOUBLE},
     {"dispersion", LogicalTypeId::DOUBLE},    {"iterations", LogicalTypeId::BIGINT},
     {"converged", LogicalTypeId::BOOLEAN},
+    // Leave-one-out statistics of OLS / WLS fits (#220).
+    {"press", LogicalTypeId::DOUBLE},         {"press_rmse", LogicalTypeId::DOUBLE},
+    {"loo_r_squared", LogicalTypeId::DOUBLE},
 };
 
 LogicalType GlanceType() {
@@ -421,7 +424,8 @@ void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	gd.description = "Model-level summary with the same fields for every model: model_type, family, link, "
 	                 "n_observations, n_features, r_squared, adj_r_squared, residual_std_error, f_statistic, "
 	                 "f_pvalue, log_likelihood, aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, "
-	                 "iterations, converged. Fields a model does not have are NULL.";
+	                 "iterations, converged, press, press_rmse, loo_r_squared. Fields a model does not have are "
+	                 "NULL.";
 	gd.examples = {"glance(ols_fit_agg(y, [x1, x2])).*"};
 	gd.categories = {"regression"};
 	gd.parameter_names = {"model"};

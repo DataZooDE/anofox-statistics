@@ -218,6 +218,14 @@ pub fn fit_wls(
         Some(classical())
     };
 
+    // Exact leave-one-out statistics from the leverage (#220); a fit they
+    // cannot be computed for keeps them NaN.
+    if options.compute_loo {
+        if let Ok(p) = anofox_regression::diagnostics::press(&fitted, &x_mat, &y_col, None) {
+            summary.set_press(&p);
+        }
+    }
+
     Ok(FitResult {
         core,
         inference,

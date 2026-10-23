@@ -292,6 +292,7 @@ pub unsafe extern "C" fn anofox_ols_fit(
             solver: convert_solver_ffi(options.solver),
             hc_type: convert_hc_type_ffi(options.hc_type),
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: options.compute_loo,
         };
 
         // Call the core function with panic catching
@@ -1420,6 +1421,7 @@ pub unsafe extern "C" fn anofox_wls_fit(
             solver: convert_solver_ffi(options.solver),
             hc_type: convert_hc_type_ffi(options.hc_type),
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: options.compute_loo,
         };
 
         // Call the core function with panic catching
@@ -8992,6 +8994,8 @@ unsafe fn write_augment_result(
         leverage: alloc_f64(&r.leverage),
         cooks_d: alloc_f64(&r.cooks_d),
         dffits: alloc_f64(&r.dffits),
+        loo_residual: alloc_f64(&r.loo_residual),
+        loo_fitted: alloc_f64(&r.loo_fitted),
         used: used_ptr,
         len: n,
         n_params: r.n_params,
@@ -9005,6 +9009,8 @@ unsafe fn write_augment_result(
             || res.leverage.is_null()
             || res.cooks_d.is_null()
             || res.dffits.is_null()
+            || res.loo_residual.is_null()
+            || res.loo_fitted.is_null()
             || res.used.is_null());
     if !complete {
         anofox_free_augment_result(&mut res);
@@ -9093,6 +9099,7 @@ pub unsafe extern "C" fn anofox_ols_augment(
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: false,
         };
         augment_entry("OLS augment", out_result, out_error, || {
             augment_ols(&y_vec, &x_vecs, &opts)
@@ -9136,6 +9143,7 @@ pub unsafe extern "C" fn anofox_wls_augment(
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
             alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: false,
         };
         augment_entry("WLS augment", out_result, out_error, || {
             augment_wls(&y_vec, &x_vecs, &w_vec, &opts)
@@ -9363,6 +9371,8 @@ pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFF
             &mut (*result).leverage,
             &mut (*result).cooks_d,
             &mut (*result).dffits,
+            &mut (*result).loo_residual,
+            &mut (*result).loo_fitted,
         ] {
             if !p.is_null() {
                 libc::free(*p as *mut libc::c_void);

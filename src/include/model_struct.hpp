@@ -44,6 +44,10 @@ void AppendModelSummaryFields(child_list_t<LogicalType> &children);
 //! df_residual DOUBLE. Appended after the shared tail.
 void AppendCovarianceFields(child_list_t<LogicalType> &children);
 
+//! The leave-one-out tail of OLS / WLS fits (#220): press, press_rmse and
+//! loo_r_squared DOUBLE, NULL when a row has leverage 1. Appended last.
+void AppendLooFields(child_list_t<LogicalType> &children);
+
 //! Residual degrees of freedom n - (intercept + estimated coefficients); a NaN or
 //! exactly-zero coefficient is not estimated (as LeverageIntervals counts them).
 double ResidualDf(idx_t n_observations, const double *coefficients, idx_t coefficients_len, bool has_intercept);
@@ -57,8 +61,9 @@ public:
 	//! and the F test. A null `inference` (not requested) writes NULL to all of them.
 	void WriteInference(idx_t row, const AnofoxFitResultInference *inference);
 
-	//! model_type, family, link, log_likelihood, aic, bic and the intercept inference.
-	//! NaN and an empty family are written as NULL.
+	//! model_type, family, link, log_likelihood, aic, bic, the intercept inference and,
+	//! where the model has them, the leave-one-out statistics. NaN and an empty family
+	//! are written as NULL.
 	void WriteSummary(idx_t row, const AnofoxModelSummaryFFI &summary);
 
 	//! vcov (dim x dim, row-major) and df_residual; a null `vcov` writes NULL to both.
