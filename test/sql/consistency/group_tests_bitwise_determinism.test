@@ -1,0 +1,164 @@
+# name: test/sql/consistency/group_tests_bitwise_determinism.test
+# description: The k-sample, two-sample and post-hoc tests return bitwise-identical
+#              results for the same input multiset, whatever the thread count, the
+#              row order or the order in which the group labels first appear (#214).
+#              Results are compared with IS NOT DISTINCT FROM, not a tolerance.
+# group: [consistency]
+
+require anofox_statistics
+
+# 240k rows = 2+ row groups, pre-aggregated in parallel when threads > 1. The
+# values span several orders of magnitude, so floating-point sums depend on the
+# summation order.
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       (i % 3)::INT AS part,
+       exp(3.0 * sin(i * 0.37)) * 1000.0 + cos(i * 1.91) AS y,
+       (hash(i) % 5)::BIGINT AS g5,
+       ['c', 'a', 'e', 'b', 'd'][(hash(i) % 5)::INT + 1] AS s5,
+       (hash(i * 7 + 1) % 2)::INT AS g2
+FROM range(240000) t(i);
+
+# Every function under test, applied per part and over the whole table. The
+# macro's ord argument sets the order in which the aggregates see the rows.
+statement ok
+CREATE MACRO all_tests(ord) AS TABLE
+SELECT part,
+       brown_forsythe_agg(y, g5 ORDER BY ord) AS bf,
+       kruskal_wallis_agg(y, g5 ORDER BY ord) AS kw,
+       one_way_anova_agg(y, g5 ORDER BY ord) AS aov,
+       brown_forsythe_agg(y, s5 ORDER BY ord) AS bf_s,
+       kruskal_wallis_agg(y, s5 ORDER BY ord) AS kw_s,
+       one_way_anova_agg(y, s5 ORDER BY ord) AS aov_s,
+       t_test_agg(y, g2 ORDER BY ord) AS tt,
+       mann_whitney_u_agg(y, g2 ORDER BY ord) AS mw,
+       yuen_agg(y, g2 ORDER BY ord) AS yu,
+       brunner_munzel_agg(y, g2 ORDER BY ord) AS bm,
+       tost_t_test_agg(y, g2 ORDER BY ord) AS tost,
+       tukey_hsd_agg(y, s5 ORDER BY ord) AS tukey,
+       pairwise_t_test_agg(y, s5 ORDER BY ord) AS pw,
+       dunn_test_agg(y, s5 ORDER BY ord) AS dunn
+FROM d GROUP BY part;
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM all_tests(i);
+
+statement ok
+CREATE MACRO same_as_ref(tbl) AS TABLE
+SELECT bool_and(r.bf IS NOT DISTINCT FROM c.bf AND r.kw IS NOT DISTINCT FROM c.kw
+                AND r.aov IS NOT DISTINCT FROM c.aov AND r.bf_s IS NOT DISTINCT FROM c.bf_s
+                AND r.kw_s IS NOT DISTINCT FROM c.kw_s AND r.aov_s IS NOT DISTINCT FROM c.aov_s) AS k_sample,
+       bool_and(r.tt IS NOT DISTINCT FROM c.tt AND r.mw IS NOT DISTINCT FROM c.mw
+                AND r.yu IS NOT DISTINCT FROM c.yu AND r.bm IS NOT DISTINCT FROM c.bm
+                AND r.tost IS NOT DISTINCT FROM c.tost) AS two_sample,
+       bool_and(r.tukey IS NOT DISTINCT FROM c.tukey AND r.pw IS NOT DISTINCT FROM c.pw
+                AND r.dunn IS NOT DISTINCT FROM c.dunn) AS posthoc,
+       count(*) AS n
+FROM ref r JOIN query_table(tbl) c USING (part);
+
+# Sanity: the reference is a real result, not all NULL.
+query III
+SELECT bool_and((bf).statistic IS NOT NULL), bool_and((tt).p_value IS NOT NULL), bool_and(tukey IS NOT NULL) FROM ref;
+----
+true	true	true
+
+# Numeric and string labels name the same five groups, so they agree up to
+# rounding (the groups are ordered by label, and the two label sets sort the five
+# groups differently, so the last bits may differ).
+query I
+SELECT bool_and(abs((bf).statistic - (bf_s).statistic) <= 1e-9 * abs((bf).statistic)
+                AND abs((kw).statistic - (kw_s).statistic) <= 1e-9 * abs((kw).statistic)) FROM ref;
+----
+true
+
+# Same query, single thread, run again (a hash-seeded group order used to change
+# the last bits from call to call).
+statement ok
+CREATE TABLE c1 AS SELECT * FROM all_tests(i);
+
+query IIII
+SELECT * FROM same_as_ref('c1');
+----
+true	true	true	3
+
+# Reversed row order: the labels now first appear in a different order.
+statement ok
+CREATE TABLE c2 AS SELECT * FROM all_tests(-i);
+
+query IIII
+SELECT * FROM same_as_ref('c2');
+----
+true	true	true	3
+
+# Shuffled row order.
+statement ok
+CREATE TABLE c3 AS SELECT * FROM all_tests(hash(i * 31 + 17));
+
+query IIII
+SELECT * FROM same_as_ref('c3');
+----
+true	true	true	3
+
+# Eight threads, no ORDER BY: rows arrive in whatever order the threads deliver.
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE c4 AS
+SELECT part,
+       brown_forsythe_agg(y, g5) AS bf, kruskal_wallis_agg(y, g5) AS kw, one_way_anova_agg(y, g5) AS aov,
+       brown_forsythe_agg(y, s5) AS bf_s, kruskal_wallis_agg(y, s5) AS kw_s, one_way_anova_agg(y, s5) AS aov_s,
+       t_test_agg(y, g2) AS tt, mann_whitney_u_agg(y, g2) AS mw, yuen_agg(y, g2) AS yu,
+       brunner_munzel_agg(y, g2) AS bm, tost_t_test_agg(y, g2) AS tost,
+       tukey_hsd_agg(y, s5) AS tukey, pairwise_t_test_agg(y, s5) AS pw, dunn_test_agg(y, s5) AS dunn
+FROM d GROUP BY part;
+
+query IIII
+SELECT * FROM same_as_ref('c4');
+----
+true	true	true	3
+
+# Eight threads, shuffled.
+statement ok
+CREATE TABLE c5 AS SELECT * FROM all_tests(hash(i * 13 + 5));
+
+query IIII
+SELECT * FROM same_as_ref('c5');
+----
+true	true	true	3
+
+# Many repetitions within one process: each replicate is its own aggregate state
+# (and, before the fix, its own hash-map seed). All replicates must agree bitwise.
+statement ok
+CREATE TABLE small AS SELECT * FROM d WHERE i % 40 = 0;
+
+query IIII
+SELECT count(DISTINCT bf), count(DISTINCT kw), count(DISTINCT aov), count(DISTINCT tt)
+FROM (
+    SELECT rep,
+           brown_forsythe_agg(y, g5) AS bf, kruskal_wallis_agg(y, g5) AS kw,
+           one_way_anova_agg(y, g5) AS aov, t_test_agg(y, g2) AS tt
+    FROM small, range(50) r(rep)
+    GROUP BY rep
+);
+----
+1	1	1	1
+
+statement ok
+SET threads = 1;
+
+query IIII
+SELECT count(DISTINCT bf), count(DISTINCT kw), count(DISTINCT aov), count(DISTINCT tt)
+FROM (
+    SELECT rep,
+           brown_forsythe_agg(y, g5 ORDER BY hash(i + rep)) AS bf, kruskal_wallis_agg(y, g5 ORDER BY hash(i + rep)) AS kw,
+           one_way_anova_agg(y, g5 ORDER BY hash(i + rep)) AS aov, t_test_agg(y, g2 ORDER BY hash(i + rep)) AS tt
+    FROM small, range(50) r(rep)
+    GROUP BY rep
+);
+----
+1	1	1	1

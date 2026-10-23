@@ -5388,6 +5388,26 @@ pub unsafe extern "C" fn anofox_brunner_munzel(
     })
 }
 
+/// Split `values` by the integer group code in `groups` (rows with a NaN value or
+/// code are skipped) for the k-sample tests. The groups come out in ascending
+/// code order with each group's values sorted, so the result depends only on the
+/// multiset of (code, value) pairs, not on the row order or on a hash seed (#214).
+fn split_groups_canonically(values: &[f64], groups: &[f64]) -> Vec<Vec<f64>> {
+    let mut grouped: std::collections::BTreeMap<i64, Vec<f64>> = std::collections::BTreeMap::new();
+    for (v, g) in values.iter().zip(groups.iter()) {
+        if !v.is_nan() && !g.is_nan() {
+            grouped.entry(*g as i64).or_default().push(*v);
+        }
+    }
+    grouped
+        .into_values()
+        .map(|mut g| {
+            g.sort_by(f64::total_cmp);
+            g
+        })
+        .collect()
+}
+
 /// One-way ANOVA
 ///
 /// # Safety
@@ -5416,17 +5436,7 @@ pub unsafe extern "C" fn anofox_one_way_anova(
         let values_vec = values.to_vec();
         let groups_vec = groups.to_vec();
 
-        // Convert groups to integers and organize data
-        let mut group_data: std::collections::HashMap<i64, Vec<f64>> =
-            std::collections::HashMap::new();
-        for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
-            if !v.is_nan() && !g.is_nan() {
-                let group_id = *g as i64;
-                group_data.entry(group_id).or_default().push(*v);
-            }
-        }
-
-        let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
+        let groups_list = split_groups_canonically(&values_vec, &groups_vec);
         let opts = AnovaOptions::default();
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -5497,17 +5507,7 @@ pub unsafe extern "C" fn anofox_kruskal_wallis(
         let values_vec = values.to_vec();
         let groups_vec = groups.to_vec();
 
-        // Convert groups to integers and organize data
-        let mut group_data: std::collections::HashMap<i64, Vec<f64>> =
-            std::collections::HashMap::new();
-        for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
-            if !v.is_nan() && !g.is_nan() {
-                let group_id = *g as i64;
-                group_data.entry(group_id).or_default().push(*v);
-            }
-        }
-
-        let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
+        let groups_list = split_groups_canonically(&values_vec, &groups_vec);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             kruskal_wallis(&groups_list)
@@ -7276,19 +7276,7 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
             return false;
         }
 
-        // Group values by their group ID
-        let mut grouped: std::collections::HashMap<i64, Vec<f64>> =
-            std::collections::HashMap::new();
-        for (val, grp) in vals.iter().zip(grps.iter()) {
-            if val.is_nan() || grp.is_nan() {
-                continue;
-            }
-            let group_id = *grp as i64;
-            grouped.entry(group_id).or_default().push(*val);
-        }
-
-        let mut groups_vec: Vec<Vec<f64>> = grouped.into_values().collect();
-        groups_vec.sort_by_key(|g| g.len()); // Sort by size for determinism
+        let groups_vec = split_groups_canonically(&vals, &grps);
 
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| brown_forsythe(&groups_vec)));

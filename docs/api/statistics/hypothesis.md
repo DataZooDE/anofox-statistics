@@ -135,6 +135,24 @@ Brown-Forsythe test for equality of variances.
 brown_forsythe_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
+## Reproducibility
+
+The group tests return bitwise-identical results for the same rows, whatever the
+thread count, the row order or the order in which the group labels first appear:
+each finalizer sorts the samples (and the k-sample tests order the groups by label)
+before computing. The Monte Carlo tests (`permutation_t_test_agg`,
+`energy_distance_agg`, `mmd_agg`, and `distance_cor_agg` in
+[Correlation](correlation.md)) seed their permutation draw with 42 unless you pass
+`'seed'`, so repeated calls return the same p-value. Pass a different seed to draw a
+different set of permutations:
+
+```sql
+SELECT (permutation_t_test_agg(v, g)).p_value AS p_default,              -- seed 42
+       (permutation_t_test_agg(v, g, {'seed': 7})).p_value AS p_seed_7
+FROM (SELECT (i % 2)::INTEGER AS g, sin(i * 0.37) + (i % 2) * 0.2 AS v
+      FROM range(60) r(i)) samples;
+```
+
 ## Nonparametric Tests
 
 ### mann_whitney_u_agg
@@ -207,6 +225,8 @@ permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | n_permutations | INTEGER | 10000 | Number of permutations |
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the permutation draw; without it the default 42 makes the p-value reproducible |
 
 ## Normality Tests
 
@@ -284,8 +304,14 @@ Energy distance between two distributions.
 
 **Signature:**
 ```text
-energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+energy_distance_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| n_permutations (alias `permutations`) | INTEGER | 1000 | Number of permutations |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the permutation draw; without it the default 42 makes the p-value reproducible |
 
 ### mmd_agg
 
@@ -295,6 +321,12 @@ Maximum Mean Discrepancy test.
 ```text
 mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| n_permutations (alias `permutations`) | INTEGER | 1000 | Number of permutations |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the permutation draw; without it the default 42 makes the p-value reproducible |
 
 ## Forecast Evaluation
 
