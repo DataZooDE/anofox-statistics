@@ -163,7 +163,7 @@ void MediationFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 		}
 		SortRowsCanonically(state.y_values, state.x_columns);
 
-		const idx_t n = state.y_values.size();
+		const size_t n = state.y_values.size(); // size_t: AnofoxDataArray::len (32-bit on wasm)
 		AnofoxDataArray y_arr {state.y_values.data(), nullptr, n};
 		AnofoxDataArray x_arr {state.x_columns[0].data(), nullptr, n};
 		AnofoxDataArray m_arr {state.x_columns[1].data(), nullptr, n};
