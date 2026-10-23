@@ -41,7 +41,8 @@ passed through and the prediction columns appended.
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
-| `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`), see [Regularisation paths](../regression/paths.md) |
+| `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`); `cv_key :=` for group / stratified / time-series folds, see [Regularisation paths](../regression/paths.md) |
+| `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | `<model>_nested_cv_agg` | one row per outer fold plus a summary row (`curve`, `nested_cv`), see [Regularisation paths](../regression/paths.md#ridge_nested_cv_agg--elasticnet_nested_cv_agg) |
 | `quantile_process_by` | `quantile_process_agg` | one row per tau and term (`terms`), see [Quantile](../regression/quantile.md#quantile_process_agg) |
 | `<model>_glance_by` | `<model>_fit_agg` + `glance` | one row per group and fit statistic (`summary`); `ols_glance_by` / `wls_glance_by` include the leave-one-out `press`, `press_rmse`, `loo_r_squared`, see [Model tools](../regression/model_tools.md#leave-one-out-diagnostics) |
 | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `<model>_augment_agg` | one row per input row (`obs`: fitted, residuals, leverage, Cook's distance, DFFITS; OLS / WLS also `loo_residual`, `loo_fitted`), see [Model tools](../regression/model_tools.md#augment_by) |

@@ -883,7 +883,17 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"lambdas", {}},
 	    {"n_lambda", {"nlambda"}},
 	    {"lambda_min_ratio", {}},
-	    {"folds", {"n_folds", "nfolds"}},
+	    {"folds", {"n_folds", "nfolds", "outer_folds"}},
+	    {"cv_strategy", {"strategy"}},
+	    {"repeats", {"n_repeats"}},
+	    {"test_size", {"horizon"}},
+	    {"gap", {}},
+	    {"window", {}},
+	    {"max_train_size", {}},
+	    {"n_bins", {}},
+	    {"metric", {"type_measure"}},
+	    {"inner_folds", {}},
+	    {"rule", {"lambda_rule"}},
 	    {"taus", {}},
 	    {"se", {"se_type"}},
 	    {"n_boot", {"n_bootstrap"}},
@@ -1222,6 +1232,42 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			}
 		} else if (key == "folds") {
 			result.folds = ExtractUInt32(val);
+		} else if (key == "cv_strategy" || key == "window" || key == "metric" || key == "rule") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				vector<string> allowed;
+				if (key == "cv_strategy") {
+					allowed = {"kfold", "fold_id", "group", "logo", "stratified", "time_series"};
+				} else if (key == "window") {
+					allowed = {"expanding", "sliding"};
+				} else if (key == "metric") {
+					allowed = {"mse", "mae"};
+				} else {
+					allowed = {"min", "1se"};
+				}
+				if (std::find(allowed.begin(), allowed.end(), v) == allowed.end()) {
+					throw InvalidInputException("%s: %s must be one of '%s', got '%s'", function_name, key,
+					                            StringUtil::Join(allowed, "', '"), val.ToString());
+				}
+				(key == "cv_strategy" ? result.cv_strategy
+				 : key == "window"    ? result.window
+				 : key == "metric"    ? result.cv_metric
+				                      : result.lambda_rule) = v;
+			}
+		} else if (key == "repeats" || key == "test_size" || key == "max_train_size" || key == "n_bins" ||
+		           key == "inner_folds") {
+			auto v = ExtractUInt32(val);
+			uint32_t min = key == "inner_folds" ? 2 : 1;
+			if (v.has_value() && v.value() < min) {
+				throw InvalidInputException("%s: %s must be >= %u, got %u", function_name, key, min, v.value());
+			}
+			(key == "repeats"          ? result.repeats
+			 : key == "test_size"      ? result.test_size
+			 : key == "max_train_size" ? result.max_train_size
+			 : key == "n_bins"         ? result.n_bins
+			                           : result.inner_folds) = v;
+		} else if (key == "gap") {
+			result.gap = ExtractUInt32(val);
 		} else if (key == "taus") {
 			result.taus = ExtractDoubleList(val, "taus");
 		} else if (key == "se") {
