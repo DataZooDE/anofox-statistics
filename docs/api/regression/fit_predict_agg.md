@@ -171,7 +171,9 @@ LIMIT 6;
 - A NULL `x` list: the row is skipped and does **not** appear in the output
   list.
 - With `split_col`, a training row whose `y` is NULL is treated as a
-  prediction row.
+  prediction row, and a row whose split value is NULL is a prediction row.
+  The `*_fit_predict_by` [table macros](../macros/table_macros.md) apply the
+  same rule to their `split` argument.
 
 ## See Also
 

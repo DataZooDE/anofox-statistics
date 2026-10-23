@@ -1600,8 +1600,8 @@ with the integration contract's `obs` columns appended (tagged
 | `is_training` | BOOLEAN | the row was used to fit |
 | `n_params` | INTEGER | estimated coefficients, intercept included |
 
-Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
-`'train'` and, for WLS, a positive weight. Other rows get the prediction as
+Training rows have `y_col` NOT NULL, every feature present, `split` omitted or
+`'train'` / `'training'` in any case (a NULL split value is not a training row) and, for WLS, a positive weight. Other rows get the prediction as
 `fitted` and NULL diagnostics. Options: `fit_intercept`, `null_policy`, `solver`.
 The measures come from `anofox_regression::diagnostics::augment` and match R
 `lm()` (with `weights =` for WLS). A group with fewer than two training rows
