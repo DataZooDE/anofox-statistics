@@ -1,9 +1,12 @@
+#include <cerrno>
+#include <cstdlib>
 #include "map_options_parser.hpp"
 
 #include <cmath>
 #include <limits>
 #include <unordered_map>
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 
@@ -533,33 +536,49 @@ static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
 }
 
 // Extract a LIST of positive integers (1-based column indices).
+static idx_t CheckedIndex(int64_t v) {
+	if (v < 1) {
+		throw InvalidInputException("'random' indices are 1-based and must be >= 1, got %lld", (long long)v);
+	}
+	return (idx_t)v;
+}
+
 static std::optional<vector<idx_t>> ExtractIndexList(const Value &val) {
 	if (val.IsNull()) {
 		return std::nullopt;
 	}
+	vector<idx_t> out;
 	// A list rendered as text ('[1, 2]'), as it arrives through a MAP(VARCHAR, VARCHAR)
-	// of options -- the form the table macros pass on.
-	Value list = val;
+	// of options -- the form the table macros pass on. Parsed by hand: the Value cast
+	// API differs between DuckDB 1.x and 2.0.
 	if (val.type().id() == LogicalTypeId::VARCHAR) {
-		if (!val.DefaultTryCastAs(LogicalType::LIST(LogicalType::BIGINT), list, nullptr)) {
-			throw InvalidInputException("'random' must be a LIST of integer column indices, got '%s'",
-			                            val.ToString());
+		string text = StringUtil::Replace(StringUtil::Replace(val.ToString(), "[", ""), "]", "");
+		StringUtil::Trim(text);
+		if (text.empty()) {
+			return out;
 		}
+		for (auto &item : StringUtil::Split(text, ',')) {
+			StringUtil::Trim(item);
+			char *end = nullptr;
+			errno = 0;
+			long long v = std::strtoll(item.c_str(), &end, 10);
+			if (item.empty() || errno != 0 || end == nullptr || *end != '\0') {
+				throw InvalidInputException("'random' must be a LIST of integer column indices, got '%s'",
+				                            val.ToString());
+			}
+			out.push_back(CheckedIndex(v));
+		}
+		return out;
 	}
-	if (list.type().id() != LogicalTypeId::LIST) {
+	if (val.type().id() != LogicalTypeId::LIST) {
 		throw InvalidInputException("'random' must be a LIST of integer column indices, got %s",
 		                            val.type().ToString());
 	}
-	vector<idx_t> out;
-	for (auto &child : ListValue::GetChildren(list)) {
+	for (auto &child : ListValue::GetChildren(val)) {
 		if (child.IsNull()) {
 			throw InvalidInputException("'random' must not contain NULL");
 		}
-		auto v = child.GetValue<int64_t>();
-		if (v < 1) {
-			throw InvalidInputException("'random' indices are 1-based and must be >= 1, got %lld", (long long)v);
-		}
-		out.push_back((idx_t)v);
+		out.push_back(CheckedIndex(child.GetValue<int64_t>()));
 	}
 	return out;
 }

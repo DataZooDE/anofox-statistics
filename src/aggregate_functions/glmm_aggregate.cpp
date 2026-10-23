@@ -439,7 +439,8 @@ static void PrepareGlmmCall(const SETTINGS &settings, vector<vector<double>> &x_
 		}
 		return r;
 	};
-	options.offset_column = settings.offset_column == 0 ? 0 : reduced_index(settings.offset_column - 1) + 1;
+	options.offset_column =
+	    static_cast<size_t>(settings.offset_column == 0 ? 0 : reduced_index(settings.offset_column - 1) + 1);
 	for (auto c0 : settings.random_slopes) {
 		call.slopes.push_back((RandomSlopeIndex)reduced_index(c0));
 	}
@@ -855,7 +856,7 @@ static void GlmmAugmentFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		}
 		GlmmCall call;
 		PrepareGlmmCall(bind_data, x_columns, state.n_features, call);
-		AnofoxDataArray y_array {state.y.data(), nullptr, n_rows};
+		AnofoxDataArray y_array {state.y.data(), nullptr, static_cast<size_t>(n_rows)};
 
 		AnofoxGlmmAugmentResult aug {};
 		AnofoxError error;
