@@ -401,7 +401,8 @@ R's `anova(lm(reduced), lm(full))`. `x_reduced` columns must appear in
 one row per group: the group column, `id`, `model_id` / `model_name` (`'ols'`),
 `method` (`'nested F'`), `statistic`, `p_value`, `df1`, `df2`, `rss_reduced`,
 `rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`,
-`delta_adj_r_squared` and `n_observations`. The only option is `fit_intercept`.
+`delta_adj_r_squared` and `n_observations`. When `df1` or `df2` is 0, `statistic` and
+`p_value` are NULL (never NaN). The only option is `fit_intercept`.
 See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
 
 ```sql

@@ -268,7 +268,7 @@ same rows. Returns the `test` fields (`method = 'nested F'`, `statistic`,
 `adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared` and
 `n_observations`. The `x_reduced` columns must appear in `x_full`, and
 `x_reduced := []` is the intercept-only model (the overall F test). Rank is
-counted as in R, and `df1 = 0` gives a NULL statistic. The only option is
+counted as in R; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`, never NaN). The only option is
 `fit_intercept`. Per-term (type I / II) ANOVA tables are not available yet.
 
 **Signatures:**

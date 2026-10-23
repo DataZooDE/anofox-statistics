@@ -92,6 +92,20 @@ FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x4]) AS r FROM d);
 ----
 0.0	true	true	true
 
+# NULL, never NaN (R's NA; a NaN would poison avg() and friends): isnan() of a NULL is NULL.
+query III
+SELECT isnan(r.statistic) IS NULL, isnan(r.p_value) IS NULL, avg(r.statistic) OVER () IS NULL
+FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x4]) AS r FROM d);
+----
+true	true	true
+
+# No residual degrees of freedom (n = p_full = 4): df2 = 0, statistic and p-value NULL.
+query IIII
+SELECT r.df2, r.statistic IS NULL, r.p_value IS NULL, r.n_observations
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) AS r FROM d WHERE x1 < 4.9);
+----
+0.0	true	true	4
+
 # A rescaled copy of a full column is nested.
 query I
 SELECT (ols_anova_agg(y, [2 * x1 + 1], [x1, x2, x3])).df1 FROM d;
@@ -178,6 +192,13 @@ query II
 SELECT df1, abs(statistic - 472.530731181841475) < 1e-7 FROM ols_anova_by('d2', g, y, x_full := [x1, x2, x3]) WHERE g = 'a';
 ----
 3.0	true
+
+# df1 = 0 in the macro output: NULL statistic and p-value, so avg() over groups stays NULL-aware.
+query III
+SELECT count(*), count(statistic), count(p_value)
+FROM ols_anova_by('d2', g, y, x_reduced := [x1, x2], x_full := [x1, x2, x4]);
+----
+2	0	0
 
 query I
 SELECT df2 FROM ols_anova_by('d2', g, y, x_reduced := [x1], x_full := [x1, x2, x3], options := {'fit_intercept': false}) WHERE g = 'a';

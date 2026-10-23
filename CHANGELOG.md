@@ -24,7 +24,8 @@ Breaking changes are called out explicitly.
   tagged as `test` producers. The `x_reduced` columns must lie in the span of `x_full`
   (an error otherwise), and `x_reduced := []` (the macro's default) is the intercept-only model,
   i.e. the overall F test. Degrees of freedom count the numerical rank as R does, so aliased
-  columns add none; `df1 = 0` gives a NULL statistic. The fits and the test come from
+  columns add none; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`;
+  upstream's NaN is never passed through, so `avg()` over the results is not poisoned). The fits and the test come from
   anofox-regression 0.5.32 (`inference::nested_f_test`), which is validated against R, including
   `df1 = 1` (F = t²), the intercept-only and no-intercept models and a rank-deficient design.
   Sequential (type I) and partial (type II) per-term ANOVA tables are not included.

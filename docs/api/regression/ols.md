@@ -186,7 +186,8 @@ ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...],
 - **Rank deficiency.** As in R, parameters are counted by the numerical rank,
   so an aliased (collinear) column adds no degree of freedom. When the full
   model adds nothing (`df1 = 0`) or leaves no residual degrees of freedom
-  (`df2 = 0`), `statistic` and `p_value` are NULL. A group with fewer rows than
+  (`df2 = 0`), `statistic` and `p_value` are NULL (R's `NA`; never NaN, so
+  `avg()` and other aggregates over the results skip them). A group with fewer rows than
   the full model has parameters returns NULL.
 
 The aggregate's STRUCT follows the integration contract's `test` schema:
