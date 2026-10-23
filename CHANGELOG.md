@@ -209,6 +209,13 @@ Breaking changes are called out explicitly.
 
 - anofox-regression 0.5.33.
 
+- **Behaviour change: the `split` argument of the `*_fit_predict_by`, `*_augment_by` and
+  `*_prediction_by` macros follows the `*_fit_predict_agg` `split_col` rule (#205).** A row
+  whose split value is `'train'` or `'training'` in any case (`'Train'`, `'TRAINING'`, ...)
+  is a training row; any other value is a prediction row. A per-row NULL split value is now
+  a prediction row (the macros trained on it before). Calls that omit `split` (or pass
+  `split := NULL`) are unchanged: every row with a non-NULL `y` trains.
+
 ### Fixed
 
 - **Bitwise-reproducible group tests (#214).** `brown_forsythe_agg`,
@@ -249,6 +256,11 @@ Breaking changes are called out explicitly.
   NULL and `is_training = false`; the doc said the row was left out. The doc,
   `fit_predict_agg.md`, `fit_predict_window.md`, the isotonic and quantile pages and the
   regression skill now describe the actual behaviour. No aggregate changed.
+
+- `*_fit_predict_by` and the other split-taking macros treated only an exact `'train'` as
+  training, so `split = 'Training'` or `'TRAIN'` silently held every row out, and they fitted
+  rows with a NULL split value that the aggregates predict. A macro and its aggregate called
+  with the same split column now train on the same rows (#205).
 
 ### Behaviour change
 

@@ -445,9 +445,9 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader) {
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));
 	predict_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	const string predict_description =
-	    "Fits a Passive-Aggressive online regression on the training rows of a partition (y NOT NULL, or split = "
-	    "'train') in input order and returns one STRUCT per row: y, yhat (from the final coefficients), yhat_lower / "
-	    "yhat_upper (NULL: the model has no interval) and is_training." +
+	    "Fits a Passive-Aggressive online regression on the training rows of a partition (y NOT NULL and, with "
+	    "split_col, split 'train' / 'training' in any case) in input order and returns one STRUCT per row: y, yhat "
+	    "(from the final coefficients), yhat_lower / yhat_upper (NULL: the model has no interval) and is_training." +
 	    options_note;
 	const vector<vector<string>> names = {
 	    {"y", "x"}, {"y", "x", "options"}, {"y", "x", "split_col"}, {"y", "x", "split_col", "options"}};

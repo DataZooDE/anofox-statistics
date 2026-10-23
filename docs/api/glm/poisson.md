@@ -170,8 +170,8 @@ poisson_fit_predict_by(source VARCHAR, group_col, y_col, x_cols
 
 Output: all source columns plus `yhat`, `yhat_lower`, `yhat_upper`,
 `is_training`, ordered by the group column. When a split column is given, rows
-whose split value is neither `'train'` nor NULL are predicted but not trained
-on. `order_by` orders the rows inside each group so the alignment of
+whose split value is not `'train'` / `'training'` (in any case), or is NULL, are
+predicted but not trained on. `order_by` orders the rows inside each group so the alignment of
 predictions to rows is deterministic.
 
 ```sql

@@ -1774,8 +1774,8 @@ with the integration contract's `obs` columns appended (tagged
 | `loo_residual` | DOUBLE | leave-one-out (PRESS) residual `residual / (1 - leverage)`, `y` minus the prediction of the fit without the row (R `rstandard(fit, type = "predictive")` for OLS); OLS / WLS only, NULL where `leverage = 1` |
 | `loo_fitted` | DOUBLE | `y - loo_residual`, the leave-one-out prediction; OLS / WLS only |
 
-Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
-`'train'` and, for WLS, a positive weight. Other rows get the prediction as
+Training rows have `y_col` NOT NULL, every feature present, `split` omitted or
+`'train'` / `'training'` in any case (a NULL split value is not a training row) and, for WLS, a positive weight. Other rows get the prediction as
 `fitted` and NULL diagnostics. Options: `fit_intercept`, `null_policy`, `solver`.
 The measures come from `anofox_regression::diagnostics::augment` and match R
 `lm()` (with `weights =` for WLS). A group with fewer than two training rows

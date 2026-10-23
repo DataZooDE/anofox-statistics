@@ -1,0 +1,763 @@
+# name: test/sql/macros/test_split_mapping.test
+# description: The split argument of the *_fit_predict_by / *_augment_by / *_prediction_by
+#              macros follows the *_fit_predict_agg split_col rule (#205): 'train' / 'training'
+#              in any case is a training row; any other value, or a per-row NULL, is predicted.
+#              With split omitted every row with a non-NULL y trains.
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups of 40 rows. sp by t % 10: 'train', 'Train', 'TRAINING', 'training', 'train',
+# 'Train', 'test', 'future', NULL, 'training' (28 training labels, 4 'test', 4 'future',
+# 4 NULL per group). y is NULL at t = 5 ('Train') and t = 33 ('training'), so 26 rows
+# per group (52 in all) train with sp, and the 76 rows with a non-NULL y without it.
+statement ok
+CREATE TABLE sp205 AS
+SELECT g, t, x, x2, w,
+       CASE WHEN t IN (5, 33) THEN NULL ELSE 2.0 + 0.8 * x + 0.3 * x2 + e END AS y,
+       CASE WHEN t IN (5, 33) THEN NULL ELSE round(2.0 + 0.8 * x + 0.3 * x2 + e) END AS yc,
+       CASE WHEN t IN (5, 33) THEN NULL ELSE 1.0 / (1.0 + exp(-((x - 6.0) / 3.0 + e / 2.0))) END AS yr,
+       CASE WHEN t IN (5, 33) THEN NULL WHEN x + 2.0 * e > 6.5 THEN 1.0 ELSE 0.0 END AS yb,
+       ['train', 'Train', 'TRAINING', 'training', 'train', 'Train', 'test', 'future', NULL, 'training'][t % 10 + 1] AS sp
+FROM (
+    SELECT g, t, ((t * 7) % 13)::DOUBLE + g AS x, ((t * 5) % 7)::DOUBLE AS x2, (1 + t % 3)::DOUBLE AS w,
+           (((t * 31) % 9) - 4) / 4.0 AS e
+    FROM range(1, 3) gr(g), range(1, 41) r(t)
+);
+
+# The rule itself, on the data
+query IIII
+SELECT count(*) FILTER (WHERE lower(sp) IN ('train', 'training')),
+       count(*) FILTER (WHERE y IS NOT NULL AND lower(sp) IN ('train', 'training')),
+       count(*) FILTER (WHERE sp IS NULL),
+       count(*) FILTER (WHERE y IS NOT NULL)
+FROM sp205;
+----
+56	52	8	76
+
+
+# =============================================================================
+# Fit-predict macros built on *_fit_predict_agg: same training rows and yhat as the
+# aggregate called with the same split column. Columns: rows, training rows, rows whose
+# is_training or yhat differ from the aggregate, rows whose is_training differs from the rule.
+# =============================================================================
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM ols_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, ols_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM ols_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM huber_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, huber_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM huber_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM huber_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM ransac_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, ransac_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM ransac_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ransac_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM theil_sen_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, theil_sen_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM theil_sen_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM theil_sen_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM ridge_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, ridge_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM ridge_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ridge_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM elasticnet_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, elasticnet_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM elasticnet_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM elasticnet_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM wls_fit_predict_by('sp205', g, y, [x, x2], w, split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, wls_fit_predict_agg(y, [x, x2], w, sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM wls_fit_predict_by('sp205', g, y, [x, x2], w, order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM wls_fit_predict_by('sp205', g, y, [x, x2], w, split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM rls_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, rls_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM rls_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM rls_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM bls_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, bls_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM bls_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM bls_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM alm_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, alm_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM alm_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM alm_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yc IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM poisson_fit_predict_by('sp205', g, yc, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, poisson_fit_predict_agg(yc, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (yc IS NOT NULL))
+FROM poisson_fit_predict_by('sp205', g, yc, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM poisson_fit_predict_by('sp205', g, yc, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM pls_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, pls_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM pls_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM pls_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM isotonic_fit_predict_by('sp205', g, y, x, split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, isotonic_fit_predict_agg(y, x, sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM isotonic_fit_predict_by('sp205', g, y, x, order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM isotonic_fit_predict_by('sp205', g, y, x, split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM quantile_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, quantile_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM quantile_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM quantile_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM bayesian_ridge_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, bayesian_ridge_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM bayesian_ridge_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM bayesian_ridge_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM ard_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, ard_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM ard_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ard_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM passive_aggressive_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, passive_aggressive_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM passive_aggressive_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM passive_aggressive_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false))
+FROM lm_dynamic_fit_predict_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, lm_dynamic_fit_predict_agg(y, [x, x2], sp) OVER win AS l FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	52	0	0
+
+# split omitted: every row with a non-NULL y trains (unchanged), as does an explicit split := NULL
+query III
+SELECT count(*), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM lm_dynamic_fit_predict_by('sp205', g, y, [x, x2], order_by := t);
+----
+80	76	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM lm_dynamic_fit_predict_by('sp205', g, y, [x, x2], split := NULL, order_by := t);
+----
+76
+
+
+# =============================================================================
+# GLM fit-predict macros: same training rows and yhat as {family}_fit_agg on the rows the
+# rule marks as training, applied to every row with predict().
+# =============================================================================
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yr IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.yhat IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.yhat - predict(f.model, [m.x, m.x2])) <= 1e-9 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM binomial_fit_predict_by('sp205', g, yr, [x, x2], split := sp) m
+JOIN (SELECT g, binomial_fit_agg(yr, [x, x2]) FILTER (WHERE (yr IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yr IS NOT NULL))
+FROM binomial_fit_predict_by('sp205', g, yr, [x, x2]);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yb IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.yhat IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.yhat - predict(f.model, [m.x, m.x2])) <= 1e-9 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM logistic_fit_predict_by('sp205', g, yb, [x, x2], split := sp) m
+JOIN (SELECT g, logistic_fit_agg(yb, [x, x2]) FILTER (WHERE (yb IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yb IS NOT NULL))
+FROM logistic_fit_predict_by('sp205', g, yb, [x, x2]);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yc IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.yhat IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.yhat - predict(f.model, [m.x, m.x2])) <= 1e-9 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM negbinom_fit_predict_by('sp205', g, yc, [x, x2], split := sp) m
+JOIN (SELECT g, negbinom_fit_agg(yc, [x, x2]) FILTER (WHERE (yc IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yc IS NOT NULL))
+FROM negbinom_fit_predict_by('sp205', g, yc, [x, x2]);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.yhat IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.yhat - predict(f.model, [m.x, m.x2])) <= 1e-9 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM gamma_fit_predict_by('sp205', g, y, [x, x2], split := sp) m
+JOIN (SELECT g, gamma_fit_agg(y, [x, x2]) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM gamma_fit_predict_by('sp205', g, y, [x, x2]);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.yhat IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.yhat - predict(f.model, [m.x, m.x2])) <= 1e-9 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM tweedie_fit_predict_by('sp205', g, y, [x, x2], split := sp) m
+JOIN (SELECT g, tweedie_fit_agg(y, [x, x2]) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM tweedie_fit_predict_by('sp205', g, y, [x, x2]);
+----
+76	0
+
+
+# =============================================================================
+# Augment macros: is_training follows the rule, and fitted equals the prediction of
+# {model}_fit_agg fitted on the rule's training rows.
+# =============================================================================
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM ols_augment_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, ols_fit_agg(y, [x, x2]) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM ols_augment_by('sp205', g, y, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM wls_augment_by('sp205', g, y, [x, x2], w, split := sp, order_by := t) m
+JOIN (SELECT g, wls_fit_agg(y, [x, x2], w) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM wls_augment_by('sp205', g, y, [x, x2], w, order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yc IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM poisson_augment_by('sp205', g, yc, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, poisson_fit_agg(yc, [x, x2]) FILTER (WHERE (yc IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yc IS NOT NULL))
+FROM poisson_augment_by('sp205', g, yc, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yr IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM binomial_augment_by('sp205', g, yr, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, binomial_fit_agg(yr, [x, x2]) FILTER (WHERE (yr IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yr IS NOT NULL))
+FROM binomial_augment_by('sp205', g, yr, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yb IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM logistic_augment_by('sp205', g, yb, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, logistic_fit_agg(yb, [x, x2]) FILTER (WHERE (yb IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yb IS NOT NULL))
+FROM logistic_augment_by('sp205', g, yb, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.yc IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM negbinom_augment_by('sp205', g, yc, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, negbinom_fit_agg(yc, [x, x2]) FILTER (WHERE (yc IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (yc IS NOT NULL))
+FROM negbinom_augment_by('sp205', g, yc, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM gamma_augment_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, gamma_fit_agg(y, [x, x2]) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM gamma_augment_by('sp205', g, y, [x, x2], order_by := t);
+----
+76	0
+
+query III
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM coalesce((m.y IS NOT NULL AND lower(m.sp) IN ('train', 'training')), false)
+                        OR NOT (m.fitted IS NOT DISTINCT FROM predict(f.model, [m.x, m.x2]) OR abs(m.fitted - predict(f.model, [m.x, m.x2])) <= 1e-6 * greatest(1.0, abs(predict(f.model, [m.x, m.x2])))))
+FROM tweedie_augment_by('sp205', g, y, [x, x2], split := sp, order_by := t) m
+JOIN (SELECT g, tweedie_fit_agg(y, [x, x2]) FILTER (WHERE (y IS NOT NULL AND lower(sp) IN ('train', 'training'))) AS model FROM sp205 GROUP BY g) f USING (g);
+----
+80	52	0
+
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE is_training IS DISTINCT FROM (y IS NOT NULL))
+FROM tweedie_augment_by('sp205', g, y, [x, x2], order_by := t);
+----
+76	0
+
+
+# =============================================================================
+# *_prediction_by passes split through: 'train' for the rule's training rows, 'future' for
+# a NULL y, 'test' for the rest (including a per-row NULL split)
+# =============================================================================
+
+query III
+SELECT count(*) FILTER (WHERE split = 'train'), count(*) FILTER (WHERE split = 'test'), count(*) FILTER (WHERE split = 'future')
+FROM ols_prediction_by('sp205', g, t, y, [x, x2], split := sp);
+----
+52	24	4
+
+query III
+SELECT count(*) FILTER (WHERE split = 'train'), count(*) FILTER (WHERE split = 'test'), count(*) FILTER (WHERE split = 'future')
+FROM ols_prediction_by('sp205', g, t, y, [x, x2]);
+----
+76	0	4
+
+query III
+SELECT count(*) FILTER (WHERE split = 'train'), count(*) FILTER (WHERE split = 'test'), count(*) FILTER (WHERE split = 'future')
+FROM logistic_prediction_by('sp205', g, t, yb, [x, x2], split := sp);
+----
+52	24	4
+
+# =============================================================================
+# null_policy 'zero' with split (#207): a NULL y is fitted as 0 on a training row, and the
+# held-out rows (other values and per-row NULL splits) stay out of the fit
+# =============================================================================
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE m.is_training),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM (a.p).is_training OR NOT (m.yhat IS NOT DISTINCT FROM (a.p).yhat OR abs(m.yhat - (a.p).yhat) <= 1e-9 * greatest(1.0, abs((a.p).yhat)))),
+       count(*) FILTER (WHERE m.is_training IS DISTINCT FROM ((lower(m.sp) IN ('train', 'training')) IS TRUE))
+FROM ols_fit_predict_by('sp205', g, y, [x, x2], {'null_policy': 'zero'}, split := sp, order_by := t) m
+JOIN (SELECT g, t, l[rn] AS p FROM (
+    SELECT g, t, row_number() OVER win AS rn, ols_fit_predict_agg(y, [x, x2], sp, {'null_policy': 'zero'}) OVER win AS l
+    FROM sp205 WINDOW win AS (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))) a
+USING (g, t);
+----
+80	56	0	0
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM lm_dynamic_fit_predict_by('sp205', g, y, [x, x2], {'null_policy': 'zero'}, split := sp, order_by := t);
+----
+56
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_augment_by('sp205', g, y, [x, x2], {'null_policy': 'zero'}, split := sp, order_by := t);
+----
+56
+
+# A split expression (not a column) follows the same rule
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_fit_predict_by('sp205', g, y, [x, x2], split := CASE WHEN t <= 20 THEN 'TRAIN' END, order_by := t);
+----
+38
+
+statement ok
+DROP TABLE sp205;

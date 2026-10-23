@@ -172,7 +172,9 @@ LIMIT 6;
   at its input position, not trained on, and its `yhat` is NULL. The output
   list always has one element per input row.
 - With `split_col`, a training row whose `y` is NULL is treated as a
-  prediction row.
+  prediction row, and a row whose split value is NULL is a prediction row.
+  The `*_fit_predict_by` [table macros](../macros/table_macros.md) apply the
+  same rule to their `split` argument.
 
 ## See Also
 

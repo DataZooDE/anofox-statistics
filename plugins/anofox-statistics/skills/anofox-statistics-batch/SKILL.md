@@ -48,7 +48,7 @@ Fit + predict per group with one call. The macro renames the target and adds pre
   y_col      COLUMN,    -- target (unquoted)
   x_cols     LIST,      -- feature columns, e.g. [x1, x2]
   options    MAP,       -- optional model options (defaults to NULL)
-  split      VARCHAR,   -- optional: column name of a train/test split; only rows where it is 'train' (or NULL) are trained on
+  split      VARCHAR,   -- optional: column name of a train/test split; only rows where it is 'train' / 'training' (any case) are trained on; a NULL split value is predicted
   order_by   COLUMN     -- optional (by name): orders each group's rows; deterministic row alignment, and the feed order for RLS
 ) -> TABLE(<all source columns>, yhat, yhat_lower, yhat_upper, is_training)
 ```
@@ -227,7 +227,7 @@ FROM sales GROUP BY category ORDER BY category;
 `LIST<STRUCT(y, yhat, yhat_lower, yhat_upper, is_training)>` covering every row of the group.
 Available for `ols`, `ridge`, `elasticnet`, `wls` (extra weight arg), `rls`, `huber`, `ransac`,
 `theil_sen`, `bls`, `alm`, `poisson`, `pls`, `isotonic`, `quantile`. A variant
-`{model}_fit_predict_agg(y, x, split_col[, opts])` trains only on rows where `split_col = 'train'`.
+`{model}_fit_predict_agg(y, x, split_col[, opts])` trains only on rows where `lower(split_col) IN ('train', 'training')`; a NULL split is a prediction row, as in the `_by` macros.
 
 ```sql
 SELECT category, unnest(ols_fit_predict_agg(revenue, [units, price])) AS p

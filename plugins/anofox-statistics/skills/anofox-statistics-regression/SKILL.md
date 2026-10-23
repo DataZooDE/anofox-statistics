@@ -52,7 +52,7 @@ Regression families expose up to five call surfaces:
 WLS takes the weight as a positional argument everywhere: `wls_fit_agg(y, x, weight[, opts])`, `wls_fit_predict(y, x, weight[, opts])`, `wls_fit_predict_agg(y, x, weight[, opts])`.
 
 Window functions exist for: `ols`, `ridge`, `elasticnet`, `wls`, `rls`, `huber`, `ransac`, `theil_sen` (`*_fit_predict`).
-Fit-predict aggregates exist for those eight plus `bls`, `alm`, `poisson`, `pls`, `isotonic`, `quantile` (`*_fit_predict_agg`). The fit-predict aggregates also accept a split column: `ols_fit_predict_agg(y, x, split_col[, opts])` trains only on rows where `split_col = 'train'`.
+Fit-predict aggregates exist for those eight plus `bls`, `alm`, `poisson`, `pls`, `isotonic`, `quantile` (`*_fit_predict_agg`). The fit-predict aggregates also accept a split column: `ols_fit_predict_agg(y, x, split_col[, opts])` trains only on rows where `lower(split_col) IN ('train', 'training')` (a NULL split is a prediction row; the `*_fit_predict_by` macros' `split :=` follows the same rule).
 
 Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(n−p)·s·sqrt(1 + x₀ᵀMx₀)`: exact for OLS (= R `predict.lm`) and WLS, ridge sandwich for Ridge, OLS-leverage approximation for Huber / RANSAC / Theil-Sen / RLS / BLS / ALM / Elastic Net. NULL when no interval exists (zero residual df, singular design); zero-width for an exact fit.
 

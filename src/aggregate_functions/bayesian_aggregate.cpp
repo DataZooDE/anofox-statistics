@@ -346,8 +346,9 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	predict_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	const string predict_description =
 	    "Fits " + label +
-	    " over a partition (training rows: y NOT NULL, or split = 'train') and returns one STRUCT per row: y, yhat, "
-	    "yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training.";
+	    " over a partition (training rows: y NOT NULL and, with split_col, split 'train' / 'training' in any "
+	    "case) and returns one STRUCT per row: y, yhat, yhat_lower / yhat_upper (posterior predictive interval at "
+	    "confidence_level, default 0.95) and is_training.";
 	const vector<vector<string>> names = {
 	    {"y", "x"}, {"y", "x", "options"}, {"y", "x", "split_col"}, {"y", "x", "split_col", "options"}};
 	const vector<string> examples = {predict_name + "(y, x)", predict_name + "(y, x, {'confidence_level': 0.9})",

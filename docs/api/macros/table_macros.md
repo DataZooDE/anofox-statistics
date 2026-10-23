@@ -60,7 +60,7 @@ passed through and the prediction columns appended.
     y_col,                   -- response column; NULL marks a row to predict
     x_cols,                  -- feature columns as a list, e.g. [x1, x2]
     options := NULL,         -- optional MAP/STRUCT of model options
-    split := NULL,           -- optional column with 'train' / other values
+    split := NULL,           -- optional column: 'train' / 'training' (any case) or other values
     order_by := NULL         -- optional column that orders the rows of each group
 ) -> TABLE
 ```
@@ -104,8 +104,13 @@ Rows are returned ordered by `group_col`.
 
 **Training rows:** without `split`, rows with a non-NULL `y` train the model
 and rows with NULL `y` are predicted. With `split`, rows whose split value is
-`'train'` or NULL (and whose `y` is not NULL) are trained on; rows with any
-other split value are predicted only.
+`'train'` or `'training'` in any case (`'Train'`, `'TRAINING'`, ...) and whose `y`
+is not NULL are trained on; rows with any other split value, or a NULL split
+value, are predicted only. This is the rule of the `split_col` argument of the
+[fit-predict aggregates](../regression/fit_predict_agg.md), so a macro and its
+aggregate called with the same split column train on the same rows. A NULL split
+value marks a training row only when `split` is omitted (or passed as the
+literal `split := NULL`).
 
 **Prediction intervals:** `yhat_lower`/`yhat_upper` are leverage-aware
 (`yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)`, see
