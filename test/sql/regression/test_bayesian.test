@@ -13,9 +13,12 @@ CREATE TABLE n AS SELECT i, (i % 2)::VARCHAR AS g,
     sin(i * 0.37) * 2 AS x1, cos(i * 0.11) AS x2, ((i * 13) % 17) / 17.0 AS x3
 FROM range(1, 401) r(i);
 
-# Stable model STRUCT (#152): no frequentist inference, posterior quantities instead
+# Stable model STRUCT (#152): no frequentist test; the inference fields carry the
+# posterior (#222): std_errors = posterior_sd, conf_low / conf_high the credible interval
 query IIIIIII
-SELECT m.model_type, m.family, m.link, m.n_observations, m.n_features, m.std_errors IS NULL AND m.p_values IS NULL AND m.conf_low IS NULL,
+SELECT m.model_type, m.family, m.link, m.n_observations, m.n_features,
+       m.std_errors = m.posterior_sd AND m.t_values IS NULL AND m.p_values IS NULL AND m.conf_level = 0.95
+       AND m.conf_low[1] < m.coefficients[1] AND m.coefficients[1] < m.conf_high[1],
        m.log_likelihood IS NULL AND m.aic IS NULL AND m.bic IS NULL
 FROM (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3]) AS m FROM n);
 ----
@@ -205,3 +208,27 @@ statement error
 SELECT ard_fit_agg(x1, [x2], {'tolerance': 'inf'::DOUBLE}) FROM n;
 ----
 tolerance must be > 0
+
+# Credible intervals (#222): mean -/+ z * posterior_sd at confidence_level, for the
+# intercept too; a wider level gives a wider interval. sklearn parity is in
+# test/sql/reference/regression_bayesian.test.
+query IIII
+SELECT abs(m.conf_high[2] - m.coefficients[2] - 1.6448536269514722 * m.posterior_sd[2]) < 1e-12,
+       abs(m.coefficients[2] - m.conf_low[2] - 1.6448536269514722 * m.posterior_sd[2]) < 1e-12,
+       m.intercept_conf_low < m.intercept AND m.intercept < m.intercept_conf_high AND m.intercept_std_error > 0,
+       m.conf_level = 0.9
+FROM (SELECT ard_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3], {'confidence_level': 0.9}) AS m FROM n);
+----
+true	true	true	true
+
+query I
+SELECT (b.conf_high[1] - b.conf_low[1]) > (a.conf_high[1] - a.conf_low[1])
+FROM (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3], {'confidence_level': 0.8}) AS a,
+             bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3], {'confidence_level': 0.99}) AS b FROM n);
+----
+true
+
+statement error
+SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3], {'confidence_level': 1.5}) FROM n;
+----
+confidence_level must be in (0, 1)

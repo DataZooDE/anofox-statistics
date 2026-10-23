@@ -10,20 +10,41 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **Bitwise-reproducible group tests (#214).** `brown_forsythe_agg`,
-  `kruskal_wallis_agg` and `one_way_anova_agg` could differ in their last bits
-  between identical runs, even with `threads = 1` and ordered input: the FFI split
-  the rows into groups through a Rust `HashMap`, whose per-instance random seed
-  changed the group (and hence summation) order on every call. The groups are now
-  ordered by label and the values within each group are sorted before the test
-  runs. The two-sample tests (`t_test_agg`, `mann_whitney_u_agg`, `yuen_agg`,
-  `brunner_munzel_agg`, `tost_t_test_agg`) and the post-hoc tests (`tukey_hsd_agg`,
-  `pairwise_t_test_agg`, `dunn_test_agg`) sort their samples the same way. The same
-  rows now give the bitwise-identical result whatever the thread count, the row
-  order or the order in which the group labels first appear. Statistics can change
-  in the last bits relative to earlier versions.
+- **Credible intervals for Bayesian Ridge / ARD (#222).** `bayesian_ridge_fit_agg` and
+  `ard_fit_agg` now fill the shared inference fields from the posterior: `std_errors`
+  is the posterior SD (`posterior_sd`, 0 for features ARD pruned), `conf_low` /
+  `conf_high` the central credible interval `coefficient ∓ z · sd` at
+  `confidence_level` (now accepted by the fit aggregates, default 0.95) and
+  `conf_level` that level. The intercept gets a flat prior: `intercept_std_error` is
+  `sqrt(1/(n·α) + x̄ᵀ Σ x̄)` with its interval in `intercept_conf_low` /
+  `intercept_conf_high`. There is no test, so `t_values`, `p_values` and the intercept
+  statistic / p-value stay NULL. `bayesian_ridge_tidy_by` / `ard_tidy_by` carry the
+  values into the `terms` rows; they are Bayesian credible intervals, not confidence
+  intervals (documented; the `terms` schema is unchanged). Validated against
+  scikit-learn 1.9.1's `sigma_` to 1e-7 (`test/sql/reference/regression_bayesian.test`;
+  the intercept SD against the inverted full posterior precision). Previously these
+  fields were NULL. Requires anofox-regression 0.5.34.
+
+- **Theil-Sen confidence intervals (#222).** New options `ci_method` (`'exact'` |
+  `'bootstrap'` | `'exact_or_none'`) and `n_bootstrap` (alias `n_boot`, default 999;
+  the existing `seed` /
+  `random_state` seeds it) for `theil_sen_fit` / `theil_sen_fit_agg` with
+  `compute_inference`. `'exact'` (the default with one feature) is Sen's (1968)
+  distribution-free slope interval with Kendall's tie-corrected variance, plus
+  Kendall's continuity-corrected z in `t_values` and its p-value; it matches R's
+  `trend::sens.slope` to 1e-12. `'bootstrap'` (the default with several features)
+  is the pairs bootstrap: bootstrap standard errors and percentile intervals for
+  every coefficient and the intercept, deterministic for a seed whatever the row
+  order or thread count; it costs about `n_bootstrap` point fits per group (about
+  8 s per group at 500 rows × 3 features). `theil_sen_tidy_by` carries the
+  intervals into `terms`; it defaults to `'exact_or_none'` (one feature: exact;
+  several features: NULL intervals and no bootstrap, so existing multi-feature
+  calls stay as fast as before) and bootstraps only with `options :=
+  {'ci_method': 'bootstrap'}` (199 resamples by default there). Previously
+  these fields were NaN / NULL (see Fixed). `n_bootstrap`
+  is also an alias of `quantile_fit_agg`'s `n_boot`.
 
 ### Changed
 
@@ -42,6 +63,36 @@ Breaking changes are called out explicitly.
   publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+
+### Fixed
+
+- **Bitwise-reproducible group tests (#214).** `brown_forsythe_agg`,
+  `kruskal_wallis_agg` and `one_way_anova_agg` could differ in their last bits
+  between identical runs, even with `threads = 1` and ordered input: the FFI split
+  the rows into groups through a Rust `HashMap`, whose per-instance random seed
+  changed the group (and hence summation) order on every call. The groups are now
+  ordered by label and the values within each group are sorted before the test
+  runs. The two-sample tests (`t_test_agg`, `mann_whitney_u_agg`, `yuen_agg`,
+  `brunner_munzel_agg`, `tost_t_test_agg`) and the post-hoc tests (`tukey_hsd_agg`,
+  `pairwise_t_test_agg`, `dunn_test_agg`) sort their samples the same way. The same
+  rows now give the bitwise-identical result whatever the thread count, the row
+  order or the order in which the group labels first appear. Statistics can change
+  in the last bits relative to earlier versions.
+
+- **Theil-Sen `compute_inference` now populates the inference fields (#222).**
+  Previously they were returned but always NaN / NULL: the upstream solver had no
+  inference, so the documented "standard errors, t-values, ... and the F-test" were
+  never computed (they were never OLS-style values). They now hold the exact or
+  bootstrap intervals described under Added. Field names are unchanged; what each
+  holds depends on the method: with `'exact'` `t_values` is Kendall's z (not a t
+  statistic) and `std_errors` is NULL; with `'bootstrap'` `t_values` / `p_values`
+  are NULL. `f_statistic` / `f_pvalue` are NULL: Theil-Sen has no F-test. Statistics
+  a method does not define are NULL, not NaN. Note the
+  cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which bootstraps
+  only on request) refit the model `n_bootstrap` times per group: on 500 rows ×
+  3 features about 8 s of CPU per group with the aggregate's 999 resamples and
+  1.4 s with tidy_by's 199. Lower `n_bootstrap`, use `'exact_or_none'` or pass
+  `{'compute_inference': false}` where that is too slow.
 
 ## [0.12.2] - 2026-10-22
 

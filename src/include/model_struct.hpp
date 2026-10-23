@@ -57,6 +57,11 @@ public:
 	//! and the F test. A null `inference` (not requested) writes NULL to all of them.
 	void WriteInference(idx_t row, const AnofoxFitResultInference *inference);
 
+	//! WriteInference for fits whose method leaves some statistics undefined (Theil-Sen
+	//! #222): an inference list with no finite entry and a NaN F test are written as
+	//! NULL ("not applicable") instead of NaN.
+	void WriteInferenceNullUndefined(idx_t row, const AnofoxFitResultInference *inference);
+
 	//! model_type, family, link, log_likelihood, aic, bic and the intercept inference.
 	//! NaN and an empty family are written as NULL.
 	void WriteSummary(idx_t row, const AnofoxModelSummaryFFI &summary);

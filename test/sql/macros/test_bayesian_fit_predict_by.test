@@ -47,12 +47,15 @@ FROM ${model}_prediction_by('src', g, x, y, [x, x2], level := 0.9);
 ----
 34	true	4	true
 
-# tidy_by: estimates only (intercept first), names label the terms
-query ITII
-SELECT count(*), list(term ORDER BY g, term), bool_and(std_error IS NULL), bool_and(model_id = '${model}')
+# tidy_by: estimates with posterior SDs and 95% credible intervals (#222; no
+# statistic / p-value), intercept first, names label the terms
+query ITIII
+SELECT count(*), list(term ORDER BY g, term), bool_and(std_error >= 0 AND conf_low <= estimate AND estimate <= conf_high
+                                                       AND conf_level = 0.95),
+       bool_and(statistic IS NULL AND p_value IS NULL), bool_and(model_id = '${model}')
 FROM ${model}_tidy_by('src', g, y, [x, x2], names := ['trend', 'cycle']);
 ----
-6	['(Intercept)', cycle, trend, '(Intercept)', cycle, trend]	true	true
+6	['(Intercept)', cycle, trend, '(Intercept)', cycle, trend]	true	true	true
 
 # glance_by: the available metrics
 query I

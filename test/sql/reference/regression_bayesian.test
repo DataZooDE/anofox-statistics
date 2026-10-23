@@ -45,7 +45,7 @@ INSERT INTO d VALUES
 (30, 2.351, -2.875, -0.444, -1.262, 1.241, 0.419);
 
 # bayesian_ridge_fit_agg: sklearn BayesianRidge() defaults
-query IIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 SELECT
     abs((m.intercept) - (1.508525723093793)) <= 1e-07 * (1 + abs(1.508525723093793)),
     abs((m.coefficients[1]) - (2.0433432228778896)) <= 1e-07 * (1 + abs(2.0433432228778896)),
@@ -59,10 +59,28 @@ SELECT
     abs((m.posterior_sd[2]) - (0.05142193196879437)) <= 1e-07 * (1 + abs(0.05142193196879437)),
     abs((m.posterior_sd[3]) - (0.07204346203950575)) <= 1e-07 * (1 + abs(0.07204346203950575)),
     abs((m.posterior_sd[4]) - (0.04617676630253036)) <= 1e-07 * (1 + abs(0.04617676630253036)),
-    m.iterations = 4
+    m.iterations = 4,
+    m.conf_level = 0.95,
+    m.t_values IS NULL AND m.p_values IS NULL,
+    abs((m.std_errors[1]) - (0.07914502412919605)) <= 1e-07 * (1 + abs(0.07914502412919605)),
+    abs((m.std_errors[2]) - (0.05142193196879437)) <= 1e-07 * (1 + abs(0.05142193196879437)),
+    abs((m.std_errors[3]) - (0.07204346203950575)) <= 1e-07 * (1 + abs(0.07204346203950575)),
+    abs((m.std_errors[4]) - (0.04617676630253036)) <= 1e-07 * (1 + abs(0.04617676630253036)),
+    abs((m.conf_low[1]) - (1.8882218260291117)) <= 1e-07 * (1 + abs(1.8882218260291117)),
+    abs((m.conf_low[2]) - (-1.0734109084617658)) <= 1e-07 * (1 + abs(-1.0734109084617658)),
+    abs((m.conf_low[3]) - (0.31135480063877397)) <= 1e-07 * (1 + abs(0.31135480063877397)),
+    abs((m.conf_low[4]) - (-0.10525888236237137)) <= 1e-07 * (1 + abs(-0.10525888236237137)),
+    abs((m.conf_high[1]) - (2.1984646197266673)) <= 1e-07 * (1 + abs(2.1984646197266673)),
+    abs((m.conf_high[2]) - (-0.8718406391131541)) <= 1e-07 * (1 + abs(-0.8718406391131541)),
+    abs((m.conf_high[3]) - (0.5937599824767936)) <= 1e-07 * (1 + abs(0.5937599824767936)),
+    abs((m.conf_high[4]) - (0.07575071538859325)) <= 1e-07 * (1 + abs(0.07575071538859325)),
+    abs((m.intercept_std_error) - (0.058205581404064316)) <= 1e-07 * (1 + abs(0.058205581404064316)),
+    abs((m.intercept_conf_low) - (1.3944448798426126)) <= 1e-07 * (1 + abs(1.3944448798426126)),
+    abs((m.intercept_conf_high) - (1.6226065663449734)) <= 1e-07 * (1 + abs(1.6226065663449734)),
+    m.intercept_statistic IS NULL AND m.intercept_p_value IS NULL
 FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3, x4]) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # bayesian_ridge_fit_predict_agg: predict(return_std=True), 95% normal band
 query IIIIIIIIIIII
@@ -83,8 +101,8 @@ FROM (SELECT bayesian_ridge_fit_predict_agg(y, [x1, x2, x3, x4], {'confidence_le
 ----
 true	true	true	true	true	true	true	true	true	true	true	true
 
-# bayesian_ridge_fit_agg: fit_intercept = false
-query IIIIIIIIIII
+# bayesian_ridge_fit_agg: fit_intercept = false, 90% credible intervals
+query IIIIIIIIIIIIIIIIIIIIIII
 SELECT
     m.intercept = 0,
     abs((m.coefficients[1]) - (2.0686855862530455)) <= 1e-07 * (1 + abs(2.0686855862530455)),
@@ -96,13 +114,25 @@ SELECT
     abs((m.posterior_sd[1]) - (0.38236622890374244)) <= 1e-07 * (1 + abs(0.38236622890374244)),
     abs((m.posterior_sd[2]) - (0.25413947539828474)) <= 1e-07 * (1 + abs(0.25413947539828474)),
     abs((m.posterior_sd[3]) - (0.33684480528899763)) <= 1e-07 * (1 + abs(0.33684480528899763)),
-    m.iterations = 5
-FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3], {'fit_intercept': false}) AS m FROM d)
+    m.iterations = 5,
+    m.conf_level = 0.9,
+    m.t_values IS NULL AND m.p_values IS NULL,
+    abs((m.std_errors[1]) - (0.38236622890374244)) <= 1e-07 * (1 + abs(0.38236622890374244)),
+    abs((m.std_errors[2]) - (0.25413947539828474)) <= 1e-07 * (1 + abs(0.25413947539828474)),
+    abs((m.std_errors[3]) - (0.33684480528899763)) <= 1e-07 * (1 + abs(0.33684480528899763)),
+    abs((m.conf_low[1]) - (1.439749107816968)) <= 1e-07 * (1 + abs(1.439749107816968)),
+    abs((m.conf_low[2]) - (-1.5848365369366881)) <= 1e-07 * (1 + abs(-1.5848365369366881)),
+    abs((m.conf_low[3]) - (0.4946278132041896)) <= 1e-07 * (1 + abs(0.4946278132041896)),
+    abs((m.conf_high[1]) - (2.6976220646891234)) <= 1e-07 * (1 + abs(2.6976220646891234)),
+    abs((m.conf_high[2]) - (-0.7487920612158621)) <= 1e-07 * (1 + abs(-0.7487920612158621)),
+    abs((m.conf_high[3]) - (1.6027486126029298)) <= 1e-07 * (1 + abs(1.6027486126029298)),
+    m.intercept_std_error IS NULL AND m.intercept_conf_low IS NULL
+FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3], {'fit_intercept': false, 'confidence_level': 0.9}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # bayesian_ridge_fit_agg: informative gamma priors, tol = 1e-6
-query IIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 SELECT
     abs((m.intercept) - (1.5084046884431292)) <= 1e-07 * (1 + abs(1.5084046884431292)),
     abs((m.coefficients[1]) - (2.044263173585243)) <= 1e-07 * (1 + abs(2.044263173585243)),
@@ -116,13 +146,31 @@ SELECT
     abs((m.posterior_sd[2]) - (0.05809612940058475)) <= 1e-07 * (1 + abs(0.05809612940058475)),
     abs((m.posterior_sd[3]) - (0.081401095141451)) <= 1e-07 * (1 + abs(0.081401095141451)),
     abs((m.posterior_sd[4]) - (0.05216862463030421)) <= 1e-07 * (1 + abs(0.05216862463030421)),
-    m.iterations = 5
+    m.iterations = 5,
+    m.conf_level = 0.95,
+    m.t_values IS NULL AND m.p_values IS NULL,
+    abs((m.std_errors[1]) - (0.0894280785127653)) <= 1e-07 * (1 + abs(0.0894280785127653)),
+    abs((m.std_errors[2]) - (0.05809612940058475)) <= 1e-07 * (1 + abs(0.05809612940058475)),
+    abs((m.std_errors[3]) - (0.081401095141451)) <= 1e-07 * (1 + abs(0.081401095141451)),
+    abs((m.std_errors[4]) - (0.05216862463030421)) <= 1e-07 * (1 + abs(0.05216862463030421)),
+    abs((m.conf_low[1]) - (1.8689873604936027)) <= 1e-07 * (1 + abs(1.8689873604936027)),
+    abs((m.conf_low[2]) - (-1.0866005195064297)) <= 1e-07 * (1 + abs(-1.0866005195064297)),
+    abs((m.conf_low[3]) - (0.29306199750806)) <= 1e-07 * (1 + abs(0.29306199750806)),
+    abs((m.conf_low[4]) - (-0.11710239462688563)) <= 1e-07 * (1 + abs(-0.11710239462688563)),
+    abs((m.conf_high[1]) - (2.2195389866768833)) <= 1e-07 * (1 + abs(2.2195389866768833)),
+    abs((m.conf_high[2]) - (-0.8588678769737803)) <= 1e-07 * (1 + abs(-0.8588678769737803)),
+    abs((m.conf_high[3]) - (0.6121484270667847)) <= 1e-07 * (1 + abs(0.6121484270667847)),
+    abs((m.conf_high[4]) - (0.08739485616988527)) <= 1e-07 * (1 + abs(0.08739485616988527)),
+    abs((m.intercept_std_error) - (0.06575414995138919)) <= 1e-07 * (1 + abs(0.06575414995138919)),
+    abs((m.intercept_conf_low) - (1.3795289227043603)) <= 1e-07 * (1 + abs(1.3795289227043603)),
+    abs((m.intercept_conf_high) - (1.6372804541818982)) <= 1e-07 * (1 + abs(1.6372804541818982)),
+    m.intercept_statistic IS NULL AND m.intercept_p_value IS NULL
 FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3, x4], {'alpha_1': 2.0, 'alpha_2': 0.5, 'lambda_1': 1.0, 'lambda_2': 3.0, 'tolerance': 1e-6, 'max_iterations': 500}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # ard_fit_agg: sklearn ARDRegression() defaults (kept: [1, 2, 3])
-query IIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 SELECT
     abs((m.intercept) - (0.47345618310186505)) <= 1e-07 * (1 + abs(0.47345618310186505)),
     abs((m.coefficients[1]) - (1.4631400137413828)) <= 1e-07 * (1 + abs(1.4631400137413828)),
@@ -137,10 +185,28 @@ SELECT
     abs((m.posterior_sd[2]) - (0.015630483888520532)) <= 1e-07 * (1 + abs(0.015630483888520532)),
     abs((m.posterior_sd[3]) - (0.049154039191854265)) <= 1e-07 * (1 + abs(0.049154039191854265)),
     abs((m.posterior_sd[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
-    m.iterations = 8
+    m.iterations = 8,
+    m.conf_level = 0.95,
+    m.t_values IS NULL AND m.p_values IS NULL,
+    abs((m.std_errors[1]) - (0.055155898445295476)) <= 1e-07 * (1 + abs(0.055155898445295476)),
+    abs((m.std_errors[2]) - (0.015630483888520532)) <= 1e-07 * (1 + abs(0.015630483888520532)),
+    abs((m.std_errors[3]) - (0.049154039191854265)) <= 1e-07 * (1 + abs(0.049154039191854265)),
+    abs((m.std_errors[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_low[1]) - (1.355036439253655)) <= 1e-07 * (1 + abs(1.355036439253655)),
+    abs((m.conf_low[2]) - (-0.023582580342740023)) <= 1e-07 * (1 + abs(-0.023582580342740023)),
+    abs((m.conf_low[3]) - (-2.155012373338252)) <= 1e-07 * (1 + abs(-2.155012373338252)),
+    abs((m.conf_low[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_high[1]) - (1.5712435882291107)) <= 1e-07 * (1 + abs(1.5712435882291107)),
+    abs((m.conf_high[2]) - (0.03768779062212762)) <= 1e-07 * (1 + abs(0.03768779062212762)),
+    abs((m.conf_high[3]) - (-1.962332080316843)) <= 1e-07 * (1 + abs(-1.962332080316843)),
+    abs((m.conf_high[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.intercept_std_error) - (0.04084718331440208)) <= 1e-07 * (1 + abs(0.04084718331440208)),
+    abs((m.intercept_conf_low) - (0.3933971749357315)) <= 1e-07 * (1 + abs(0.3933971749357315)),
+    abs((m.intercept_conf_high) - (0.5535151912679985)) <= 1e-07 * (1 + abs(0.5535151912679985)),
+    m.intercept_statistic IS NULL AND m.intercept_p_value IS NULL
 FROM (SELECT ard_fit_agg(y_ard, [x1, x2, x3, x4]) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # ard_fit_predict_agg: predict(return_std=True), 90% normal band
 query IIIIIIIIIIII
@@ -161,8 +227,8 @@ FROM (SELECT ard_fit_predict_agg(y_ard, [x1, x2, x3, x4], {'confidence_level': 0
 ----
 true	true	true	true	true	true	true	true	true	true	true	true
 
-# ard_fit_agg: threshold_lambda = 50 (kept: [1, 3])
-query IIIIIIIIIIIII
+# ard_fit_agg: threshold_lambda = 50 (kept: [1, 3]), 80% credible intervals
+query IIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 SELECT
     abs((m.intercept) - (0.4722438054415435)) <= 1e-07 * (1 + abs(0.4722438054415435)),
     abs((m.coefficients[1]) - (1.462405930007049)) <= 1e-07 * (1 + abs(1.462405930007049)),
@@ -176,7 +242,25 @@ SELECT
     abs((m.posterior_sd[2]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
     abs((m.posterior_sd[3]) - (0.048847587383907286)) <= 1e-07 * (1 + abs(0.048847587383907286)),
     abs((m.posterior_sd[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
-    m.iterations = 4
-FROM (SELECT ard_fit_agg(y_ard, [x1, x2, x3, x4], {'threshold_lambda': 50}) AS m FROM d)
+    m.iterations = 4,
+    m.conf_level = 0.8,
+    m.t_values IS NULL AND m.p_values IS NULL,
+    abs((m.std_errors[1]) - (0.05532335766517918)) <= 1e-07 * (1 + abs(0.05532335766517918)),
+    abs((m.std_errors[2]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.std_errors[3]) - (0.048847587383907286)) <= 1e-07 * (1 + abs(0.048847587383907286)),
+    abs((m.std_errors[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_low[1]) - (1.3915061943800549)) <= 1e-07 * (1 + abs(1.3915061943800549)),
+    abs((m.conf_low[2]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_low[3]) - (-2.1243426717878515)) <= 1e-07 * (1 + abs(-2.1243426717878515)),
+    abs((m.conf_low[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_high[1]) - (1.5333056656340434)) <= 1e-07 * (1 + abs(1.5333056656340434)),
+    abs((m.conf_high[2]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.conf_high[3]) - (-1.9991412676180056)) <= 1e-07 * (1 + abs(-1.9991412676180056)),
+    abs((m.conf_high[4]) - (0.0)) <= 1e-07 * (1 + abs(0.0)),
+    abs((m.intercept_std_error) - (0.04089973081862466)) <= 1e-07 * (1 + abs(0.04089973081862466)),
+    abs((m.intercept_conf_low) - (0.4198286913805823)) <= 1e-07 * (1 + abs(0.4198286913805823)),
+    abs((m.intercept_conf_high) - (0.5246589195025047)) <= 1e-07 * (1 + abs(0.5246589195025047)),
+    m.intercept_statistic IS NULL AND m.intercept_p_value IS NULL
+FROM (SELECT ard_fit_agg(y_ard, [x1, x2, x3, x4], {'threshold_lambda': 50, 'confidence_level': 0.8}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true

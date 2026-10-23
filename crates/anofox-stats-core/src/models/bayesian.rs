@@ -4,7 +4,8 @@
 //! (scikit-learn's `BayesianRidge` / `ARDRegression`): empirical-Bayes linear
 //! models whose noise precision `alpha` and weight precision(s) `lambda` are
 //! estimated by evidence maximisation. Prediction intervals come from the
-//! posterior predictive distribution.
+//! posterior predictive distribution, coefficient intervals (#222) are the
+//! central credible intervals of the Gaussian posterior.
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::ModelSummary;
@@ -27,6 +28,8 @@ pub struct BayesianOptions {
     pub lambda_2: f64,
     /// ARD only: features whose precision reaches this value are pruned.
     pub threshold_lambda: f64,
+    /// Level of the coefficient credible intervals.
+    pub confidence_level: f64,
 }
 
 impl Default for BayesianOptions {
@@ -40,6 +43,7 @@ impl Default for BayesianOptions {
             lambda_1: 1e-6,
             lambda_2: 1e-6,
             threshold_lambda: 10_000.0,
+            confidence_level: 0.95,
         }
     }
 }
@@ -61,6 +65,10 @@ pub struct BayesianFitResult {
     pub weight_precisions: Vec<f64>,
     /// Posterior standard deviation of each coefficient (0 for pruned features).
     pub posterior_sd: Vec<f64>,
+    /// Central credible interval `coef ± z · posterior_sd` at `confidence_level`.
+    pub credible_lower: Vec<f64>,
+    pub credible_upper: Vec<f64>,
+    pub confidence_level: f64,
     pub iterations: usize,
     /// Bayesian Ridge: log marginal likelihood (evidence); NaN for ARD.
     pub log_marginal_likelihood: f64,
@@ -113,6 +121,15 @@ fn validate_options(options: &BayesianOptions) -> StatsResult<()> {
         return Err(StatsError::InvalidValue {
             field: "max_iterations",
             message: "max_iterations must be at least 1".to_string(),
+        });
+    }
+    if !(options.confidence_level > 0.0 && options.confidence_level < 1.0) {
+        return Err(StatsError::InvalidValue {
+            field: "confidence_level",
+            message: format!(
+                "confidence_level must be in (0, 1), got {}",
+                options.confidence_level
+            ),
         });
     }
     if options.threshold_lambda.is_nan() || options.threshold_lambda <= 0.0 {
@@ -189,11 +206,12 @@ pub fn fit_bayesian(
     let (y_col, x_mat) = design(y, x)?;
     let fitted = fit(&y_col, &x_mat, options, ard)?;
     let result = fitted.regressor().result();
+    let level = options.confidence_level;
     let (
         noise_precision,
         weight_precision,
         weight_precisions,
-        sigma_diag,
+        credible,
         iterations,
         evidence,
         info,
@@ -202,7 +220,7 @@ pub fn fit_bayesian(
             f.alpha(),
             f.lambda(),
             Vec::new(),
-            f.sigma_diag(),
+            f.credible_intervals(level),
             f.n_iter(),
             f.log_marginal_likelihood(),
             f.model_info(),
@@ -211,12 +229,20 @@ pub fn fit_bayesian(
             f.alpha(),
             f64::NAN,
             f.lambdas().to_vec(),
-            f.sigma_diag(),
+            f.credible_intervals(level),
             f.n_iter(),
             f64::NAN,
             f.model_info(),
         ),
     };
+    // Credible intervals, not a frequentist test: no statistic or p-value.
+    let mut summary = ModelSummary::from_result(info, result, false);
+    summary.set_intercept_inference(
+        credible.intercept_sd,
+        None,
+        None,
+        credible.intercept_interval,
+    );
     Ok(BayesianFitResult {
         coefficients: result.coefficients.iter().copied().collect(),
         intercept: result.intercept,
@@ -226,10 +252,13 @@ pub fn fit_bayesian(
         noise_precision,
         weight_precision,
         weight_precisions,
-        posterior_sd: sigma_diag.iter().map(|v| v.max(0.0).sqrt()).collect(),
+        posterior_sd: credible.sd,
+        credible_lower: credible.lower,
+        credible_upper: credible.upper,
+        confidence_level: level,
         iterations,
         log_marginal_likelihood: evidence,
-        summary: ModelSummary::from_result(info, result, false),
+        summary,
     })
 }
 
@@ -302,6 +331,31 @@ mod tests {
         assert_eq!(r.posterior_sd.len(), 3);
         assert!(r.log_marginal_likelihood.is_finite());
         assert!(r.summary.log_likelihood.is_nan());
+    }
+
+    #[test]
+    fn credible_intervals_from_the_posterior() {
+        let (y, x) = data();
+        let opts = BayesianOptions {
+            confidence_level: 0.9,
+            ..Default::default()
+        };
+        let z = 1.644_853_626_951_472_2;
+        for ard in [false, true] {
+            let r = fit_bayesian(&y, &x, &opts, ard).unwrap();
+            assert_eq!(r.confidence_level, 0.9);
+            for j in 0..3 {
+                let half = z * r.posterior_sd[j];
+                assert!((r.credible_lower[j] - (r.coefficients[j] - half)).abs() < 1e-12);
+                assert!((r.credible_upper[j] - (r.coefficients[j] + half)).abs() < 1e-12);
+            }
+            let s = &r.summary;
+            assert!(s.intercept_std_error > 0.0);
+            assert!(s.intercept_statistic.is_nan() && s.intercept_p_value.is_nan());
+            let b0 = r.intercept.unwrap();
+            assert!((s.intercept_conf_low - (b0 - z * s.intercept_std_error)).abs() < 1e-12);
+            assert!((s.intercept_conf_high - (b0 + z * s.intercept_std_error)).abs() < 1e-12);
+        }
     }
 
     #[test]

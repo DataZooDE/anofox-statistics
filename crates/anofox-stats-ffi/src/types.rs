@@ -968,6 +968,13 @@ pub struct TheilSenOptionsFFI {
 
     pub n_subsamples_set: bool,
     pub n_subsamples_value: usize,
+
+    /// Interval method with `compute_inference`: 0 = auto (exact for one
+    /// feature, bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap,
+    /// 3 = exact where it applies, otherwise no intervals.
+    pub ci_method: i32,
+    /// Bootstrap resamples (seeded by `random_state`).
+    pub n_bootstrap: u32,
 }
 
 impl Default for TheilSenOptionsFFI {
@@ -982,6 +989,8 @@ impl Default for TheilSenOptionsFFI {
             random_state: 0,
             n_subsamples_set: false,
             n_subsamples_value: 0,
+            ci_method: 0,
+            n_bootstrap: 999,
         }
     }
 }

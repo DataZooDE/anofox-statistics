@@ -29,8 +29,8 @@ use anofox_stats_core::{
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
     IsotonicOptions, LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions,
     NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions, PoissonLink, PoissonOptions,
-    QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenOptions,
-    TweedieOptions, WlsOptions,
+    QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenCiMethod,
+    TheilSenOptions, TweedieOptions, WlsOptions,
 };
 use std::slice;
 
@@ -897,6 +897,13 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
             random_state: options.random_state,
             compute_inference: options.compute_inference,
             confidence_level: options.confidence_level,
+            ci_method: match options.ci_method {
+                1 => TheilSenCiMethod::Exact,
+                2 => TheilSenCiMethod::Bootstrap,
+                _ => TheilSenCiMethod::Auto,
+            },
+            n_bootstrap: options.n_bootstrap as usize,
+            skip_bootstrap: options.ci_method == 3,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

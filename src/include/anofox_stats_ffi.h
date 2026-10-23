@@ -375,6 +375,13 @@ typedef struct {
 
 	bool n_subsamples_set;
 	size_t n_subsamples_value;
+
+	/** Interval method with compute_inference: 0 = auto (exact for one feature,
+	 *  bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap, 3 = exact where it
+	 *  applies, otherwise no intervals ('exact_or_none'). */
+	int32_t ci_method;
+	/** Bootstrap resamples (seeded by random_state). */
+	uint32_t n_bootstrap;
 } AnofoxTheilSenOptions;
 
 /**
@@ -3175,10 +3182,13 @@ typedef struct {
 	double lambda_2;
 	/** ARD only: features whose precision reaches this value are pruned. */
 	double threshold_lambda;
+	/** Level of the coefficient credible intervals. */
+	double confidence_level;
 } AnofoxBayesianOptions;
 
 /**
- * A fitted Bayesian Ridge / ARD model. coefficients and posterior_sd have
+ * A fitted Bayesian Ridge / ARD model. coefficients, posterior_sd and the
+ * credible bounds credible_lower / credible_upper (at confidence_level) have
  * coefficients_len entries; weight_precisions (ARD) has weight_precisions_len
  * (0 and NULL for Bayesian Ridge). Must match BayesianFitResultFFI.
  */
@@ -3191,8 +3201,11 @@ typedef struct {
 	double weight_precision;
 	/** Log marginal likelihood (evidence); NaN for ARD. */
 	double log_marginal_likelihood;
+	double confidence_level;
 	double *coefficients;
 	double *posterior_sd;
+	double *credible_lower;
+	double *credible_upper;
 	double *weight_precisions;
 	size_t coefficients_len;
 	size_t weight_precisions_len;

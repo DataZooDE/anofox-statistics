@@ -456,6 +456,9 @@ impl Default for RansacOptions {
     }
 }
 
+/// Interval method of Theil-Sen inference (#222).
+pub use anofox_regression::solvers::TheilSenCiMethod;
+
 /// Options for Theil-Sen robust regression
 #[derive(Debug, Clone)]
 pub struct TheilSenOptions {
@@ -472,12 +475,19 @@ pub struct TheilSenOptions {
     pub tolerance: f64,
     /// Random seed for the trial subsampler.
     pub random_state: u64,
-    /// Whether to compute inference statistics. Theil-Sen does not produce
-    /// analytical confidence intervals upstream; populated only when the
-    /// underlying RegressionResult exposes asymptotic SEs.
+    /// Whether to compute coefficient intervals: Sen's exact interval with
+    /// Kendall's test (one feature) or the pairs bootstrap.
     pub compute_inference: bool,
-    /// Confidence level (kept for API parity).
+    /// Level of the intervals.
     pub confidence_level: f64,
+    /// Interval method; `Auto` = exact for one feature, bootstrap otherwise.
+    pub ci_method: TheilSenCiMethod,
+    /// Bootstrap resamples (seeded by `random_state`).
+    pub n_bootstrap: usize,
+    /// Compute intervals only where the exact method applies (one feature with
+    /// an intercept); otherwise return no inference instead of bootstrapping
+    /// (`ci_method := 'exact_or_none'`, the `theil_sen_tidy_by` default).
+    pub skip_bootstrap: bool,
 }
 
 impl Default for TheilSenOptions {
@@ -491,6 +501,9 @@ impl Default for TheilSenOptions {
             random_state: 0,
             compute_inference: false,
             confidence_level: 0.95,
+            ci_method: TheilSenCiMethod::Auto,
+            n_bootstrap: 999,
+            skip_bootstrap: false,
         }
     }
 }

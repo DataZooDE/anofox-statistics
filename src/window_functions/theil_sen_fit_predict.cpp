@@ -303,6 +303,8 @@ static void TheilSenFitPredictFinalize(Vector &state_vector, AggregateInputData 
         options.random_state = state.random_state;
         options.n_subsamples_set = state.n_subsamples_set;
         options.n_subsamples_value = state.n_subsamples_value;
+        options.ci_method = 0; // fit-predict: no coefficient inference
+        options.n_bootstrap = 999;
 
         AnofoxFitResultCore core_result;
         AnofoxError error;

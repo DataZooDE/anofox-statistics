@@ -36,14 +36,14 @@ static_assert(offsetof(AnofoxPartialResidualsResult, n_terms) == 5 * sizeof(doub
                       5 * sizeof(double *) + 2 * sizeof(size_t),
               "AnofoxPartialResidualsResult must match PartialResidualsResultFFI");
 // #61 (crates/anofox-stats-ffi/src/models_ffi.rs).
-static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 5 * sizeof(double) &&
+static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 6 * sizeof(double) &&
                   offsetof(AnofoxBayesianFitResult, summary) ==
-                      5 * sizeof(double) + 3 * sizeof(double *) + 5 * sizeof(size_t) &&
+                      6 * sizeof(double) + 5 * sizeof(double *) + 5 * sizeof(size_t) &&
                   sizeof(AnofoxBayesianFitResult) ==
                       offsetof(AnofoxBayesianFitResult, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxBayesianFitResult must match BayesianFitResultFFI");
 static_assert(offsetof(AnofoxBayesianOptions, tolerance) == sizeof(double) &&
-                  sizeof(AnofoxBayesianOptions) == 7 * sizeof(double),
+                  sizeof(AnofoxBayesianOptions) == 8 * sizeof(double),
               "AnofoxBayesianOptions must match BayesianOptionsFFI");
 // #63 (crates/anofox-stats-ffi/src/models_ffi.rs).
 static_assert(offsetof(AnofoxPassiveAggressiveOptions, max_epochs) == 4 &&
@@ -244,6 +244,39 @@ void ModelStructWriter::WriteInference(idx_t row, const AnofoxFitResultInference
 	}
 	if (auto f = Field("f_pvalue")) {
 		FlatDataMut<double>(*f)[row] = inference->f_pvalue;
+	}
+}
+
+static bool AllNaN(const double *data, size_t len) {
+	if (!data) {
+		return true;
+	}
+	for (size_t i = 0; i < len; i++) {
+		if (!std::isnan(data[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void ModelStructWriter::WriteInferenceNullUndefined(idx_t row, const AnofoxFitResultInference *inference) {
+	if (!inference || (!inference->std_errors && !inference->ci_lower)) {
+		WriteInference(row, nullptr); // no inference computed: all NULL
+		return;
+	}
+	AnofoxFitResultInference shown = *inference;
+	auto len = shown.len;
+	for (double **list : {&shown.std_errors, &shown.t_values, &shown.p_values, &shown.ci_lower, &shown.ci_upper}) {
+		if (len > 0 && AllNaN(*list, len)) {
+			*list = nullptr; // WriteList writes a NULL list
+		}
+	}
+	WriteInference(row, &shown);
+	if (std::isnan(shown.f_statistic)) {
+		WriteNull(Field("f_statistic"), row);
+	}
+	if (std::isnan(shown.f_pvalue)) {
+		WriteNull(Field("f_pvalue"), row);
 	}
 }
 
