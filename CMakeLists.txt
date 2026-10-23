@@ -204,6 +204,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
     src/aggregate_functions/pairwise_posthoc_aggregate.cpp
+    src/aggregate_functions/p_adjust_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp
     src/aggregate_functions/spearman_aggregate.cpp
     src/aggregate_functions/mann_whitney_aggregate.cpp

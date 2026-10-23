@@ -138,6 +138,7 @@ fitted model struct).
 | Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
+| Multiple testing | `p_adjust_by`, `p_adjust_agg`, `p_adjust_list` | [Hypothesis tests](api/statistics/hypothesis.md#multiple-testing) |
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
@@ -1205,6 +1206,34 @@ The `_by` table macros run the test within each group of a table and return the
 SELECT category, group1, group2, estimate, p_adj
 FROM tukey_hsd_by('reg_data', category, y, grp3);
 ```
+
+### Multiple Testing
+
+Adjust p-values from any tests for multiple comparisons, as R
+`p.adjust(p, method, n)` (#219). `method`: 'holm' (default), 'hochberg', 'hommel',
+'bonferroni', 'BH' (alias 'fdr'), 'BY', 'none'; case-insensitive, an unknown
+method is an error. NULL p-values stay NULL and are not counted. `n` (number of
+hypotheses) defaults to the number of non-NULL p-values and may not be smaller.
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | every source row, in source order, with `p_adjusted` (one family per group) |
+| `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in input order (use `ORDER BY` inside the call); constant `method`/`n` |
+| `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in list order |
+
+```sql
+CREATE OR REPLACE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('bp', 'dose_a', 0.001)) t(endpoint, test, p_value);
+SELECT * FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+SELECT endpoint, p_adjust_agg(p_value, 'holm' ORDER BY test) FROM results GROUP BY endpoint;
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'BY');
+```
+
+A `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible in DuckDB
+1.x (a window aggregate cannot tell which row of a whole-partition frame it
+computes); `p_adjust_by` gives the row-aligned result. For inline use, Bonferroni,
+Holm and BH can also be written with plain window functions; see
+[Multiple Testing](api/statistics/hypothesis.md#row-aligned-with-plain-window-functions).
 
 ## Classifier Evaluation
 

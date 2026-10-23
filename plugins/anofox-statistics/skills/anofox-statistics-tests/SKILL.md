@@ -12,6 +12,8 @@ description: >
   Kruskal-Wallis, Wilcoxon signed-rank, Brunner-Munzel, permutation t-test),
   pairwise post-hoc tests (pairwise_t_test_agg, tukey_hsd_agg,
   dunn_test_agg and their _by macros, p_adjust holm / BH / bonferroni),
+  multiple-testing correction of any p-values (p_adjust_by, p_adjust_agg,
+  p_adjust_list; R p.adjust),
   correlation (Pearson, Spearman, Kendall, distance correlation, ICC),
   categorical / contingency tests (chi-squared, chi-squared GOF, G-test,
   Fisher's exact, McNemar), effect sizes (Cramér's V, phi, contingency
@@ -143,6 +145,15 @@ user-invocable: false
 
 The aggregates return `LIST<STRUCT(group1, group2, estimate, statistic, p_value, p_adj, conf_low, conf_high, method, df1, alternative, conf_level, p_adjust_method)>`, one entry per pair, with `estimate = group2 - group1`; read them with `unnest(…, recursive := true)`. `p_adjust` takes R's `p.adjust` methods: `holm`, `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`. The `_by` macros return the group column, `model_id`, `test_id`, `method`, `statistic`, `p_value`, `group1`, `group2`, `p_adj`, `df1`, `df2`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`, `effect_name`, `alternative`, `p_adjust_method`.
 
+### Multiple testing (adjust any p-values)
+| Function | Use |
+|---|---|
+| `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row (source order) with `p_adjusted`; one family per group. The row-aligned form |
+| `p_adjust_agg(p[, method[, n]] ORDER BY …)` | `DOUBLE[]` per group, in input order; `method`/`n` constant |
+| `p_adjust_list(p_list[, method[, n]])` | `DOUBLE[]` for a list of p-values |
+
+R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. There is no `p_adjust(...) OVER (...)` window function (DuckDB 1.x window aggregates can't produce per-row values over a whole partition); use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
+
 ### Residual autocorrelation and heteroskedasticity
 | Function | Test |
 |---|---|
@@ -212,6 +223,16 @@ SELECT unnest(tukey_hsd_agg(response, arm), recursive := true) FROM trial;
 SELECT site, group1, group2, round(p_adj, 4) AS p_adj, round(conf_low, 3) AS lo, round(conf_high, 3) AS hi
 FROM pairwise_t_test_by('trial', site, response, arm, options := {'p_adjust': 'holm'})
 ORDER BY site, group1, group2;
+```
+
+```sql
+-- Benjamini-Hochberg within each endpoint, for p-values from any tests
+CREATE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('weight', 'dose_c', 0.200),
+    ('bp', 'dose_a', 0.001), ('bp', 'dose_b', 0.049)) t(endpoint, test, p_value);
+SELECT endpoint, test, p_value, p_adjusted
+FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'holm', 10);  -- 10 hypotheses, 3 observed
 ```
 
 ```sql

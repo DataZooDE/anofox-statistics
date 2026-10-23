@@ -139,6 +139,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterMannWhitneyAggregateFunction(loader);
     RegisterAnovaAggregateFunction(loader);
     RegisterPairwisePosthocAggregateFunctions(loader);
+    RegisterPAdjustFunctions(loader);
     RegisterKruskalWallisAggregateFunction(loader);
     RegisterChiSquareAggregateFunction(loader);
 

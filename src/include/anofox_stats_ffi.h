@@ -2440,6 +2440,14 @@ bool anofox_tukey_hsd(AnofoxDataArray values, const uint64_t *groups, double con
 bool anofox_dunn_test(AnofoxDataArray values, const uint64_t *groups, const char *p_adjust,
                       AnofoxPairwiseResult *out_result, AnofoxError *out_error);
 
+/**
+ * Adjust p-values for multiple testing (R p.adjust(p, method, n), #219). NULL/NaN
+ * entries pass through as NaN and are not counted; n < 0 means the number of
+ * non-NULL p-values, and a smaller n is an error. p_adjust NULL means holm.
+ * out has p.len doubles; with p.len == 0 the call only validates p_adjust and n.
+ */
+bool anofox_p_adjust(AnofoxDataArray p, const char *p_adjust, int64_t n, double *out, AnofoxError *out_error);
+
 /** Free the rows of a pairwise result. */
 void anofox_free_pairwise_result(AnofoxPairwiseResult *result);
 

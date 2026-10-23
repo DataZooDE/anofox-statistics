@@ -537,6 +537,29 @@ FROM (
 ) sub
 )"},
 
+    // p_adjust_by: multiple-testing correction per group (issue #219)
+    // C++ API: p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)
+    // Adjusts the p-values of each group with p_adjust_agg (R p.adjust) and aligns
+    // them back to their rows through a row id: one aggregate per group, so the
+    // cost is linear (a windowed list per row would be quadratic).
+    // Returns: all source columns + p_adjusted, in source order
+    {"p_adjust_by", {"source", "group_col", "p_col", nullptr}, {{"method", "'holm'"}, {"n", "NULL"}},
+R"(
+WITH _anofox_src AS MATERIALIZED (
+    SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR)
+),
+_anofox_adj AS (
+    SELECT
+        UNNEST(list(_anofox_rid ORDER BY _anofox_rid)) AS _anofox_rid,
+        UNNEST(p_adjust_agg(p_col, method, n ORDER BY _anofox_rid)) AS p_adjusted
+    FROM _anofox_src
+    GROUP BY group_col
+)
+SELECT _anofox_src.* EXCLUDE (_anofox_rid), _anofox_adj.p_adjusted
+FROM _anofox_src JOIN _anofox_adj USING (_anofox_rid)
+ORDER BY _anofox_src._anofox_rid
+)"},
+
     // poisson_fit_predict_by: Poisson GLM fit and predict per group (long format)
     // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
@@ -932,6 +955,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
+    {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},
     {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group.", "aid_by('sales', product_id, demand)", "demand-analysis"},
     {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
     {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
