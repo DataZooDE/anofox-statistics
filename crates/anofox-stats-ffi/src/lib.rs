@@ -22,8 +22,9 @@ use anofox_stats_core::{
         eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_gamma, fit_glmm,
         fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
         fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
-        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution, AftOptions,
-        EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions, TauMethod,
+        fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, predict, AftDistribution,
+        AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, NestedFTestOptions, RlsOptions,
+        TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -10211,6 +10212,107 @@ pub unsafe extern "C" fn anofox_mediation(
                     r_squared_outcome: r.r_squared_outcome,
                     n_obs: r.n_obs,
                     n_sims: r.n_sims,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}
+
+// =============================================================================
+// Nested-model F test of two OLS fits — issue #221
+// =============================================================================
+
+/// Result of `anofox_ols_anova`. NaN marks a value that does not apply (the
+/// statistic and p-value when the full model adds no rank or leaves no
+/// residual degrees of freedom).
+#[repr(C)]
+pub struct OlsAnovaResultFFI {
+    pub statistic: f64,
+    pub df1: f64,
+    pub df2: f64,
+    pub p_value: f64,
+    pub rss_reduced: f64,
+    pub rss_full: f64,
+    pub adj_r_squared_reduced: f64,
+    pub adj_r_squared_full: f64,
+    pub delta_adj_r_squared: f64,
+    pub n_observations: usize,
+    /// Unified test fields (#159); keep last
+    pub unified: TestSummaryFFI,
+}
+
+/// Nested-model F test (R's `anova(lm(reduced), lm(full))`) of the OLS fit of
+/// `y` on the `x_reduced` columns against the fit on the `x_full` columns.
+/// `x_reduced` may be empty (the intercept-only model); its columns must lie in
+/// the span of `x_full` (`INVALID_INPUT` otherwise).
+///
+/// # Safety
+/// `x_reduced` must point to `x_reduced_count` valid `AnofoxDataArray`s (it may
+/// be NULL when the count is 0) and `x_full` to `x_full_count`, each as long as
+/// `y`. `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_ols_anova(
+    y: DataArray,
+    x_reduced: *const DataArray,
+    x_reduced_count: usize,
+    x_full: *const DataArray,
+    x_full_count: usize,
+    fit_intercept: bool,
+    out_result: *mut OlsAnovaResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if out_result.is_null() || x_full.is_null() || (x_reduced.is_null() && x_reduced_count > 0)
+        {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_result or x is NULL");
+            }
+            return false;
+        }
+
+        let columns = |ptr: *const DataArray, count: usize| -> Vec<Vec<f64>> {
+            if count == 0 {
+                return Vec::new();
+            }
+            slice::from_raw_parts(ptr, count)
+                .iter()
+                .map(|arr| arr.to_vec())
+                .collect()
+        };
+        let options = NestedFTestOptions {
+            with_intercept: fit_intercept,
+            ..Default::default()
+        };
+
+        match ols_anova(
+            &y.to_vec(),
+            &columns(x_reduced, x_reduced_count),
+            &columns(x_full, x_full_count),
+            &options,
+        ) {
+            Ok(r) => {
+                *out_result = OlsAnovaResultFFI {
+                    statistic: r.f_statistic,
+                    df1: r.df1 as f64,
+                    df2: r.df2 as f64,
+                    p_value: r.p_value,
+                    rss_reduced: r.rss_reduced,
+                    rss_full: r.rss_full,
+                    adj_r_squared_reduced: r.adj_r_squared_reduced,
+                    adj_r_squared_full: r.adj_r_squared_full,
+                    delta_adj_r_squared: r.delta_adj_r_squared(),
+                    n_observations: r.n_observations,
+                    unified: TestSummaryFFI::from(&r),
                 };
                 true
             }

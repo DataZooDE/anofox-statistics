@@ -12,6 +12,8 @@ and optional heteroscedasticity-consistent (HC0-HC3) standard errors.
 | `ols_fit_predict` | Window aggregate | Fit and predict per window frame, see [Window fit-predict](fit_predict_window.md) |
 | `ols_fit_predict_agg` | Aggregate | Fit and predict every row of a group, see [Fit-predict aggregates](fit_predict_agg.md) |
 | `ols_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#ols_fit_predict_by) |
+| `ols_anova_agg` | Aggregate | Nested-model F test (reduced vs full model), see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
+| `ols_anova_by` | Table macro | Nested-model F test per group, see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 
 ## ols_fit
 
@@ -157,10 +159,81 @@ Always present:
 - A feature that is constant over the fitted rows cannot be estimated; its
   coefficient is returned as NaN (aliased) rather than failing the whole fit.
 
+## Nested-model F test: ols_anova_agg / ols_anova_by
+
+Do the extra regressors improve the model? `ols_anova_agg` fits two nested OLS
+models on the same rows and returns the F test of the reduced model against
+the full one, as R's `anova(lm(y ~ x_reduced), lm(y ~ x_full))`, together with
+the adjusted R² of both models ("before" and "after").
+
+**Signatures:**
+
+```text
+ols_anova_agg(y DOUBLE, x_reduced DOUBLE[], x_full DOUBLE[] [, options MAP]) -> STRUCT
+ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...], options := NULL) -> TABLE
+```
+
+- **Nesting.** Every `x_reduced` column must also be a column of `x_full`; more
+  precisely, it must lie in the span of the full design, so a rescaled or
+  shifted copy (`2 * price + 1`) also counts. Otherwise the call raises
+  `x_reduced is not nested in x_full`.
+- **Intercept-only reduced model.** `x_reduced := []` (the macro's default)
+  compares the full model with the intercept-only model. That reproduces the
+  overall F test of `ols_fit_agg` (its `f_statistic` with `compute_inference`).
+- **Same rows.** A row is used by both fits only when `y`, both lists and every
+  list element are non-NULL and finite.
+- **Options.** `fit_intercept` (default `true`) applies to both models.
+- **Rank deficiency.** As in R, parameters are counted by the numerical rank,
+  so an aliased (collinear) column adds no degree of freedom. When the full
+  model adds nothing (`df1 = 0`) or leaves no residual degrees of freedom
+  (`df2 = 0`), `statistic` and `p_value` are NULL (R's `NA`; never NaN, so
+  `avg()` and other aggregates over the results skip them). A group with fewer rows than
+  the full model has parameters returns NULL.
+
+The aggregate's STRUCT follows the integration contract's `test` schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `method` | `VARCHAR` | `'nested F'` |
+| `statistic` | `DOUBLE` | `F = ((RSS_r − RSS_f) / df1) / (RSS_f / df2)` |
+| `df1` | `DOUBLE` | Parameters the full model adds (`p_full − p_reduced`) |
+| `df2` | `DOUBLE` | Residual degrees of freedom of the full model (`n − p_full`) |
+| `p_value` | `DOUBLE` | Upper tail of `F(df1, df2)` |
+| `rss_reduced`, `rss_full` | `DOUBLE` | Residual sums of squares |
+| `adj_r_squared_reduced`, `adj_r_squared_full` | `DOUBLE` | Adjusted R² of each model, as `summary(lm(...))$adj.r.squared` |
+| `delta_adj_r_squared` | `DOUBLE` | `adj_r_squared_full − adj_r_squared_reduced` |
+| `n_observations` | `BIGINT` | Rows used by both fits |
+| `alternative`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`, `effect_name` | | Unified `test` fields; NULL here |
+| `n` | `BIGINT` | Same as `n_observations` |
+
+`ols_anova_by` returns one row per group: the group column, `id` (the group as
+text), `model_id` / `model_name` (`'ols'`), then `method`, `statistic`,
+`p_value`, `df1`, `df2`, `rss_reduced`, `rss_full`, `adj_r_squared_reduced`,
+`adj_r_squared_full`, `delta_adj_r_squared` and `n_observations`.
+
+**Example** (continues with `ols_demo` from above):
+
+```sql
+-- Does ads improve on price alone, per region?
+SELECT region, round((r).statistic, 3) AS f, (r).df1, (r).df2, (r).p_value < 0.05 AS significant,
+       round((r).delta_adj_r_squared, 4) AS delta_adj_r2
+FROM (SELECT region, ols_anova_agg(sales, [price], [price, ads]) AS r FROM ols_demo GROUP BY region)
+ORDER BY region;
+
+-- The same as a table macro; x_reduced := [] would test the whole model.
+SELECT region, round(statistic, 3) AS f, df1, df2, round(adj_r_squared_reduced, 4) AS before,
+       round(adj_r_squared_full, 4) AS after
+FROM ols_anova_by('ols_demo', region, sales, x_reduced := [price], x_full := [price, ads]);
+```
+
+Sequential (type I) and partial (type II) ANOVA tables per term are not
+available yet.
+
 ## Use Cases
 
 - Standard linear regression and baseline models
 - When inference (p-values, confidence intervals) is needed
+- Testing whether added regressors improve a model (`ols_anova_agg` / `ols_anova_by`)
 - Robust inference under heteroscedasticity via `hc_type`
 
 ## See Also

@@ -84,6 +84,24 @@ Breaking changes are called out explicitly.
   and the sensitivity analysis are not supported. See
   [Mediation](docs/api/statistics/mediation.md).
 
+- **`ols_anova_agg` / `ols_anova_by`: nested-model F test (#221).** Tests whether a full
+  OLS model fits significantly better than a reduced one, as R's
+  `anova(lm(y ~ x_reduced), lm(y ~ x_full))`, with both fits on the same rows (a row is
+  dropped when `y` or any list element is NULL). `ols_anova_agg(y, x_reduced, x_full[, options])`
+  returns the contract `test` fields (`method = 'nested F'`, `statistic`, `df1`, `df2`,
+  `p_value`, ...) plus `rss_reduced`, `rss_full`, the adjusted R² of both models
+  (`adj_r_squared_reduced` / `adj_r_squared_full`), `delta_adj_r_squared` and
+  `n_observations`. `ols_anova_by(source, group_col, y_col, x_reduced := [...], x_full := [...])`
+  returns one row per group with `id` = the group and `model_id = 'ols'` (#187), and both are
+  tagged as `test` producers. The `x_reduced` columns must lie in the span of `x_full`
+  (an error otherwise), and `x_reduced := []` (the macro's default) is the intercept-only model,
+  i.e. the overall F test. Degrees of freedom count the numerical rank as R does, so aliased
+  columns add none; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`;
+  upstream's NaN is never passed through, so `avg()` over the results is not poisoned). The fits and the test come from
+  anofox-regression 0.5.32 (`inference::nested_f_test`), which is validated against R, including
+  `df1 = 1` (F = t²), the intercept-only and no-intercept models and a rank-deficient design.
+  Sequential (type I) and partial (type II) per-term ANOVA tables are not included.
+
 ### Changed
 
 - **Behaviour change: the Monte Carlo tests are seeded by default (#214).**

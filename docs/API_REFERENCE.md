@@ -99,6 +99,7 @@ error rather than being silently ignored. Option values must be constants.
 | lmDynamic | - | `lm_dynamic_fit_agg` | - | `lm_dynamic_fit_predict_agg` | `lm_dynamic_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | LOWESS | - | `lowess_agg` | - | - | `lowess_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
+| Nested-model F test (OLS) | - | `ols_anova_agg` | - | - | `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 
 Overview pages: [window functions](api/regression/fit_predict_window.md),
 [fit-predict aggregates](api/regression/fit_predict_agg.md),
@@ -129,6 +130,7 @@ fitted model struct).
 |----------|-----------|------|
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
@@ -258,6 +260,38 @@ SELECT id,
 FROM reg_data
 ORDER BY id
 LIMIT 5;
+```
+
+### ols_anova_agg / ols_anova_by
+
+Nested-model F test: does the full OLS model fit significantly better than the
+reduced one? R's `anova(lm(y ~ x_reduced), lm(y ~ x_full))`, both fits on the
+same rows. Returns the `test` fields (`method = 'nested F'`, `statistic`,
+`df1`, `df2`, `p_value`) plus `rss_reduced`, `rss_full`,
+`adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared` and
+`n_observations`. The `x_reduced` columns must appear in `x_full`, and
+`x_reduced := []` is the intercept-only model (the overall F test). Rank is
+counted as in R; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`, never NaN). The only option is
+`fit_intercept`. Per-term (type I / II) ANOVA tables are not available yet.
+
+**Signatures:**
+
+```sql skip
+ols_anova_agg(y DOUBLE, x_reduced LIST(DOUBLE), x_full LIST(DOUBLE) [, options]) -> STRUCT
+ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...] [, options := ...]) -> TABLE
+```
+
+**Examples:**
+
+```sql
+-- Do x2 and x3 add to x1, per category?
+SELECT category, (ols_anova_agg(y, [x1], [x1, x2, x3])).p_value < 0.05 AS improves
+FROM reg_data
+GROUP BY category
+ORDER BY category;
+
+SELECT category, df1, df2, round(adj_r_squared_reduced, 3) AS before, round(adj_r_squared_full, 3) AS after
+FROM ols_anova_by('reg_data', category, y, x_reduced := [x1], x_full := [x1, x2, x3]);
 ```
 
 ### ridge_fit / ridge_fit_agg
@@ -1514,7 +1548,7 @@ columns are passed through and prediction columns are appended.
   interval exists.
 
 Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
-[`eb_shrink_by`](#eb_shrink_by), [`aid_by`](#aid_by),
+[`eb_shrink_by`](#eb_shrink_by), [`ols_anova_by`](#ols_anova_agg--ols_anova_by), [`aid_by`](#aid_by),
 [`aid_anomaly_by`](#aid_anomaly_by). See also [Table Macros](api/macros/table_macros.md).
 
 ```sql

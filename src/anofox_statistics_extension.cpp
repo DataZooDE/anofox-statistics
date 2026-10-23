@@ -115,6 +115,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterAftAggregateFunction(loader);
     RegisterEbShrinkAggregateFunction(loader);
     RegisterMediationAggregateFunction(loader);
+    RegisterOlsAnovaAggregateFunction(loader);
     RegisterGlmmAggregateFunction(loader);
     RegisterAftScalarFunctions(loader);
     RegisterBinomialAggregateFunction(loader);

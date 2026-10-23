@@ -93,6 +93,7 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial least squares; `n_components` (1), `fit_intercept`. Returns `coefficients`, `intercept`, `r_squared`, `n_components`, `n_observations`, `n_features` |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression on a single `x DOUBLE`; `increasing` (true). Returns knots `x[]`, `fitted[]`, `increasing`, `r_squared`, `n_observations`; `predict(m, [x])` interpolates, clamped at the ends |
 | Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression; `tau` (alias `quantile`, 0.5), `fit_intercept`, `max_iterations`, `tolerance`. Returns `coefficients`, `intercept`, `tau`, `n_observations`, `n_features` + inference fields. Standard errors with `se` (`'iid'`, `'nid'`, `'boot'`; `compute_inference: true` = `'nid'`), `n_boot` (200), `seed` (42), as `quantreg::summary.rq` |
+| Nested-model F test | `ols_anova_agg(y, x_reduced, x_full[, opts])`, `ols_anova_by(src, g, y, x_reduced := [...], x_full := [...])` | R `anova(lm(reduced), lm(full))` on the same rows (matches to 1e-9): does `x_full` beat `x_reduced`? `x_reduced` columns must appear in `x_full` (error otherwise); `[]` = intercept-only (overall F). Returns `test` fields `method` (`'nested F'`), `statistic`, `df1`, `df2`, `p_value` + `rss_reduced`, `rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared`, `n_observations`. Rank counted as R; `df1 = 0` or `df2 = 0` → NULL (not NaN) statistic and p-value. Option `fit_intercept` only. No type I/II per-term tables |
 | Quantile process | `quantile_process_agg(y, x[, opts])` | One fit per tau as `terms` rows (`index_name = 'tau'`); `taus` (default 0.1…0.9), `se` (`'nid'`), `compute_inference` (false = estimates only), `feature_names` |
 
 ### Regularisation paths and cross-validation
@@ -280,6 +281,18 @@ FROM (SELECT predict(poisson_fit_agg(n, [x], {'compute_inference': true}), [3.0]
 -- Collinear design: the later column is aliased (NaN), as R lm(); alias_tolerance = lm's tol
 SELECT (ols_fit_agg(price, [sqm, 2 * sqm + 1e-9 * price], {'alias_tolerance': 1e-7})).coefficients
 FROM houses;
+```
+
+```sql
+-- Nested-model F test: do x2 and x3 improve on x1? (R: anova(lm(y ~ x1), lm(y ~ x1 + x2 + x3)))
+CREATE TABLE anova_demo AS
+SELECT i::DOUBLE AS x1, ((i * 3) % 7)::DOUBLE AS x2, sin(i) AS x3, 1.0 + 0.5 * i + 0.3 * sin(i) + cos(3 * i) AS y,
+       i % 2 AS g
+FROM range(1, 41) t(i);
+SELECT (r).statistic, (r).df1, (r).df2, (r).p_value, (r).delta_adj_r_squared
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) AS r FROM anova_demo);
+SELECT g, statistic, p_value, adj_r_squared_reduced, adj_r_squared_full
+FROM ols_anova_by('anova_demo', g, y, x_reduced := [x1], x_full := [x1, x2, x3]);
 ```
 
 ```sql

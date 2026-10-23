@@ -189,6 +189,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/aft_aggregate.cpp
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
+    src/aggregate_functions/ols_anova_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp

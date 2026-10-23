@@ -18,6 +18,7 @@ mod lm_dynamic;
 mod lowess;
 mod mediation;
 mod ols;
+mod ols_anova;
 mod passive_aggressive;
 mod path;
 mod pls;
@@ -68,6 +69,7 @@ pub use mediation::{
     mediate, BootCi, MediationEffect, MediationMethod, MediationOptions, MediationResult,
 };
 pub use ols::fit_ols;
+pub use ols_anova::{ols_anova, NestedFTest, NestedFTestOptions};
 pub use passive_aggressive::{
     fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
 };

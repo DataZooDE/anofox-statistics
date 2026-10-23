@@ -70,6 +70,7 @@ void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
 void RegisterAftAggregateFunction(ExtensionLoader &loader);
 void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader);
 void RegisterMediationAggregateFunction(ExtensionLoader &loader);
+void RegisterOlsAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterGlmmAggregateFunction(ExtensionLoader &loader);
 void RegisterAftScalarFunctions(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
