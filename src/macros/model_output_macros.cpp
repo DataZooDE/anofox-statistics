@@ -46,10 +46,12 @@ struct ModelOutputModel {
 	bool loo = false;
 };
 
+// Positional initialisers: {prefix, label, extra_col, inference, ordered, dynamic_terms, credible,
+// tidy_defaults, loo}. Keep the field order of ModelOutputModel in mind when adding a field.
 // clang-format off
 const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
-    {"ols", "an OLS regression", nullptr, true, false, false, true},
-    {"wls", "a weighted least squares regression", "weight_col", true, false, false, true},
+    {"ols", "an OLS regression", nullptr, true, false, false, false, nullptr, true},
+    {"wls", "a weighted least squares regression", "weight_col", true, false, false, false, nullptr, true},
     {"ridge", "a Ridge regression", nullptr, true},
     {"elasticnet", "an Elastic Net regression", nullptr, false},
     {"huber", "a Huber M-estimator regression", nullptr, true},
