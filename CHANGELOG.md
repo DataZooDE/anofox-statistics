@@ -27,8 +27,8 @@ Breaking changes are called out explicitly.
   the intercept SD against the inverted full posterior precision). Previously these
   fields were NULL. Requires anofox-regression 0.5.34.
 - **Theil-Sen confidence intervals (#222).** New options `ci_method` (`'exact'` |
-  `'bootstrap'`) and `n_bootstrap` (alias `n_boot`, default 999, 199 in
-  `theil_sen_tidy_by`; the existing `seed` /
+  `'bootstrap'` | `'exact_or_none'`) and `n_bootstrap` (alias `n_boot`, default 999;
+  the existing `seed` /
   `random_state` seeds it) for `theil_sen_fit` / `theil_sen_fit_agg` with
   `compute_inference`. `'exact'` (the default with one feature) is Sen's (1968)
   distribution-free slope interval with Kendall's tie-corrected variance, plus
@@ -36,7 +36,12 @@ Breaking changes are called out explicitly.
   `trend::sens.slope` to 1e-12. `'bootstrap'` (the default with several features)
   is the pairs bootstrap: bootstrap standard errors and percentile intervals for
   every coefficient and the intercept, deterministic for a seed whatever the row
-  order or thread count. `theil_sen_tidy_by` carries them into `terms`. Previously
+  order or thread count; it costs about `n_bootstrap` point fits per group (about
+  8 s per group at 500 rows × 3 features). `theil_sen_tidy_by` carries the
+  intervals into `terms`; it defaults to `'exact_or_none'` (one feature: exact;
+  several features: NULL intervals and no bootstrap, so existing multi-feature
+  calls stay as fast as before) and bootstraps only with `options :=
+  {'ci_method': 'bootstrap'}` (199 resamples by default there). Previously
   these fields were NaN / NULL (see Fixed). `n_bootstrap`
   is also an alias of `quantile_fit_agg`'s `n_boot`.
 
@@ -59,11 +64,11 @@ Breaking changes are called out explicitly.
   statistic) and `std_errors` is NULL; with `'bootstrap'` `t_values` / `p_values`
   are NULL. `f_statistic` / `f_pvalue` are NULL: Theil-Sen has no F-test. Statistics
   a method does not define are NULL, not NaN. Note the
-  cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which
-  turns it on by default, with 199 resamples) refit the model `n_bootstrap` times
-  per group: on 500 rows × 3 features about 1.4 s of CPU per group for
-  `theil_sen_tidy_by` and 8 s with the aggregate's 999 resamples. Lower
-  `n_bootstrap` or pass `{'compute_inference': false}` where that is too slow.
+  cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which bootstraps
+  only on request) refit the model `n_bootstrap` times per group: on 500 rows ×
+  3 features about 8 s of CPU per group with the aggregate's 999 resamples and
+  1.4 s with tidy_by's 199. Lower `n_bootstrap`, use `'exact_or_none'` or pass
+  `{'compute_inference': false}` where that is too slow.
 
 ## [0.12.2] - 2026-10-22
 

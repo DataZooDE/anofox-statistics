@@ -260,8 +260,8 @@ static bool AllNaN(const double *data, size_t len) {
 }
 
 void ModelStructWriter::WriteInferenceNullUndefined(idx_t row, const AnofoxFitResultInference *inference) {
-	if (!inference) {
-		WriteInference(row, nullptr);
+	if (!inference || (!inference->std_errors && !inference->ci_lower)) {
+		WriteInference(row, nullptr); // no inference computed: all NULL
 		return;
 	}
 	AnofoxFitResultInference shown = *inference;

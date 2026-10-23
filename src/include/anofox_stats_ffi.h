@@ -377,7 +377,8 @@ typedef struct {
 	size_t n_subsamples_value;
 
 	/** Interval method with compute_inference: 0 = auto (exact for one feature,
-	 *  bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap. */
+	 *  bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap, 3 = exact where it
+	 *  applies, otherwise no intervals ('exact_or_none'). */
 	int32_t ci_method;
 	/** Bootstrap resamples (seeded by random_state). */
 	uint32_t n_bootstrap;

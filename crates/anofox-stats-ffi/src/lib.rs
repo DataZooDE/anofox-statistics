@@ -903,6 +903,7 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
                 _ => TheilSenCiMethod::Auto,
             },
             n_bootstrap: options.n_bootstrap as usize,
+            skip_bootstrap: options.ci_method == 3,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

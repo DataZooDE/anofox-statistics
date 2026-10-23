@@ -80,7 +80,7 @@ ORDER BY grp;
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
 | `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add coefficient confidence intervals, see [Inference](#inference) |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Confidence level for intervals |
-| `ci_method` | VARCHAR | `'exact'` for one feature, `'bootstrap'` otherwise | `'exact'`: Sen's distribution-free interval (one feature with an intercept only); `'bootstrap'`: pairs bootstrap |
+| `ci_method` | VARCHAR | `'exact'` for one feature, `'bootstrap'` otherwise (`theil_sen_tidy_by`: `'exact_or_none'`) | `'exact'`: Sen's distribution-free interval (one feature with an intercept only); `'bootstrap'`: pairs bootstrap; `'exact_or_none'`: `'exact'` where it applies, otherwise no intervals |
 | `n_bootstrap` (alias `n_boot`) | INTEGER | `999` (`theil_sen_tidy_by`: `199`) | Bootstrap resamples, at least 2 |
 
 The window, fit-predict aggregate and table-macro forms also accept
@@ -105,7 +105,14 @@ LIMIT 5;
 ## Inference
 
 With `compute_inference = true` the fit carries confidence intervals for the
-coefficients, computed in one of two ways (`ci_method`):
+coefficients, computed in one of two ways (`ci_method`).
+
+> **Cost.** With more than one feature the default is the bootstrap, which
+> refits the model `n_bootstrap` (999) times per group: on 500 rows with 3
+> features about **8 s per group** instead of about 10 ms for the point fit.
+> Lower `n_bootstrap`, or use `ci_method := 'exact_or_none'` to get intervals
+> only where the cheap exact method applies. One-feature exact intervals cost
+> about as much as the point fit.
 
 - **`'exact'`** (the default with one feature and an intercept): the
   distribution-free interval of Sen (1968), the interval R's
@@ -156,17 +163,29 @@ FROM (
 );
 ```
 
-`theil_sen_tidy_by` computes the intervals by default and carries them into
-the `terms` rows (`std_error`, `statistic`, `p_value`, `conf_low`, `conf_high`).
-It bootstraps with **199** resamples by default (the aggregates: 999), because
-it fits every group; pass `options := {'n_bootstrap': 999}` for more.
-For scale: on 50 groups of 500 rows with 3 features (a loaded 20-core
-machine), the point fits take about 10 ms per group, `theil_sen_tidy_by` with
-its defaults about 1.4 s of CPU per group (69 s in total) and
-`theil_sen_fit_agg` with `compute_inference` and 999 resamples about 8 s of CPU
-per group. DuckDB finalizes the groups of a small table on few threads, so
-expect these as wall-clock times too. One-feature exact intervals cost about as
-much as the point fit.
+`theil_sen_tidy_by` carries the intervals into the `terms` rows (`std_error`,
+`statistic`, `p_value`, `conf_low`, `conf_high`). By default it uses
+`ci_method := 'exact_or_none'`: with one feature it reports Sen's exact
+interval (cheap); with several features the interval columns are NULL and no
+bootstrap runs, so the macro costs about one point fit per group. Pass
+`options := {'ci_method': 'bootstrap'}` (and optionally `n_bootstrap`, default
+199 here) for bootstrap intervals; that costs about `n_bootstrap` point fits per
+group.
+
+For scale, on 50 groups of 500 rows with 3 features (a loaded 20-core machine):
+the point fits take about 10 ms per group; with `ci_method := 'bootstrap'`
+`theil_sen_tidy_by` (199 resamples) takes about 1.4 s of CPU per group (69 s in
+total) and `theil_sen_fit_agg` with `compute_inference` (999 resamples) about
+8 s of CPU per group. DuckDB finalizes the groups of a small table on few
+threads, so expect these as wall-clock times too.
+
+```sql
+-- Multi-feature bootstrap intervals in terms (opt-in)
+SELECT grp, term, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM theil_sen_tidy_by('theil_sen_demo', grp, y, [x, x * x],
+                       options := {'ci_method': 'bootstrap', 'n_bootstrap': 99})
+ORDER BY grp, term;
+```
 
 **Before #222** `compute_inference` returned these
 fields but left them empty (NaN / NULL): the solver had no inference. See the

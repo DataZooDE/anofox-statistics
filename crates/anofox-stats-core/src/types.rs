@@ -484,6 +484,10 @@ pub struct TheilSenOptions {
     pub ci_method: TheilSenCiMethod,
     /// Bootstrap resamples (seeded by `random_state`).
     pub n_bootstrap: usize,
+    /// Compute intervals only where the exact method applies (one feature with
+    /// an intercept); otherwise return no inference instead of bootstrapping
+    /// (`ci_method := 'exact_or_none'`, the `theil_sen_tidy_by` default).
+    pub skip_bootstrap: bool,
 }
 
 impl Default for TheilSenOptions {
@@ -499,6 +503,7 @@ impl Default for TheilSenOptions {
             confidence_level: 0.95,
             ci_method: TheilSenCiMethod::Auto,
             n_bootstrap: 999,
+            skip_bootstrap: false,
         }
     }
 }

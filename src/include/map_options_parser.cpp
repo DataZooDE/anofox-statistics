@@ -1197,8 +1197,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 					result.ci_method = 1;
 				} else if (v == "bootstrap") {
 					result.ci_method = 2;
+				} else if (v == "exact_or_none") {
+					result.ci_method = 3;
 				} else {
-					throw InvalidInputException("%s: ci_method must be 'exact' or 'bootstrap', got '%s'",
+					throw InvalidInputException("%s: ci_method must be 'exact', 'bootstrap' or 'exact_or_none', got '%s'",
 					                            function_name, val.ToString());
 				}
 			}

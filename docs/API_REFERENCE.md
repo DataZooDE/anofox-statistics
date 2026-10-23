@@ -468,8 +468,8 @@ theil_sen_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 | random_state (alias `seed`) | INTEGER | 0 | Random seed (subsets and bootstrap) |
 | compute_inference | BOOLEAN | false | Coefficient confidence intervals |
 | confidence_level | DOUBLE | 0.95 | Level of the intervals |
-| ci_method | VARCHAR | `'exact'` (one feature), else `'bootstrap'` | `'exact'`: Sen's distribution-free slope interval with Kendall's z / p-value (`trend::sens.slope`); `'bootstrap'`: pairs bootstrap SDs and percentile intervals, also for the intercept |
-| n_bootstrap (alias `n_boot`) | INTEGER | 999 (`theil_sen_tidy_by`: 199) | Bootstrap resamples |
+| ci_method | VARCHAR | `'exact'` (one feature), else `'bootstrap'`; `theil_sen_tidy_by`: `'exact_or_none'` (exact where it applies, otherwise NULL intervals) | `'exact'`: Sen's distribution-free slope interval with Kendall's z / p-value (`trend::sens.slope`); `'bootstrap'`: pairs bootstrap SDs and percentile intervals, also for the intercept |
+| n_bootstrap (alias `n_boot`) | INTEGER | 999 (`theil_sen_tidy_by`: 199) | Bootstrap resamples; the bootstrap costs about this many point fits per group |
 
 With `compute_inference` the exact method fills `conf_low` / `conf_high`,
 `t_values` (Kendall's z) and `p_values` for the slope (no standard error, no

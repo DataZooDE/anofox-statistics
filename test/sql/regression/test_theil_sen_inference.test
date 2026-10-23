@@ -125,33 +125,49 @@ exact Theil-Sen interval needs exactly one feature
 statement error
 SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'ci_method': 'percentile'}) FROM m2;
 ----
-ci_method must be 'exact' or 'bootstrap'
+ci_method must be 'exact', 'bootstrap' or 'exact_or_none'
 
 statement error
 SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 1}) FROM m2;
 ----
 n_boot must be >= 2
 
-# theil_sen_tidy_by bootstraps with 199 resamples by default (the aggregate: 999);
-# options override it
+# theil_sen_tidy_by defaults to ci_method 'exact_or_none': one feature gets Sen's
+# exact interval (above), several features get no intervals (NULL) and no bootstrap,
+# so the default stays as cheap as the point fit. 20 groups x 500 rows x 3 features
+# would take ~30 s with a 199-resample bootstrap.
+statement ok
+CREATE TABLE big AS SELECT (i % 20) AS g, sin(i * 0.37) * 3 AS x1, cos(i * 0.11) * 2 AS x2, ((i * 13) % 17) / 17.0 AS x3,
+    1 + 2 * sin(i * 0.37) * 3 - cos(i * 0.11) * 2 + sin(i * 1.7) AS y
+FROM range(10000) t(i);
+
+query IIII
+SELECT count(*), bool_and(std_error IS NULL AND conf_low IS NULL AND conf_high IS NULL),
+       bool_and(statistic IS NULL AND p_value IS NULL AND conf_level IS NULL), bool_and(estimate IS NOT NULL)
+FROM theil_sen_tidy_by('big', g, y, [x1, x2, x3]);
+----
+80	true	true	true
+
+# The aggregate with the same option behaves the same way
 query I
-SELECT bool_and(std_error > 0) FROM theil_sen_tidy_by('m2', g, y, [x1, x2]);
+SELECT m.std_errors IS NULL AND m.conf_low IS NULL AND m.conf_level IS NULL
+FROM (SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'ci_method': 'exact_or_none'}) AS m FROM m2);
 ----
 true
 
+# Opt-in: ci_method 'bootstrap' bootstraps with tidy_by's 199 resamples (the
+# aggregate's default is 999); n_bootstrap overrides it
 query I
 SELECT count(*) FROM (
-    SELECT t.g, t.term, t.std_error
-    FROM theil_sen_tidy_by('m2', g, y, [x1, x2]) t
+    SELECT t.g FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'ci_method': 'bootstrap'}) t
     JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 199}))) AS r FROM m2 GROUP BY g) a
-      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error);
+      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error AND (a.r).conf_low = t.conf_low);
 ----
 6
 
 query I
 SELECT count(*) FROM (
-    SELECT t.g, t.term, t.std_error
-    FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'n_bootstrap': 99}) t
+    SELECT t.g FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'ci_method': 'bootstrap', 'n_bootstrap': 99}) t
     JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 99}))) AS r FROM m2 GROUP BY g) a
       ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error);
 ----

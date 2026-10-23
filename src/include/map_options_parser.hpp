@@ -259,7 +259,7 @@ struct RegressionMapOptions {
 	std::optional<vector<double>> taus;      // Quantiles of the process
 	std::optional<string> se_type;           // 'iid' | 'nid' | 'boot'
 	std::optional<uint32_t> n_boot;          // Bootstrap replications
-	std::optional<int32_t> ci_method;        // Theil-Sen (#222): 1 = 'exact', 2 = 'bootstrap'
+	std::optional<int32_t> ci_method;        // Theil-Sen (#222): 1 = 'exact', 2 = 'bootstrap', 3 = 'exact_or_none'
 	// Bayesian Ridge / ARD (#61): gamma-prior shape / rate of the noise and
 	// weight precisions, and ARD's pruning threshold
 	std::optional<double> alpha_1;
