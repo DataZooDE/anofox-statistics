@@ -1,4 +1,5 @@
-//! Per-observation diagnostics (broom `augment`) for OLS, WLS and the GLMs.
+//! Per-observation diagnostics (broom `augment`) for OLS, WLS, Ridge and the
+//! GLMs.
 //!
 //! This module only marshals data: it fits the model exactly as
 //! [`crate::models::fit_ols`] / [`crate::models::fit_wls`] do (same row
@@ -6,14 +7,15 @@
 //! upstream `anofox_regression::diagnostics::augment`, which computes every
 //! measure. The GLMs are fitted by upstream's `PenalizedGlmRegressor`, which
 //! runs the same `penalized_glm::fit_*` as [`crate::models::fit_poisson`] and
-//! friends, and augmented by its `augment` (`diagnostics::augment_glm`). Rows
+//! friends, and augmented by its `augment` (`diagnostics::augment_glm`). Ridge
+//! has the leverage and leave-one-out columns only (`FittedRidge::loo`). Rows
 //! that are not used for fitting get the fit's prediction as `fitted` and NaN
 //! everywhere else.
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{
     BinomialOptions, GammaOptions, GlmPriorOptions, LogisticOptions, NegBinomialOptions,
-    OlsOptions, PoissonOptions, SolverType, TweedieOptions, WlsOptions,
+    OlsOptions, PoissonOptions, RidgeOptions, SolverType, TweedieOptions, WlsOptions,
 };
 use anofox_regression::diagnostics::{augment, Augment, Augmentable};
 use anofox_regression::prelude::*;
@@ -45,6 +47,12 @@ pub struct AugmentResult {
     pub loo_residual: Vec<f64>,
     /// Leave-one-out prediction `ŷ₍ᵢ₎`; NaN where `loo_residual` is.
     pub loo_fitted: Vec<f64>,
+    /// One-step approximation of the leave-one-out fitted mean of a GLM
+    /// (#235, upstream `Augment::approx_loo_fitted`); NaN for OLS / WLS /
+    /// Ridge, rows with leverage 1 and rows not used in the fit.
+    pub approx_loo_fitted: Vec<f64>,
+    /// `y − approx_loo_fitted`; NaN where `approx_loo_fitted` is.
+    pub approx_loo_residual: Vec<f64>,
     /// Whether the row was used to fit the model.
     pub used: Vec<bool>,
     /// Name of the residual type (`"response"` for OLS/WLS, `"deviance"` for
@@ -53,6 +61,35 @@ pub struct AugmentResult {
     /// Number of estimated coefficients, intercept included (upstream's
     /// `n_parameters`, aliased columns excluded).
     pub n_params: usize,
+}
+
+impl AugmentResult {
+    /// `predicted` as `fitted` for every row and NaN diagnostics, to be filled
+    /// in for the training rows.
+    fn predictions_only(
+        predicted: &Col<f64>,
+        used: Vec<bool>,
+        resid_type: &'static str,
+        n_params: usize,
+    ) -> Self {
+        let n_obs = used.len();
+        AugmentResult {
+            fitted: (0..n_obs).map(|i| predicted[i]).collect(),
+            residual: vec![f64::NAN; n_obs],
+            std_residual: vec![f64::NAN; n_obs],
+            stud_residual: vec![f64::NAN; n_obs],
+            leverage: vec![f64::NAN; n_obs],
+            cooks_d: vec![f64::NAN; n_obs],
+            dffits: vec![f64::NAN; n_obs],
+            loo_residual: vec![f64::NAN; n_obs],
+            loo_fitted: vec![f64::NAN; n_obs],
+            approx_loo_fitted: vec![f64::NAN; n_obs],
+            approx_loo_residual: vec![f64::NAN; n_obs],
+            used,
+            resid_type,
+            n_params,
+        }
+    }
 }
 
 fn convert_solver(solver: SolverType) -> anofox_regression::SolverType {
@@ -141,20 +178,12 @@ fn run<M: Augmentable + FittedRegressor>(
     let x_all = Mat::from_fn(n_obs, kept.len(), |i, j| x[kept[j]][i]);
     let predicted = fitted_model.predict(&x_all);
 
-    let mut out = AugmentResult {
-        fitted: (0..n_obs).map(|i| predicted[i]).collect(),
-        residual: vec![f64::NAN; n_obs],
-        std_residual: vec![f64::NAN; n_obs],
-        stud_residual: vec![f64::NAN; n_obs],
-        leverage: vec![f64::NAN; n_obs],
-        cooks_d: vec![f64::NAN; n_obs],
-        dffits: vec![f64::NAN; n_obs],
-        loo_residual: vec![f64::NAN; n_obs],
-        loo_fitted: vec![f64::NAN; n_obs],
+    let mut out = AugmentResult::predictions_only(
+        &predicted,
         used,
-        resid_type: aug.resid_type.as_str(),
-        n_params: fitted_model.result().n_parameters,
-    };
+        aug.resid_type.as_str(),
+        fitted_model.result().n_parameters,
+    );
     for (r, &i) in valid.iter().enumerate() {
         out.fitted[i] = aug.fitted[r];
         out.residual[i] = aug.residual[r];
@@ -213,6 +242,50 @@ pub fn augment_wls(
         }
         builder.build().fit(x_mat, y_col).map_err(StatsError::from)
     })
+}
+
+/// Fit Ridge on the usable rows (as `fit_ridge`: finite `y` and features,
+/// non-estimable columns dropped) and return, for every row, the fitted value
+/// (prediction off the fit), the response residual, the ridge leverage and the
+/// exact leave-one-out residual / prediction (#235, upstream
+/// `FittedRidge::loo`). The standardised / studentised residuals, Cook's
+/// distance and DFFITS have no ridge counterpart in R and are NaN.
+pub fn augment_ridge(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &RidgeOptions,
+) -> StatsResult<AugmentResult> {
+    if options.alpha < 0.0 {
+        return Err(StatsError::InvalidAlpha(options.alpha));
+    }
+    let Design { used, valid, kept } = prepare(y, x, None, options.fit_intercept)?;
+    let n_obs = y.len();
+    let y_col = Col::from_fn(valid.len(), |i| y[valid[i]]);
+    let x_mat = Mat::from_fn(valid.len(), kept.len(), |i, j| x[kept[j]][valid[i]]);
+    let ridge_options = RidgeOptions {
+        compute_inference: false,
+        ..options.clone()
+    };
+    let fitted_model = crate::models::ridge::ridge_regressor(&ridge_options)
+        .fit(&x_mat, &y_col)
+        .map_err(StatsError::from)?;
+    let loo = fitted_model.loo(&x_mat, &y_col).map_err(StatsError::from)?;
+    let x_all = Mat::from_fn(n_obs, kept.len(), |i, j| x[kept[j]][i]);
+    let result = fitted_model.result();
+    let mut out = AugmentResult::predictions_only(
+        &fitted_model.predict(&x_all),
+        used,
+        "response",
+        result.n_parameters,
+    );
+    for (r, &i) in valid.iter().enumerate() {
+        out.fitted[i] = result.fitted_values[r];
+        out.residual[i] = result.residuals[r];
+        out.leverage[i] = loo.leverage[r];
+        out.loo_residual[i] = loo.loo_residual[r];
+        out.loo_fitted[i] = loo.loo_fitted[r];
+    }
+    Ok(out)
 }
 
 /// Partial-residual (CCPR) and added-variable plot data, one entry per input
@@ -450,6 +523,10 @@ fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult
         dffits: (0..n_obs).map(|i| col(&aug.dffits, i)).collect(),
         loo_residual: (0..n_obs).map(|i| col(&aug.loo_residual, i)).collect(),
         loo_fitted: (0..n_obs).map(|i| col(&aug.loo_fitted, i)).collect(),
+        approx_loo_fitted: (0..n_obs).map(|i| col(&aug.approx_loo_fitted, i)).collect(),
+        approx_loo_residual: (0..n_obs)
+            .map(|i| col(&aug.approx_loo_residual, i))
+            .collect(),
         resid_type: aug.resid_type.as_str(),
         n_params,
         used,
@@ -734,8 +811,47 @@ mod tests {
         assert!(r.residual[8].is_nan() && r.leverage[8].is_nan());
         let h: f64 = r.leverage.iter().filter(|v| v.is_finite()).sum();
         assert!((h - 3.0).abs() < 1e-8);
-        // No exact leave-one-out residuals for a GLM.
+        // No exact leave-one-out residuals for a GLM; the one-step
+        // approximation (#235) for the training rows only.
         assert!(r.loo_residual.iter().all(|v| v.is_nan()));
+        assert!(r.approx_loo_fitted[8].is_nan() && r.approx_loo_residual[8].is_nan());
+        for (i, &yi) in y.iter().enumerate().take(8) {
+            assert!(r.approx_loo_fitted[i] > 0.0);
+            assert!((r.approx_loo_residual[i] - (yi - r.approx_loo_fitted[i])).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn ridge_augment_matches_refits_without_each_row() {
+        let x = vec![
+            vec![0.1, 0.4, 0.9, 1.3, 1.8, 2.2, 2.9, 3.1, 1.0],
+            vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, f64::NAN],
+        ];
+        let y = vec![1.2, 1.1, 3.0, 2.4, 5.6, 4.9, 8.1, 7.0, 3.0];
+        let options = RidgeOptions {
+            alpha: 0.7,
+            ..Default::default()
+        };
+        let r = augment_ridge(&y, &x, &options).unwrap();
+        assert_eq!(r.resid_type, "response");
+        assert_eq!(r.n_params, 3);
+        assert!(!r.used[8] && r.fitted[8].is_nan() && r.loo_residual[8].is_nan());
+        assert!(r.std_residual.iter().all(|v| v.is_nan()));
+        assert!(r.approx_loo_fitted.iter().all(|v| v.is_nan()));
+        for i in 0..8 {
+            let keep: Vec<usize> = (0..8).filter(|&k| k != i).collect();
+            let xi: Vec<Vec<f64>> = x
+                .iter()
+                .map(|c| keep.iter().map(|&k| c[k]).collect())
+                .collect();
+            let yi: Vec<f64> = keep.iter().map(|&k| y[k]).collect();
+            let fit = crate::models::fit_ridge(&yi, &xi, &options).unwrap();
+            let c = &fit.core.coefficients;
+            let pred = fit.core.intercept.unwrap() + c[0] * x[0][i] + c[1] * x[1][i];
+            assert!((r.loo_fitted[i] - pred).abs() < 1e-10, "row {i}");
+            assert!((r.loo_residual[i] - (y[i] - pred)).abs() < 1e-10);
+            assert!(r.leverage[i] > 0.0 && r.leverage[i] < 1.0);
+        }
     }
 
     #[test]

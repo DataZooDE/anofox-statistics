@@ -12,6 +12,7 @@ two lambda-scaling conventions.
 | `ridge_fit_predict` | Window aggregate | Fit and predict per window frame, see [Window fit-predict](fit_predict_window.md) |
 | `ridge_fit_predict_agg` | Aggregate | Fit and predict every row of a group, see [Fit-predict aggregates](fit_predict_agg.md) |
 | `ridge_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#ridge_fit_predict_by) |
+| `ridge_augment_by` | Table macro | Per-row leverage and exact leave-one-out residuals per group, see [Leave-one-out diagnostics](model_tools.md#ridge) |
 
 ## ridge_fit
 
@@ -72,6 +73,7 @@ FROM ridge_demo;
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
 | `lambda_scaling` | VARCHAR | `'raw'` | `'raw'` uses `alpha` as given; `'glmnet'` scales it like R's glmnet |
+| `compute_loo` | BOOLEAN | `false` | Fill the exact leave-one-out fields `press`, `press_rmse`, `loo_r_squared` (one SVD of the design); independent of `compute_inference` |
 
 Option keys the function does not support raise an error.
 
@@ -104,6 +106,28 @@ With `alpha > 0` the standard errors are the ridge sandwich variance, and
 `t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic` and `f_pvalue` are
 `NULL`: classical tests on shrunken coefficients are not valid. With
 `alpha = 0` the fit and its inference are those of OLS.
+
+With `compute_loo = true`: `press`, `press_rmse` and `loo_r_squared` (`DOUBLE`),
+the exact leave-one-out statistics of the ridge fit (#235): `press` is
+`Σ (eᵢ / (1 − hᵢᵢ))²` with `hᵢᵢ` the diagonal of the ridge hat matrix
+`X(XᵀX + λI)⁻¹Xᵀ` (intercept unpenalised), the squared error of predicting each
+row from the fit without it at the same λ; `press_rmse = sqrt(press / n)`;
+`loo_r_squared = 1 − press / SST`. `ridge_glance_by` turns it on, and
+`ridge_augment_by` has the per-row `leverage`, `loo_residual` and `loo_fitted`.
+With `'lambda_scaling': 'glmnet'` the effective penalty `alpha · n` of the full
+fit is held fixed. See
+[Leave-one-out diagnostics](model_tools.md#ridge).
+
+```sql
+-- Exact LOO cross-validation over a small alpha grid (options are constants)
+SELECT alpha, round((m).press, 3) AS press, round((m).loo_r_squared, 4) AS q2
+FROM (SELECT 0.1 AS alpha, ridge_fit_agg(y, [x1, x2], {'alpha': 0.1, 'compute_loo': true}) AS m FROM ridge_demo
+      UNION ALL
+      SELECT 1.0, ridge_fit_agg(y, [x1, x2], {'alpha': 1.0, 'compute_loo': true}) FROM ridge_demo
+      UNION ALL
+      SELECT 10.0, ridge_fit_agg(y, [x1, x2], {'alpha': 10.0, 'compute_loo': true}) FROM ridge_demo)
+ORDER BY alpha;
+```
 
 ## Choosing alpha
 

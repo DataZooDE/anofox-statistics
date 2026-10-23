@@ -26,6 +26,18 @@ fn convert_lambda_scaling(scaling: LambdaScaling) -> anofox_regression::LambdaSc
     }
 }
 
+/// The upstream regressor for `options` (shared with `augment_ridge`).
+pub(crate) fn ridge_regressor(options: &RidgeOptions) -> RidgeRegressor {
+    RidgeRegressor::builder()
+        .with_intercept(options.fit_intercept)
+        .lambda(options.alpha)
+        .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .solve_method(convert_solver(options.solver))
+        .build()
+}
+
 /// Fit a Ridge regression model
 ///
 /// # Arguments
@@ -106,14 +118,7 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
     let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
 
-    let fitted = RidgeRegressor::builder()
-        .with_intercept(options.fit_intercept)
-        .lambda(options.alpha)
-        .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
-        .compute_inference(options.compute_inference)
-        .confidence_level(options.confidence_level)
-        .solve_method(convert_solver(options.solver))
-        .build()
+    let fitted = ridge_regressor(options)
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
     let result = fitted.result();
@@ -155,16 +160,25 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         f_pvalue: (options.alpha == 0.0).then_some(result.f_pvalue),
     });
 
+    // Intercept inference follows the coefficient inference: none for alpha > 0.
+    let mut summary = ModelSummary::from_result(
+        fitted.model_info(),
+        result,
+        options.compute_inference && options.alpha == 0.0,
+    );
+    // Exact leave-one-out statistics from the ridge hat matrix (#235); a fit
+    // they cannot be computed for keeps them NaN.
+    if options.compute_loo {
+        if let Ok(loo) = fitted.loo(&x_mat, &y_col) {
+            summary.set_press(&loo.press);
+        }
+    }
+
     Ok(FitResult {
         core,
         inference,
         diagnostics: None,
-        // Intercept inference follows the coefficient inference: none for alpha > 0.
-        summary: ModelSummary::from_result(
-            fitted.model_info(),
-            result,
-            options.compute_inference && options.alpha == 0.0,
-        ),
+        summary,
     })
 }
 
@@ -338,5 +352,23 @@ mod tests {
             (result_raw.core.coefficients[0] - result_glmnet.core.coefficients[0]).abs() > 1e-10,
             "Raw and Glmnet scaling should produce different coefficients"
         );
+    }
+
+    #[test]
+    fn test_ridge_press_only_when_requested() {
+        // PRESS is the sum of squared exact LOO residuals: >= RSS, Q^2 <= R^2.
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]];
+        let y = vec![1.3, 1.8, 3.4, 3.9, 5.2, 5.8, 7.4, 7.9];
+        let plain = fit_ridge(&y, &x, &RidgeOptions::default()).unwrap();
+        assert!(plain.summary.press.is_nan());
+        let options = RidgeOptions {
+            compute_loo: true,
+            ..Default::default()
+        };
+        let result = fit_ridge(&y, &x, &options).unwrap();
+        let s = result.summary;
+        assert!(s.press.is_finite());
+        assert!((s.press_rmse - (s.press / 8.0).sqrt()).abs() < 1e-12);
+        assert!(s.loo_r_squared < result.core.r_squared);
     }
 }

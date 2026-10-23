@@ -41,7 +41,7 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Effect across quantiles | `quantile_process_by` | `terms` (`'tau'`) | `anofox_plot_terms` |
 | Compare fit statistics (R², AIC, …) across models | `<model>_glance_by` | `summary` | `anofox_plot_summary` |
 | Mixed model: fixed effects, BLUPs per level (caterpillar) | `glmm_tidy_by(source, group_col, y_col, x_cols, re_group)` | `terms` (+ `effect`: filter `'fixed'` or `'ran_vals'`) | `anofox_plot_terms` |
-| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`, `glmm_augment_by` (no leverage / Cook's) | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
+| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`, `ridge_augment_by` (leverage and LOO only), `glmm_augment_by` (no leverage / Cook's) | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
 | Fitted line / band, train vs test vs future | `<model>_prediction_by` (23 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |
@@ -63,7 +63,7 @@ The model macros also carry `id` (not `_augment_by`) and `model_name` next to `m
 |---|---|
 | `terms` | `model_id, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (rolling adds `window_end` before `term` and `n_window` at the end) |
 | `summary` | `model_id, model_type, metric, value` |
-| `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS) |
+| `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS / Ridge; + `approx_loo_fitted, approx_loo_residual` for GLMs) |
 | `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`effects_by` adds `focal`, `se_fit` and `focal_name`, the axis label: `names[focal]` with `names := [...]`, else `'x' || focal`) |
 | `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` (+ `n_risk, n_event, std_err` for KM; `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` for CV) |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, conf_level, effect_size, effect_name, alternative, p_adjust_method` |

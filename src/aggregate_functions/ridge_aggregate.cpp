@@ -34,10 +34,11 @@ struct RidgeAggregateState {
     double confidence_level;
     SolverType solver;
     LambdaScaling lambda_scaling;
+    bool compute_loo;
 
     RidgeAggregateState()
         : n_features(0), initialized(false), alpha(1.0), fit_intercept(true), compute_inference(false),
-          confidence_level(0.95), solver(SolverType::SVD), lambda_scaling(LambdaScaling::RAW) {}
+          confidence_level(0.95), solver(SolverType::SVD), lambda_scaling(LambdaScaling::RAW), compute_loo(false) {}
 
     void Reset() {
         y_values.clear();
@@ -57,6 +58,7 @@ struct RidgeAggregateBindData : public FunctionData {
     double confidence_level = 0.95;
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
+    bool compute_loo = false; // press, press_rmse, loo_r_squared (#235): one SVD of the design
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeAggregateBindData>();
@@ -66,6 +68,7 @@ struct RidgeAggregateBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
+        result->compute_loo = compute_loo;
         return std::move(result);
     }
 
@@ -73,7 +76,7 @@ struct RidgeAggregateBindData : public FunctionData {
         auto &other = other_p.Cast<RidgeAggregateBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                compute_inference == other.compute_inference && confidence_level == other.confidence_level &&
-               solver == other.solver && lambda_scaling == other.lambda_scaling;
+               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo;
     }
 };
 
@@ -96,6 +99,7 @@ static LogicalType GetRidgeAggResultType() {
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
     AppendCovarianceFields(children);
+    AppendLooFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -151,6 +155,7 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
         state.confidence_level = bind_data.confidence_level;
         state.solver = bind_data.solver;
         state.lambda_scaling = bind_data.lambda_scaling;
+        state.compute_loo = bind_data.compute_loo;
 
         // Get y value
         auto y_idx = y_data.sel->get_index(i);
@@ -225,6 +230,7 @@ static void RidgeAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
             target.confidence_level = source.confidence_level;
             target.solver = source.solver;
             target.lambda_scaling = source.lambda_scaling;
+            target.compute_loo = source.compute_loo;
             continue;
         }
 
@@ -295,13 +301,14 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             x_arrays.push_back(arr);
         }
 
-        AnofoxRidgeOptions options;
+        AnofoxRidgeOptions options {};
         options.alpha = state.alpha;
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = state.compute_inference;
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
+        options.compute_loo = state.compute_loo;
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;
@@ -363,7 +370,8 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateBi
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling"});
+            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling",
+             "compute_loo"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -382,6 +390,9 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateBi
         }
         if (opts.lambda_scaling.has_value()) {
             result->lambda_scaling = opts.lambda_scaling.value();
+        }
+        if (opts.compute_loo.has_value()) {
+            result->compute_loo = opts.compute_loo.value();
         }
     }
 
@@ -420,7 +431,9 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     CreateAggregateFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
-    d1.description     = "Fits a Ridge regression model with L2 regularization and returns coefficients and fit statistics.";
+    d1.description     = "Fits a Ridge regression model with L2 regularization and returns coefficients and fit statistics. "
+                         "Options: alpha (or lambda), fit_intercept, compute_inference, confidence_level, solver, "
+                         "lambda_scaling, compute_loo (exact leave-one-out press, press_rmse, loo_r_squared).";
     d1.examples        = {"ridge_fit_agg(y, x, {'alpha': 1.0})"};
     d1.categories      = {"regression"};
     d1.parameter_names = {"y", "x", "options"};

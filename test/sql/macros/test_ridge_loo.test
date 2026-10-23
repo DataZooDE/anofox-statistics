@@ -1,0 +1,244 @@
+# name: test/sql/macros/test_ridge_loo.test
+# description: exact leave-one-out diagnostics for Ridge (#235): ridge_augment_by (leverage, loo_residual,
+#              loo_fitted), press / press_rmse / loo_r_squared in ridge_glance_by and the ridge_fit_agg /
+#              ridge_fit STRUCT (compute_loo), cross-checked against explicit refits without each row and
+#              R; one-step approximate leave-one-out (approx_loo_*) of the GLM augment macros against R.
+# group: [macros]
+
+require anofox_statistics
+
+# Groups a and b of test_loo_press.test: a test row (id 16) and a NULL y (id 32) are off the fit.
+# R 4.6.1 reference for alpha = 2 (raw scale), the hat matrix built explicitly with an unpenalised
+# intercept:
+#   X <- cbind(1, s$x1, s$x2); H <- X %*% solve(t(X) %*% X + diag(c(0, 2, 2)), t(X))
+#   h <- diag(H); lr <- (s$y - H %*% s$y) / (1 - h); press <- sum(lr^2)
+#   a: press 16.0475355075, press_rmse 1.0343286231, loo_r_squared 0.9517891530, h[1] 0.1472669420, lr[1] 1.2133951506
+#   b: press 10.4748812858, press_rmse 0.8356586738, loo_r_squared 0.9262932731, h[1] 0.2498569178, lr[1] 0.9006005776
+
+statement ok
+CREATE TABLE d (id INTEGER, g VARCHAR, x1 DOUBLE, x2 DOUBLE, y DOUBLE, w DOUBLE, split VARCHAR);
+
+statement ok
+INSERT INTO d VALUES
+(1, 'a', 1, 7, 0.364, 2, 'train'),
+(2, 'a', 2, 3, 1.616, 3, 'train'),
+(3, 'a', 3, 10, -1.188, 1, 'train'),
+(4, 'a', 4, 6, 0.317, 2, 'train'),
+(5, 'a', 5, 2, 3.115, 3, 'train'),
+(6, 'a', 6, 9, 2.299, 1, 'train'),
+(7, 'a', 7, 5, 3.319, 2, 'train'),
+(8, 'a', 8, 1, 3.872, 3, 'train'),
+(9, 'a', 9, 8, 2.338, 1, 'train'),
+(10, 'a', 10, 4, 5.22, 2, 'train'),
+(11, 'a', 11, 0, 7.487, 3, 'train'),
+(12, 'a', 12, 7, 5.008, 1, 'train'),
+(13, 'a', 13, 3, 5.671, 2, 'train'),
+(14, 'a', 14, 10, 4.395, 3, 'train'),
+(15, 'a', 40, 6, 19.806, 1, 'train'),
+(16, 'a', 7.5, 3, 5.0, 1, 'test'),
+(17, 'b', 0.5, 5, 7.665, 2, 'train'),
+(18, 'b', 1, 10, 10.97, 3, 'train'),
+(19, 'b', 1.5, 2, 3.795, 1, 'train'),
+(20, 'b', 2, 7, 7.258, 2, 'train'),
+(21, 'b', 2.5, 12, 11.164, 3, 'train'),
+(22, 'b', 3, 4, 5.11, 1, 'train'),
+(23, 'b', 3.5, 9, 9.687, 2, 'train'),
+(24, 'b', 4, 1, 3.776, 3, 'train'),
+(25, 'b', 4.5, 6, 7.9, 1, 'train'),
+(26, 'b', 5, 11, 11.554, 2, 'train'),
+(27, 'b', 5.5, 3, 4.453, 3, 'train'),
+(28, 'b', 6, 8, 7.681, 1, 'train'),
+(29, 'b', 6.5, 0, 0.752, 2, 'train'),
+(30, 'b', 7, 5, 4.67, 3, 'train'),
+(31, 'b', 7.5, 10, 9.024, 1, 'train'),
+(32, 'b', 4.2, 6, NULL, 2, 'train');
+
+# Explicit leave-one-out refits: for every training row, ridge_fit_agg on the other training rows of
+# its group, then the prediction of the held-out row.
+statement ok
+CREATE TABLE refit AS
+SELECT o.id, o.g, o.y,
+    (ridge_fit_agg(t.y, [t.x1, t.x2], {'alpha': 2.0})).intercept
+      + (ridge_fit_agg(t.y, [t.x1, t.x2], {'alpha': 2.0})).coefficients[1] * o.x1
+      + (ridge_fit_agg(t.y, [t.x1, t.x2], {'alpha': 2.0})).coefficients[2] * o.x2 AS pred
+FROM d o JOIN d t ON t.g = o.g AND t.id <> o.id AND t.split = 'train' AND t.y IS NOT NULL
+WHERE o.split = 'train' AND o.y IS NOT NULL
+GROUP BY o.id, o.g, o.y, o.x1, o.x2;
+
+statement ok
+CREATE TABLE aug AS
+SELECT * FROM ridge_augment_by('d', g, y, [x1, x2], {'alpha': 2.0}, split := split);
+
+# The closed form equals the refits (30 training rows)
+query II
+SELECT count(*), max(abs(a.loo_fitted - r.pred)) < 1e-9 AND max(abs(a.loo_residual - (r.y - r.pred))) < 1e-9
+FROM aug a JOIN refit r ON a.id = r.id;
+----
+30	true
+
+# ... and the R hat matrix
+query II
+SELECT g, abs(leverage - CASE g WHEN 'a' THEN 0.1472669420 ELSE 0.2498569178 END) < 1e-9
+    AND abs(loo_residual - CASE g WHEN 'a' THEN 1.2133951506 ELSE 0.9006005776 END) < 1e-9
+FROM aug WHERE id IN (1, 17) ORDER BY g;
+----
+a	true
+b	true
+
+# Obs columns: model_id ridge, response residuals, no standardised residuals / Cook's distance
+query IIIIIII
+SELECT model_id, resid_type, n_params, count(*), count(std_residual), count(cooks_d), count(loo_residual)
+FROM aug GROUP BY ALL ORDER BY ALL;
+----
+ridge	response	3	32	0	0	30
+
+# Off the fit (the test row, the NULL y): predicted, but no leverage or LOO values
+query IIII
+SELECT id, fitted IS NOT NULL, leverage IS NULL, loo_residual IS NULL AND loo_fitted IS NULL
+FROM aug WHERE id IN (16, 32) ORDER BY id;
+----
+16	true	true	true
+32	true	true	true
+
+# Leverage sums to the effective degrees of freedom: between 1 and 3, below the OLS trace of 3
+query II
+SELECT g, sum(leverage) > 1 AND sum(leverage) < 3 FROM aug GROUP BY g ORDER BY g;
+----
+a	true
+b	true
+
+# glance_by has no split: fit it on the training rows
+statement ok
+CREATE TABLE dtrain AS SELECT * FROM d WHERE split = 'train';
+
+# glance_by turns compute_loo on: PRESS = sum of squared refit errors, Q^2 = 1 - PRESS / SST; R values
+query II
+SELECT gl.g,
+    abs(gl.value - (SELECT sum((r.y - r.pred) ^ 2) FROM refit r WHERE r.g = gl.g)) < 1e-8
+FROM ridge_glance_by('dtrain', g, y, [x1, x2], {'alpha': 2.0}) gl WHERE metric = 'press' ORDER BY 1;
+----
+a	true
+b	true
+
+query IIII
+SELECT g, metric, round(value, 8), abs(value - CASE metric || g
+        WHEN 'pressa' THEN 16.0475355075 WHEN 'pressb' THEN 10.4748812858
+        WHEN 'press_rmsea' THEN 1.0343286231 WHEN 'press_rmseb' THEN 0.8356586738
+        WHEN 'loo_r_squareda' THEN 0.9517891530 ELSE 0.9262932731 END) < 1e-8
+FROM ridge_glance_by('dtrain', g, y, [x1, x2], {'alpha': 2.0})
+WHERE metric IN ('press', 'press_rmse', 'loo_r_squared') ORDER BY 1, 2;
+----
+a	loo_r_squared	0.95178915	true
+a	press	16.04753551	true
+a	press_rmse	1.03432862	true
+b	loo_r_squared	0.92629327	true
+b	press	10.47488129	true
+b	press_rmse	0.83565867	true
+
+# compute_loo := false wins over the glance default
+query I
+SELECT count(*) FROM ridge_glance_by('dtrain', g, y, [x1, x2], {'alpha': 2.0, 'compute_loo': false})
+WHERE metric IN ('press', 'press_rmse', 'loo_r_squared');
+----
+0
+
+# The fit STRUCT: NULL without compute_loo, the glance values with it; glance() carries them
+query IIII
+SELECT g, (ridge_fit_agg(y, [x1, x2], {'alpha': 2.0})).press IS NULL,
+    round((ridge_fit_agg(y, [x1, x2], {'alpha': 2.0, 'compute_loo': true})).press, 8),
+    round((glance(ridge_fit_agg(y, [x1, x2], {'alpha': 2.0, 'compute_loo': true}))).loo_r_squared, 8)
+FROM d WHERE split = 'train' GROUP BY g ORDER BY g;
+----
+a	true	16.04753551	0.95178915
+b	true	10.47488129	0.92629327
+
+# ridge_fit (list input) as well
+query I
+SELECT round((ridge_fit(list(y), [list(x1), list(x2)], {'alpha': 2.0, 'compute_loo': true})).press_rmse, 8)
+FROM d WHERE g = 'a' AND split = 'train';
+----
+1.03432862
+
+# Glmnet scaling: the effective penalty alpha * n of the full fit is held fixed (a: n = 15, so 0.1 -> 1.5)
+query I
+SELECT abs((ridge_fit_agg(y, [x1, x2], {'alpha': 0.1, 'lambda_scaling': 'glmnet', 'compute_loo': true})).press
+         - (ridge_fit_agg(y, [x1, x2], {'alpha': 1.5, 'compute_loo': true})).press) < 1e-10
+FROM d WHERE g = 'a' AND split = 'train';
+----
+true
+
+# alpha = 0 is OLS: the exact LOO of ols_augment_by
+query I
+SELECT max(abs(r.loo_residual - o.loo_residual)) < 1e-9
+FROM ridge_augment_by('d', g, y, [x1, x2], {'alpha': 0.0}, split := split) r
+JOIN ols_augment_by('d', g, y, [x1, x2], split := split) o ON r.id = o.id;
+----
+true
+
+# ridge_augment_agg directly: options are validated
+statement error
+SELECT ridge_augment_agg(y, [x1, x2], {'alpha': 1.0, 'compute_inference': true}) OVER () FROM d;
+----
+compute_inference
+
+statement error
+SELECT ridge_augment_agg(y, [x1, x2], {'alpha': -1.0}) OVER () FROM d;
+----
+alpha
+
+# GLMs: one-step approximate leave-one-out (approx_loo_fitted / approx_loo_residual), R 4.6.1:
+#   x1 <- (1:20) / 4; x2 <- (1:20) %% 3
+#   m <- glm(yc ~ x1 + x2, poisson); X <- model.matrix(m)
+#   mu_loo <- m$family$linkinv(predict(m) - rowSums(X * influence(m)$coefficients))
+statement ok
+CREATE TABLE gd AS SELECT i AS id, 'p' AS g, i / 4.0 AS x1, (i % 3)::DOUBLE AS x2,
+    [0,1,1,2,1,3,2,4,3,5,4,6,5,8,6,9,7,11,9,12][i]::DOUBLE AS yc,
+    [0,0,1,0,0,1,0,1,0,1,1,0,1,1,0,1,1,1,0,1][i]::DOUBLE AS yb
+FROM range(1, 21) t(i);
+
+statement ok
+CREATE TABLE glm_ref (model VARCHAR, id INTEGER, approx_loo_fitted DOUBLE);
+
+statement ok
+INSERT INTO glm_ref VALUES
+('poisson', 1, 1.2992832065), ('poisson', 2, 1.3143208870), ('poisson', 3, 1.6319719832),
+('poisson', 4, 1.6743023545), ('poisson', 5, 1.9844858104), ('poisson', 6, 2.1815433409),
+('poisson', 7, 2.5280623125), ('poisson', 8, 2.5503274771), ('poisson', 9, 3.3616543002),
+('poisson', 10, 3.5350067085), ('poisson', 11, 3.9603781455), ('poisson', 12, 4.6595146928),
+('poisson', 13, 5.3104401864), ('poisson', 14, 5.4432530206), ('poisson', 15, 7.3402879896),
+('poisson', 16, 7.5993508290), ('poisson', 17, 8.8362244144), ('poisson', 18, 9.9042419624),
+('poisson', 19, 11.9300437037), ('poisson', 20, 12.5446604794),
+('logistic', 1, 0.3053146413), ('logistic', 2, 0.5176279896), ('logistic', 3, 0.0837313489),
+('logistic', 4, 0.3833517851), ('logistic', 5, 0.6002856532), ('logistic', 6, 0.1702895068),
+('logistic', 7, 0.4708145249), ('logistic', 8, 0.5172916198), ('logistic', 9, 0.4526419968),
+('logistic', 10, 0.5082812031), ('logistic', 11, 0.6352950583), ('logistic', 12, 0.5742764398),
+('logistic', 13, 0.6094291894), ('logistic', 14, 0.7285133246), ('logistic', 15, 0.7124115166),
+('logistic', 16, 0.6942768361), ('logistic', 17, 0.8023910344), ('logistic', 18, 0.5824638403),
+('logistic', 19, 0.9043267825), ('logistic', 20, 0.8602707385);
+
+query III
+SELECT r.model, count(*), max(abs(a.approx_loo_fitted - r.approx_loo_fitted)) < 1e-6
+    AND max(abs(a.approx_loo_residual - (a.y - r.approx_loo_fitted))) < 1e-6
+FROM (SELECT 'poisson' AS model, id, yc AS y, approx_loo_fitted, approx_loo_residual
+          FROM poisson_augment_by('gd', g, yc, [x1, x2], {'tolerance': 1e-12})
+      UNION ALL
+      SELECT 'logistic', id, yb, approx_loo_fitted, approx_loo_residual
+          FROM logistic_augment_by('gd', g, yb, [x1, x2], {'tolerance': 1e-12})) a
+JOIN glm_ref r ON a.model = r.model AND a.id = r.id
+GROUP BY r.model ORDER BY r.model;
+----
+logistic	20	true
+poisson	20	true
+
+# The exact LOO columns stay with the linear models: none on the GLM macros, NULL approx_* in ridge_augment_agg
+query I
+SELECT count(*) FROM (DESCRIBE SELECT * FROM poisson_augment_by('gd', g, yc, [x1, x2])) WHERE column_name LIKE 'loo_%';
+----
+0
+
+query II
+SELECT count((a[1]).approx_loo_fitted), count((a[1]).loo_residual) FROM (
+    SELECT ridge_augment_agg(y, [x1, x2]) OVER (PARTITION BY g ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS a
+    FROM d);
+----
+0	32
