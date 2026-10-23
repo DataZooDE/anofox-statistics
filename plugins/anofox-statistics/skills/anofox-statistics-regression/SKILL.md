@@ -30,13 +30,13 @@ description: >
   predictions, or writing ols_fit_agg / ridge_fit / ols_fit_predict / predict
   / tidy calls. For per-group long tables (tidy_by, prediction_by, effects_by,
   rolling_tidy_by) see the batch and plotting skills.
-version: 0.12.2
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Regression Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.2 (Rust crate `anofox-regression`) | **DuckDB:** v1.4.5 LTS / v1.5.x | **API:** unprefixed, MAP-style options
+**Extension:** `anofox_statistics` v0.13.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.4.5 LTS / v1.5.x / v2.0 | **API:** unprefixed, MAP-style options
 
 Regression families expose up to five call surfaces:
 
