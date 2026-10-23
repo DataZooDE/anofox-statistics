@@ -10,9 +10,9 @@ self-contained query that runs as written.
 | Situation | Fit aggregates (`*_fit_agg`) | Window `*_fit_predict` | `*_fit_predict_agg` / `*_fit_predict_by` |
 |-----------|------------------------------|------------------------|-------------------------------------------|
 | `y` is NULL | Row skipped | Not used for training; the row still gets a prediction | Not used for training; the row gets a prediction and `is_training = false` |
-| `x` list is NULL | Row skipped | Not used for training, and no prediction for that row | Not used for training, and the row is **left out** of the returned list |
-| `x` list has a NULL element | Row skipped | Not used for training | Not used for training; `yhat` is NULL for that row |
-| `y` or `x` is NaN/±Inf | Row dropped before fitting | Row dropped before fitting | Row dropped before fitting |
+| `x` list is NULL | Row skipped | Not used for training; the result for that row is NULL | Not used for training; the row is kept, `yhat` is NULL and `is_training = false` |
+| `x` list has a NULL element | Row skipped | Not used for training; the result for that row is NULL | Not used for training; `yhat` is NULL for that row |
+| `y` or `x` is NaN/±Inf | Row dropped before fitting | Row dropped before fitting; a row whose `x` has a NaN/±Inf element gets NULL | Row dropped before fitting; `yhat` is NULL for a row whose `x` is not finite |
 | Too few usable rows | Result is NULL | Result is NULL | Result is NULL |
 | All rows unusable (NULL/NaN) | NULL, or an error when every row is NaN | NULL | NULL |
 
@@ -120,8 +120,13 @@ Uses that give the intended result:
   `OVER (ORDER BY t ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)` or
   `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`. Rows with a NULL `y` are not
   used for training but still get a prediction.
-- The result is NULL while the frame has too few training rows. A row whose
-  `x` is NULL or incomplete gets NULL.
+- The result is NULL while the frame has too few training rows or the fit
+  fails. A row whose `x` list is NULL, or has a NULL, NaN or ±Inf element, gets
+  NULL (the whole result struct, so `yhat`, `yhat_lower` and `yhat_upper` are all
+  NULL). The window functions never return NaN for `yhat`, so `avg()` and other
+  aggregates over the predictions skip these rows instead of turning into NaN.
+  Under `null_policy = 'zero'` a NULL element counts as `0.0` and the row is
+  predicted; a NULL list or a NaN element still gives NULL.
 
 Uses that give misleading results:
 
@@ -135,6 +140,17 @@ Uses that give misleading results:
 
 For one prediction per row over a whole partition, use `*_fit_predict_agg` or
 `*_fit_predict_by`.
+
+```sql
+-- t = 5 has a NULL feature: its prediction is NULL, not NaN, and avg() skips it
+SELECT avg(yhat) AS avg_yhat, count(yhat) AS n_predicted
+FROM (
+    SELECT (ols_fit_predict(y, [x, z]) OVER (
+               ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM (VALUES (1, 3.1, 1.0, 0.5), (2, 4.9, 2.0, 1.5), (3, 7.2, 3.0, 0.0), (4, 8.8, 4.0, 1.0),
+                 (5, 11.2, 5.0, NULL), (6, 13.1, 6.0, 2.0), (7, 15.2, 7.0, 0.5)) t(t, y, x, z)
+);
+```
 
 ```sql
 SELECT t, y,
@@ -178,11 +194,13 @@ These functions fit once per group and return a prediction for every row:
 
 - Rows with a non-NULL `y` and a complete `x` are training rows. All other rows are
   prediction rows (`is_training = false`), and their `yhat` is still computed.
-- A row whose `x` element is NULL gets `yhat`, `yhat_lower` and `yhat_upper` set to NULL.
-- A row whose **whole `x` list** is NULL is left out of the list that
-  `*_fit_predict_agg` returns, so the list can be shorter than the group. Build
-  `x` as a list literal (`[x1, x2]`), so that a missing value becomes a NULL
-  element rather than a NULL list.
+- A row whose `x` has a NULL element gets `yhat`, `yhat_lower` and `yhat_upper` set to NULL.
+- A row whose **whole `x` list** is NULL is handled the same way: it stays in the
+  list that `*_fit_predict_agg` returns, at its position in the input, with
+  `yhat`, `yhat_lower` and `yhat_upper` NULL and `is_training = false`. Its `y`
+  is returned unchanged. The returned list therefore always has one element per
+  input row. This holds for every fit-predict aggregate (for
+  `isotonic_fit_predict_agg`, whose `x` is a scalar, a NULL `x`).
 - With a split column (`*_fit_predict_agg(y, x, split, options)`, or the `split`
   argument of the `*_by` macros), only rows whose split value is `'train'`
   (case-insensitive; `'training'` also works for the aggregate) are used for
@@ -191,6 +209,13 @@ These functions fit once per group and return a prediction for every row:
 ```sql
 SELECT unnest(ols_fit_predict_agg(y, [x]), recursive := true)
 FROM (VALUES (3.1, 1.0), (4.9, 2.0), (NULL, 3.0), (8.8, 4.0), (11.2, 5.0)) t(y, x);
+```
+
+```sql
+-- t = 3 has a NULL x list: the row is kept, with yhat NULL and is_training false
+SELECT unnest(ols_fit_predict_agg(y, x ORDER BY t), recursive := true)
+FROM (VALUES (1, 3.1, [1.0]), (2, 4.9, [2.0]), (3, 7.2, NULL), (4, 8.8, [4.0]),
+             (5, 11.2, [5.0])) t(t, y, x);
 ```
 
 ### The `null_policy` option

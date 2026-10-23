@@ -168,8 +168,9 @@ LIMIT 6;
 - NULL `y`: prediction row (not trained on).
 - A NULL element inside `x`: the row is kept in the output, not trained on,
   and its `yhat` is NULL.
-- A NULL `x` list: the row is skipped and does **not** appear in the output
-  list.
+- A NULL `x` list: handled like a NULL element. The row is kept in the output
+  at its input position, not trained on, and its `yhat` is NULL. The output
+  list always has one element per input row.
 - With `split_col`, a training row whose `y` is NULL is treated as a
   prediction row.
 

@@ -40,7 +40,8 @@ wls_fit_predict(y DOUBLE, x DOUBLE[], weight DOUBLE [, options MAP]) OVER (...)
 | `yhat_upper` | `DOUBLE` | Upper prediction-interval bound |
 
 The result is NULL until the frame contains more training rows than
-parameters (`n_features + 1` with an intercept), or when the fit fails.
+parameters (`n_features + 1` with an intercept), when the fit fails, and when
+the frame's last row has a NULL or incomplete `x`.
 
 The interval is leverage-aware, `yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)` for
 the frame's last row `x₀`, with `M = (XᵀX)⁻¹` for OLS, `(XᵀWX)⁻¹` for WLS, the
@@ -171,7 +172,11 @@ does not support raise an error.
 ## NULL handling
 
 - Rows with NULL `y` are not used for training but still get a prediction.
-- Rows whose `x` list is NULL are skipped.
+- Rows whose `x` list is NULL, or has a NULL or NaN element, are not used for
+  training. When such a row is the last row of the frame, the result is NULL
+  (never NaN), so `avg()` and similar aggregates over the predictions skip it.
+  Under `null_policy = 'zero'` a NULL element counts as 0 and the row gets a
+  prediction.
 - The model is refitted for every frame, so cost grows with frame size times
   row count. For large partitions prefer the fit-predict aggregates.
 - `WHERE` is applied before window functions. To look at a few rows, compute
