@@ -19,6 +19,7 @@ mod lowess;
 mod mediation;
 mod ols;
 mod ols_anova;
+mod ols_anova_table;
 mod passive_aggressive;
 mod path;
 mod pls;
@@ -71,6 +72,7 @@ pub use mediation::{
 };
 pub use ols::fit_ols;
 pub use ols_anova::{ols_anova, NestedFTest, NestedFTestOptions};
+pub use ols_anova_table::{ols_anova_table, AnovaTable, AnovaTableOptions, AnovaType};
 pub use passive_aggressive::{
     fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
 };

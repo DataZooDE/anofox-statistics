@@ -1474,6 +1474,44 @@ PosthocMapOptions PosthocMapOptions::ParseFromValue(const Value &map_value, cons
 	                                           });
 }
 
+AnovaTableMapOptions AnovaTableMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"fit_intercept", {"intercept"}}, {"type", {"anova_type"}}, {"terms", {"term_names"}}};
+	return ParseTestOptions<AnovaTableMapOptions>(
+	    map_value, function_name, keys, [&](AnovaTableMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "fit_intercept") {
+			    result.fit_intercept = ExtractBool(val);
+		    } else if (key == "type") {
+			    string v = ToLower(val.ToString());
+			    if (v == "i" || v == "1" || v == "sequential") {
+				    result.anova_type = 1;
+			    } else if (v == "ii" || v == "2" || v == "partial") {
+				    result.anova_type = 2;
+			    } else {
+				    throw InvalidInputException("%s: invalid type '%s'. Valid values are 'I' (sequential) and 'II' "
+				                                "(partial)",
+				                                function_name, val.ToString());
+			    }
+		    } else if (key == "terms") {
+			    if (val.type().id() != LogicalTypeId::LIST) {
+				    throw InvalidInputException("%s: terms must be a LIST of VARCHAR labels, one per x column, got %s",
+				                                function_name, val.type().ToString());
+			    }
+			    vector<string> labels;
+			    for (auto &child : ListValue::GetChildren(val)) {
+				    if (child.IsNull()) {
+					    throw InvalidInputException("%s: terms must not contain NULL", function_name);
+				    }
+				    labels.push_back(child.ToString());
+			    }
+			    result.terms = std::move(labels);
+		    }
+	    });
+}
+
 MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {
 	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};

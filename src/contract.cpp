@@ -63,6 +63,7 @@ static const struct {
     {"tost_correlation_agg", "test"}, {"tost_paired_agg", "test"}, {"tost_t_test_agg", "test"},
     {"t_test_agg", "test"}, {"wilcoxon_signed_rank_agg", "test"}, {"yuen_agg", "test"},
     {"ols_anova_agg", "test"}, {"ols_anova_by", "test"},
+    {"ols_anova_table_agg", "test"}, {"ols_anova_table_by", "test"},
     {"pairwise_t_test_agg", "test"}, {"tukey_hsd_agg", "test"}, {"dunn_test_agg", "test"},
     {"pairwise_t_test_by", "test"}, {"tukey_hsd_by", "test"}, {"dunn_test_by", "test"},
     {"ridge_path_by", "terms"}, {"elasticnet_path_by", "terms"}, {"lars_path_by", "terms"},

@@ -100,6 +100,7 @@ error rather than being silently ignored. Option values must be constants.
 | LOWESS | - | `lowess_agg` | - | - | `lowess_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
 | Nested-model F test (OLS) | - | `ols_anova_agg` | - | - | `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
+| Per-term ANOVA table (OLS) | - | `ols_anova_table_agg` | - | - | `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 
 Overview pages: [window functions](api/regression/fit_predict_window.md),
 [fit-predict aggregates](api/regression/fit_predict_agg.md),
@@ -131,6 +132,7 @@ fitted model struct).
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
+| ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
@@ -273,7 +275,8 @@ same rows. Returns the `test` fields (`method = 'nested F'`, `statistic`,
 `n_observations`. The `x_reduced` columns must appear in `x_full`, and
 `x_reduced := []` is the intercept-only model (the overall F test). Rank is
 counted as in R; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`, never NaN). The only option is
-`fit_intercept`. Per-term (type I / II) ANOVA tables are not available yet.
+`fit_intercept`. For per-term (type I / II) tables see
+[`ols_anova_table_agg`](#ols_anova_table_agg--ols_anova_table_by).
 
 **Signatures:**
 
@@ -293,6 +296,36 @@ ORDER BY category;
 
 SELECT category, df1, df2, round(adj_r_squared_reduced, 3) AS before, round(adj_r_squared_full, 3) AS after
 FROM ols_anova_by('reg_data', category, y, x_reduced := [x1], x_full := [x1, x2, x3]);
+```
+
+### ols_anova_table_agg / ols_anova_table_by
+
+Per-term ANOVA table of one OLS fit: R's `anova(lm(...))` (type I, sequential,
+the default) or `car::Anova(fit, type = 2)` (`{'type': 'II'}`, each term
+adjusted for all others). One row per term in the `test` schema: `term`,
+`method`, `statistic` (F), `df1` (term df), `df2` (residual df), `p_value`,
+`sum_sq`, `mean_sq`, `residual_sum_sq`, `residual_mean_sq`, `n_observations`.
+Terms are `x1`, `x2`, ... or the labels of the `terms` option (one per column;
+equal labels form one term, e.g. factor dummies). An aliased term has
+`df1 = 0` and NULL statistic / p-value. Options: `type`, `terms`,
+`fit_intercept`.
+
+**Signatures:**
+
+```sql skip
+ols_anova_table_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> LIST(STRUCT)
+ols_anova_table_by(source VARCHAR, group_col, y_col, x_cols [, options := ...]) -> TABLE
+```
+
+**Examples:**
+
+```sql
+SELECT category, (r).term, (r).df1, round((r).statistic, 2) AS f
+FROM (SELECT category, unnest(ols_anova_table_agg(y, [x1, x2, x3])) AS r FROM reg_data GROUP BY category)
+ORDER BY category, (r).term;
+
+SELECT category, term, round(sum_sq, 2) AS sum_sq, p_value < 0.05 AS significant
+FROM ols_anova_table_by('reg_data', category, y, [x1, x2, x3], options := {'type': 'II'});
 ```
 
 ### ridge_fit / ridge_fit_agg
@@ -1581,7 +1614,8 @@ columns are passed through and prediction columns are appended.
   interval exists.
 
 Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
-[`eb_shrink_by`](#eb_shrink_by), [`ols_anova_by`](#ols_anova_agg--ols_anova_by), [`aid_by`](#aid_by),
+[`eb_shrink_by`](#eb_shrink_by), [`ols_anova_by`](#ols_anova_agg--ols_anova_by),
+[`ols_anova_table_by`](#ols_anova_table_agg--ols_anova_table_by), [`aid_by`](#aid_by),
 [`glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by`](#glmm_tidy_by-glmm_glance_by-glmm_augment_by),
 [`aid_anomaly_by`](#aid_anomaly_by). See also [Table Macros](api/macros/table_macros.md).
 

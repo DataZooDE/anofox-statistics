@@ -1,0 +1,295 @@
+# name: test/sql/regression/test_ols_anova_table.test
+# description: ols_anova_table_agg / ols_anova_table_by (#231): per-term ANOVA tables against R's
+#              anova(lm(...)) (type I) and car::Anova(fit, type = 2) (type II), term order, column
+#              groups (factor dummies), no intercept, aliasing, NULL rows, errors.
+# group: [regression]
+
+require anofox_statistics
+
+# R 4.x / car 3.1.5 reference (anofox-regression tests/r_scripts/generate_anova_table_validation.R):
+#   x1 <- c(1.2, 2.5, 3.1, 4.8, 5.0, 6.7, 7.3, 8.1, 9.6, 10.2, 11.5, 12.9)
+#   x2 <- c(0.5, -1.2, 2.3, 0.8, -0.4, 1.9, -2.1, 0.3, 1.1, -0.7, 2.6, -1.5)
+#   x3 <- c(3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8)
+#   y  <- c(2.9, 4.1, 7.8, 8.2, 9.1, 14.0, 10.9, 14.6, 17.9, 17.1, 23.0, 20.4)
+#   x4 <- 2 * x1 - x2
+statement ok
+CREATE TABLE d AS
+SELECT 'a' AS g, x1, x2, x3, 2 * x1 - x2 AS x4, y FROM (VALUES
+    (1.2, 0.5, 3.0, 2.9), (2.5, -1.2, 1.0, 4.1), (3.1, 2.3, 4.0, 7.8), (4.8, 0.8, 1.0, 8.2),
+    (5.0, -0.4, 5.0, 9.1), (6.7, 1.9, 9.0, 14.0), (7.3, -2.1, 2.0, 10.9), (8.1, 0.3, 6.0, 14.6),
+    (9.6, 1.1, 5.0, 17.9), (10.2, -0.7, 3.0, 17.1), (11.5, 2.6, 5.0, 23.0), (12.9, -1.5, 8.0, 20.4)
+) t(x1, x2, x3, y);
+
+statement ok
+CREATE TABLE ref (anova_type VARCHAR, term VARCHAR, df DOUBLE, ss DOUBLE, f DOUBLE, p DOUBLE);
+
+# anova(lm(y ~ x1 + x2 + x3)) and car::Anova(lm(y ~ x1 + x2 + x3), type = 2); residual df 8, RSS 2.50876794653673052.
+statement ok
+INSERT INTO ref VALUES
+    ('I', 'x1', 1, 4.19985688995136002e+02, 1.33925719060596907e+03, 3.40761192012848685e-10),
+    ('I', 'x2', 1, 2.44185728190502864e+01, 7.78663418520132211e+01, 2.14185200229875218e-05),
+    ('I', 'x3', 1, 1.46970239276738246e-01, 4.68661087541797416e-01, 5.12944752624746703e-01),
+    ('II', 'x1', 1, 2.97030757904135839e+02, 9.47176508099688476e+02, 1.35003073242217786e-09),
+    ('II', 'x2', 1, 1.99150693446599405e+01, 6.35054967826801757e+01, 4.49040674179866078e-05),
+    ('II', 'x3', 1, 1.46970239276738468e-01, 4.68661087541798027e-01, 5.12944752624746592e-01);
+
+# Type I (the default): one element per term in column order.
+query IIIIIIIIIII
+SELECT r.term, r.method, r.df1, r.df2, abs(r.sum_sq - ref.ss) < 1e-9 * ref.ss, abs(r.mean_sq - ref.ss) < 1e-9 * ref.ss,
+       abs(r.statistic - ref.f) < 1e-9 * ref.f, abs(r.p_value - ref.p) < 1e-9 * ref.p,
+       abs(r.residual_sum_sq - 2.50876794653673052) < 1e-10, abs(r.residual_mean_sq - 2.50876794653673052 / 8) < 1e-10,
+       r.n_observations
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x3])) AS r FROM d) t
+JOIN ref ON ref.anova_type = 'I' AND ref.term = r.term
+ORDER BY r.term;
+----
+x1	type I ANOVA	1.0	8.0	true	true	true	true	true	true	12
+x2	type I ANOVA	1.0	8.0	true	true	true	true	true	true	12
+x3	type I ANOVA	1.0	8.0	true	true	true	true	true	true	12
+
+# Type II.
+query IIIIII
+SELECT r.term, r.method, r.df1, abs(r.sum_sq - ref.ss) < 1e-9 * ref.ss, abs(r.statistic - ref.f) < 1e-9 * ref.f,
+       abs(r.p_value - ref.p) < 1e-9 * ref.p
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x3], {'type': 'II'})) AS r FROM d) t
+JOIN ref ON ref.anova_type = 'II' AND ref.term = r.term
+ORDER BY r.term;
+----
+x1	type II ANOVA	1.0	true	true	true
+x2	type II ANOVA	1.0	true	true	true
+x3	type II ANOVA	1.0	true	true	true
+
+# Type spellings: 'II', 2 and 'partial' (alias key anova_type) are the same.
+query I
+SELECT count(DISTINCT round((r).statistic, 6)) FROM (
+    SELECT ols_anova_table_agg(y, [x1, x2, x3], {'type': 'II'})[1] AS r FROM d UNION ALL
+    SELECT ols_anova_table_agg(y, [x1, x2, x3], {'type': 2})[1] FROM d UNION ALL
+    SELECT ols_anova_table_agg(y, [x1, x2, x3], {'anova_type': 'partial'})[1] FROM d);
+----
+1
+
+# The unified test fields: n, and NULL for what does not apply.
+query IIIII
+SELECT r.n, r.alternative IS NULL, r.estimate IS NULL, r.effect_size IS NULL, r.conf_level IS NULL
+FROM (SELECT ols_anova_table_agg(y, [x1, x2, x3])[1] AS r FROM d);
+----
+12	true	true	true	true
+
+# Type I sums of squares add up to TSS - RSS; the last term agrees between types I and II
+# and equals the nested F test of dropping it (ols_anova_agg, #221).
+query III
+SELECT abs(list_sum([e.sum_sq FOR e IN t1]) + t1[1].residual_sum_sq - 447.06) < 1e-9,
+       abs(t1[3].statistic - t2[3].statistic) < 1e-9,
+       abs(t2[1].statistic - (SELECT (ols_anova_agg(y, [x2, x3], [x1, x2, x3])).statistic FROM d)) < 1e-9
+FROM (SELECT ols_anova_table_agg(y, [x1, x2, x3]) AS t1, ols_anova_table_agg(y, [x1, x2, x3], {'type': 'II'}) AS t2 FROM d);
+----
+true	true	true
+
+# Type I depends on the order: anova(lm(y ~ x3 + x1 + x2)).
+query IIII
+SELECT r.term, abs(r.sum_sq - s) < 1e-9 * s, abs(r.statistic - f) < 1e-9 * f, abs(r.p_value - p) < 1e-9 * p
+FROM (SELECT unnest(ols_anova_table_agg(y, [x3, x1, x2], {'terms': ['x3', 'x1', 'x2']})) AS r,
+             unnest([1.47515235849056523e+02, 2.77120926859746760e+02, 1.99150693446599547e+01]) AS s,
+             unnest([4.70398981468800343e+02, 8.83687715294043869e+02, 6.35054967826802113e+01]) AS f,
+             unnest([2.15269684509675983e-08, 1.77799860511455681e-09, 4.49040674179865265e-05]) AS p
+      FROM d);
+----
+x3	true	true	true
+x1	true	true	true
+x2	true	true	true
+
+# Without an intercept (R: y ~ 0 + x1 + x2 + x3): uncentred sums of squares, residual df 9.
+query IIIII
+SELECT r.term, r.df2, abs(r.sum_sq - s) < 1e-9 * s, abs(r.statistic - f) < 1e-9 * f, abs(r.p_value - p) < 1e-9 * p
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x3], {'fit_intercept': false})) AS r,
+             unnest([2.29252948576637846e+03, 2.62780351675297652e+01, 4.08372215726307997e-01]) AS s,
+             unnest([7.25456758744582567e+03, 8.31552149587269582e+01, 1.29226858725925675e+00]) AS f,
+             unnest([2.14741592057949608e-14, 7.66754255698895974e-06, 2.84990960542834015e-01]) AS p
+      FROM d);
+----
+x1	9.0	true	true	true
+x2	9.0	true	true	true
+x3	9.0	true	true	true
+
+query IIII
+SELECT r.term, abs(r.sum_sq - s) < 1e-9 * s, abs(r.statistic - f) < 1e-9 * f, abs(r.p_value - p) < 1e-9 * p
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x3], {'fit_intercept': false, 'type': 'II'})) AS r,
+             unnest([4.06054952569753084e+02, 1.99308667388766274e+01, 4.08372215726307886e-01]) AS s,
+             unnest([1.28493575150229140e+03, 6.30699935295362266e+01, 1.29226858725925675e+00]) AS f,
+             unnest([5.06410959502653182e-11, 2.34666013245371934e-05, 2.84990960542834015e-01]) AS p
+      FROM d);
+----
+x1	true	true	true
+x2	true	true	true
+x3	true	true	true
+
+# An aliased term (x4 = 2 x1 - x2) adds no rank: df1 = 0, sum_sq 0 and NULL mean_sq / statistic /
+# p_value (R's anova() drops the term); the other rows equal anova(lm(y ~ x1 + x2 + x3)).
+query IIIIII
+SELECT r.term, r.df1, r.sum_sq = 0, r.mean_sq IS NULL, r.statistic IS NULL, r.p_value IS NULL
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x4, x3], {'terms': ['x1', 'x2', 'x4', 'x3']})) AS r FROM d);
+----
+x1	1.0	false	false	false	false
+x2	1.0	false	false	false	false
+x4	0.0	true	true	true	true
+x3	1.0	false	false	false	false
+
+query II
+SELECT abs(t[4].statistic - 4.68661087541797416e-01) < 1e-9, t[4].df2
+FROM (SELECT ols_anova_table_agg(y, [x1, x2, x4, x3]) AS t FROM d);
+----
+true	8.0
+
+# NULL, never NaN: isnan() of a NULL is NULL.
+query II
+SELECT isnan(t[3].statistic) IS NULL, isnan(t[3].mean_sq) IS NULL
+FROM (SELECT ols_anova_table_agg(y, [x1, x2, x4, x3]) AS t FROM d);
+----
+true	true
+
+# mtcars, mpg ~ wt + factor(cyl) + hp: the two cyl dummies form one term through equal labels.
+statement ok
+CREATE TABLE mt AS SELECT mpg, wt, (cyl = 6)::DOUBLE AS cyl6, (cyl = 8)::DOUBLE AS cyl8, hp::DOUBLE AS hp, (hp > 120) AS big, 'all' AS grp FROM (VALUES
+    (21.0, 2.62, 6, 110), (21.0, 2.875, 6, 110), (22.8, 2.32, 4, 93), (21.4, 3.215, 6, 110), (18.7, 3.44, 8, 175), (18.1, 3.46, 6, 105),
+    (14.3, 3.57, 8, 245), (24.4, 3.19, 4, 62), (22.8, 3.15, 4, 95), (19.2, 3.44, 6, 123), (17.8, 3.44, 6, 123), (16.4, 4.07, 8, 180),
+    (17.3, 3.73, 8, 180), (15.2, 3.78, 8, 180), (10.4, 5.25, 8, 205), (10.4, 5.424, 8, 215), (14.7, 5.345, 8, 230), (32.4, 2.2, 4, 66),
+    (30.4, 1.615, 4, 52), (33.9, 1.835, 4, 65), (21.5, 2.465, 4, 97), (15.5, 3.52, 8, 150), (15.2, 3.435, 8, 150), (13.3, 3.84, 8, 245),
+    (19.2, 3.845, 8, 175), (27.3, 1.935, 4, 66), (26.0, 2.14, 4, 91), (30.4, 1.513, 4, 113), (15.8, 3.17, 8, 264), (19.7, 2.77, 6, 175),
+    (15.0, 3.57, 8, 335), (21.4, 2.78, 4, 109)
+) t(mpg, wt, cyl, hp);
+
+# R: anova(lm(mpg ~ wt + factor(cyl) + hp, data = mtcars)); residual df 27, RSS 160.777633984652510.
+query IIIIIIII
+SELECT r.term, r.df1, r.df2, abs(r.sum_sq - s) < 1e-9 * s, abs(r.mean_sq - s / r.df1) < 1e-9 * s,
+       abs(r.statistic - f) < 1e-9 * f, abs(r.p_value - p) < 1e-9 * p, abs(r.residual_sum_sq - 160.777633984652510) < 1e-9
+FROM (SELECT unnest(ols_anova_table_agg(mpg, [wt, cyl6, cyl8, hp], {'terms': ['wt', 'cyl', 'cyl', 'hp']})) AS r,
+             unnest([8.47725249956657080e+02, 9.52632898749658636e+01, 2.22810136837252628e+01]) AS s,
+             unnest([1.42361727695374839e+02, 7.99896342195708154e+00, 3.74173543017810761e+00]) AS f,
+             unnest([2.82849164659697284e-12, 1.87011943620145706e-03, 6.36126864018736193e-02]) AS p
+      FROM mt);
+----
+wt	1.0	27.0	true	true	true	true	true
+cyl	2.0	27.0	true	true	true	true	true
+hp	1.0	27.0	true	true	true	true	true
+
+# R: car::Anova(lm(mpg ~ wt + factor(cyl) + hp, data = mtcars), type = 2).
+query IIIII
+SELECT r.term, r.df1, abs(r.sum_sq - s) < 1e-9 * s, abs(r.statistic - f) < 1e-9 * f, abs(r.p_value - p) < 1e-9 * p
+FROM (SELECT unnest(ols_anova_table_agg(mpg, [wt, cyl6, cyl8, hp], {'type': 'II', 'terms': ['wt', 'cyl', 'cyl', 'hp']})) AS r,
+             unnest([1.16390091187040611e+02, 3.42701207568139239e+01, 2.22810136837252628e+01]) AS s,
+             unnest([1.95458309975507873e+01, 2.87755590594865440e+00, 3.74173543017810672e+00]) AS f,
+             unnest([1.44175576105983686e-04, 7.36449805084616049e-02, 6.36126864018736610e-02]) AS p
+      FROM mt);
+----
+wt	1.0	true	true	true
+cyl	2.0	true	true	true
+hp	1.0	true	true	true
+
+# A NULL in y, the list or a list element drops the row.
+statement ok
+CREATE TABLE dn AS SELECT * REPLACE (CASE WHEN x1 = 4.8 THEN NULL ELSE x3 END AS x3) FROM d;
+
+query II
+SELECT t[1].n_observations, abs(t[1].statistic - u[1].statistic) < 1e-10
+FROM (SELECT (SELECT ols_anova_table_agg(y, [x1, x2, x3]) FROM dn) t,
+             (SELECT ols_anova_table_agg(y, [x1, x2, x3]) FROM dn WHERE x3 IS NOT NULL) u);
+----
+11	true
+
+# No residual degrees of freedom (n = 4 = p): residual df 0, statistics NULL.
+query IIII
+SELECT t[1].df2, t[1].statistic IS NULL, t[1].p_value IS NULL, t[1].residual_mean_sq IS NULL
+FROM (SELECT ols_anova_table_agg(y, [x1, x2, x3]) AS t FROM d WHERE x1 < 4.9);
+----
+0.0	true	true	true
+
+# Too few rows for the fit: NULL, not an error. No rows: NULL.
+query II
+SELECT (SELECT ols_anova_table_agg(y, [x1, x2, x3]) IS NULL FROM d WHERE x1 < 3),
+       (SELECT ols_anova_table_agg(y, [x1, x2, x3]) IS NULL FROM d WHERE x1 > 100);
+----
+true	true
+
+statement error
+SELECT ols_anova_table_agg(y, [x1, x2], {'type': 'III'}) FROM d;
+----
+invalid type 'III'
+
+statement error
+SELECT ols_anova_table_agg(y, [x1, x2], {'alpha': 1.0}) FROM d;
+----
+unknown option 'alpha'
+
+statement error
+SELECT ols_anova_table_agg(y, [x1, x2], {'terms': ['a']}) FROM d;
+----
+terms has 1 labels for 2 x columns
+
+statement error
+SELECT ols_anova_table_agg(y, CASE WHEN x1 < 5 THEN [x1, x2] ELSE [x1, x2, x3] END) FROM d;
+----
+inconsistent x length
+
+statement error
+SELECT ols_anova_table_agg(y, []::DOUBLE[]) FROM d;
+----
+x must have at least one column
+
+# ols_anova_table_by: one row per group and term.
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_anova_table_by('mt', big, mpg, [wt, hp]));
+----
+big	BOOLEAN
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+term	VARCHAR
+method	VARCHAR
+statistic	DOUBLE
+p_value	DOUBLE
+df1	DOUBLE
+df2	DOUBLE
+sum_sq	DOUBLE
+mean_sq	DOUBLE
+residual_sum_sq	DOUBLE
+residual_mean_sq	DOUBLE
+n_observations	BIGINT
+
+query IIIIII
+SELECT big, id, model_id, term, method, n_observations FROM ols_anova_table_by('mt', big, mpg, [wt, hp]);
+----
+false	false	ols	x1	type I ANOVA	15
+false	false	ols	x2	type I ANOVA	15
+true	true	ols	x1	type I ANOVA	17
+true	true	ols	x2	type I ANOVA	17
+
+# The macro rows equal the aggregate per group; options pass through (type, terms).
+query I
+SELECT count(*) FROM ols_anova_table_by('mt', big, mpg, [wt, cyl6, cyl8, hp], options := {'type': 'II', 'terms': ['wt', 'cyl', 'cyl', 'hp']}) m
+JOIN (SELECT big, unnest(ols_anova_table_agg(mpg, [wt, cyl6, cyl8, hp], {'type': 'II', 'terms': ['wt', 'cyl', 'cyl', 'hp']})) AS r
+      FROM mt GROUP BY big) a ON a.big = m.big AND (a.r).term = m.term
+WHERE m.method = 'type II ANOVA' AND m.statistic IS NOT DISTINCT FROM (a.r).statistic AND m.df1 = (a.r).df1;
+----
+6
+
+query IIII
+SELECT term, df1, abs(statistic - 1.95458309975507873e+01) < 1e-9 OR term <> 'wt', n_observations
+FROM ols_anova_table_by('mt', grp, mpg, [wt, cyl6, cyl8, hp], options := {'type': 'II', 'terms': ['wt', 'cyl', 'cyl', 'hp']});
+----
+wt	1.0	true	32
+cyl	2.0	true	32
+hp	1.0	true	32
+
+# Tagged as contract `test` producers and described like the other table macros (#150).
+query II
+SELECT DISTINCT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('ols_anova_table_agg', 'ols_anova_table_by') ORDER BY 1;
+----
+ols_anova_table_agg	test
+ols_anova_table_by	test
+
+query I
+SELECT description IS NOT NULL AND len(examples) > 0 AND list_contains(categories, 'table-macro')
+FROM duckdb_functions() WHERE function_name = 'ols_anova_table_by';
+----
+true

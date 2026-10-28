@@ -402,6 +402,19 @@ struct PosthocMapOptions {
 };
 
 /**
+ * Options for ols_anova_table_agg (#231): fit_intercept, type ('I' sequential
+ * [default] or 'II' partial, also 1 / 2) and terms (one VARCHAR label per x
+ * column; columns with the same label form one term, ordered by first appearance).
+ */
+struct AnovaTableMapOptions {
+	std::optional<bool> fit_intercept;
+	std::optional<int32_t> anova_type; // 1 = type I, 2 = type II
+	std::optional<vector<string>> terms;
+
+	static AnovaTableMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
  * Options for Mann-Whitney U test
  */
 struct MannWhitneyMapOptions {

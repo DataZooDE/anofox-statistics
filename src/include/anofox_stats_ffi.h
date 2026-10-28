@@ -3536,6 +3536,45 @@ bool anofox_ols_anova(AnofoxDataArray y, const AnofoxDataArray *x_reduced, size_
                       const AnofoxDataArray *x_full, size_t x_full_count, bool fit_intercept,
                       AnofoxOlsAnovaResult *out_result, AnofoxError *out_error);
 
+/* ============================================================================
+ * Per-term ANOVA table of an OLS fit (issue #231)
+ * ============================================================================ */
+
+/**
+ * One term (row) of anofox_ols_anova_table. NaN marks a value that does not
+ * apply. Must match AnovaTermFFI in the Rust FFI crate.
+ */
+typedef struct {
+	double df;
+	double sum_sq;
+	double mean_sq;
+	double statistic;
+	double p_value;
+} AnofoxAnovaTerm;
+
+/**
+ * Residual row of anofox_ols_anova_table. Must match OlsAnovaTableResultFFI in
+ * the Rust FFI crate.
+ */
+typedef struct {
+	double residual_df;
+	double residual_sum_sq;
+	double residual_mean_sq;
+	size_t n_observations;
+} AnofoxOlsAnovaTableResult;
+
+/**
+ * Per-term ANOVA table (R's anova(lm(...)) for anova_type 1, car::Anova(fit,
+ * type = 2) for anova_type 2) of the OLS fit of y on the x columns, on the rows
+ * where every value is finite. term_of_column[j] is the 0-based term of column
+ * j; terms are numbered 0..n_terms-1 in table order and out_terms receives
+ * n_terms rows.
+ */
+bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            const uint64_t *term_of_column, size_t n_terms, bool fit_intercept, int32_t anova_type,
+                            AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
+                            AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif
