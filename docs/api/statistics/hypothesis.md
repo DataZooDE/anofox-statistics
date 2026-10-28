@@ -407,9 +407,10 @@ smaller (an error, as `stopifnot(n >= lp)` in R).
 | `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row, in source order, with `p_adjusted`; each group of `group_col` is one family |
 | `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted p-values in input order (`ORDER BY` inside the call fixes it) |
 | `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted list in the same order |
+| `p_adjust` | `(p DOUBLE [, method VARCHAR [, n BIGINT]]) OVER (...)` | `DOUBLE`, the row's adjusted p-value; window-only, **DuckDB 2.0+** (see below) |
 
-`method` and `n` of `p_adjust_agg` must be constants; `p_adjust_list` also takes
-per-row values.
+`method` and `n` of `p_adjust_agg` and `p_adjust` must be constants; `p_adjust_list`
+also takes per-row values.
 
 ```sql
 CREATE TABLE results AS SELECT * FROM (VALUES
@@ -429,11 +430,30 @@ FROM results GROUP BY endpoint;
 SELECT p_adjust_list([0.01, 0.02, 0.04], 'holm', 10);
 ```
 
-There is no `p_adjust(p) OVER (PARTITION BY ...)` window function: in DuckDB 1.x an
-extension's window aggregate is not told which row of a whole-partition frame it is
-computing, so it cannot return a different value per row (a window function for
-DuckDB 2.0 is tracked in #224). `p_adjust_by` is the supported way to get row-aligned
-results.
+### Window function `p_adjust` (DuckDB 2.0+)
+
+On DuckDB 2.0, `p_adjust(p [, method [, n]]) OVER (...)` returns each row's adjusted
+p-value inline (#224), the same values as `p_adjust_by`:
+
+```sql skip
+-- DuckDB 2.0+ only: one family per endpoint, Benjamini-Hochberg.
+SELECT endpoint, test, p_value,
+       p_adjust(p_value, 'BH') OVER (PARTITION BY endpoint) AS p_adjusted
+FROM results
+ORDER BY endpoint, test;
+```
+
+The family of a row is its window frame. Leave `ORDER BY` out of `OVER` (or use
+`ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`) so that the family is the
+whole partition; with `ORDER BY` the default frame ends at the current row and the
+family grows row by row. A row outside its own frame (e.g. `EXCLUDE CURRENT ROW`) gets
+NULL, and rows removed by `FILTER (WHERE ...)` are NULL and not counted. `p_adjust` is
+window-only: without `OVER` it is a binder error. Each distinct frame is adjusted once.
+
+On DuckDB 1.5, `p_adjust` does not exist: an extension's window aggregate there is not
+told which row of a whole-partition frame it is computing, so it cannot return a
+different value per row. Use `p_adjust_by`, or the recipe below for Bonferroni, Holm
+and BH.
 
 ### Row-aligned with plain window functions
 

@@ -35,6 +35,16 @@ Breaking changes are called out explicitly.
   - Validation: `test/sql/macros/test_ridge_loo.test` checks every ridge LOO value against an
     explicit refit without the row (in SQL, to 1e-9) and R's explicitly built hat matrix, and
     the GLM approximation against R 4.6.1 `influence()`.
+- **`p_adjust(p [, method [, n]]) OVER (...)` window function on DuckDB 2.0 (#224).**
+  Returns each row's p-value adjusted for multiple testing (R `p.adjust`, the same
+  methods and `n` as `p_adjust_agg`) within its window frame, i.e. within the partition
+  when `OVER` has no `ORDER BY`, so `p_adjust(p_value, 'BH') OVER (PARTITION BY
+  endpoint)` gives the row-aligned result inline. NULL p-values and rows removed by
+  `FILTER` stay NULL and are not counted; a row outside its own frame is NULL. It is
+  window-only (no plain aggregate form) and uses DuckDB 2.0's batched window callback,
+  detected in `duckdb_compat.hpp`; each distinct frame is adjusted once. On DuckDB 1.5
+  it is not registered: use `p_adjust_by` or the plain-window recipe there. Matches R
+  and `p_adjust_by` (`test/sql/reference/p_adjust_window.test`).
 
 ### Changed
 

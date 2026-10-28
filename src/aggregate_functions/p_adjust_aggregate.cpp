@@ -1,11 +1,16 @@
 // Standalone multiple-testing correction (#219): the aggregate p_adjust_agg and
 // the list scalar p_adjust_list, both R's p.adjust(p, method, n) from the
 // upstream anofox-statistics crate. NULL p-values pass through as NULL and are
-// not counted in n. The row-aligned form is the p_adjust_by table macro.
+// not counted in n. The row-aligned form is the p_adjust_by table macro and, on
+// DuckDB 2.0, the window function p_adjust(p, method, n) OVER (...) (#224).
 
 #include <cmath>
 #include <string>
 #include <vector>
+
+#include "duckdb/common/map.hpp"
+#include "duckdb/common/mutex.hpp"
+#include "duckdb/common/types/column/column_data_collection.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/execution/expression_executor.hpp"
@@ -173,17 +178,186 @@ static void PAdjustFinalize(Vector &state_vector, AggregateInputData &aggr_input
 	}
 }
 
-static unique_ptr<FunctionData> PAdjustAggBind(ClientContext &context, AggregateBindFunction &function,
-                                               vector<unique_ptr<Expression>> &arguments) {
+//! The method and n arguments of p_adjust_agg / p_adjust.
+static unique_ptr<FunctionData> BindPAdjustArguments(ClientContext &context, vector<unique_ptr<Expression>> &arguments,
+                                                     const char *fn_name) {
 	auto bind = make_uniq<PAdjustBindData>();
 	if (arguments.size() >= 2) {
-		bind->method = BindMethod(context, *arguments[1], "p_adjust_agg");
+		bind->method = BindMethod(context, *arguments[1], fn_name);
 	}
 	if (arguments.size() >= 3) {
-		bind->n = BindN(context, *arguments[2], "p_adjust_agg");
+		bind->n = BindN(context, *arguments[2], fn_name);
 	}
-	PostHogTelemetry::Instance().RecordFunctionCall("p_adjust_agg");
+	PostHogTelemetry::Instance().RecordFunctionCall(fn_name);
 	return std::move(bind);
+}
+
+static unique_ptr<FunctionData> PAdjustAggBind(ClientContext &context, AggregateBindFunction &,
+                                               vector<unique_ptr<Expression>> &arguments) {
+	return BindPAdjustArguments(context, arguments, "p_adjust_agg");
+}
+
+// ---------------------------------------------------------------------------
+// p_adjust(p [, method [, n]]) OVER (...) -> DOUBLE, DuckDB 2.0 only (#224)
+//
+// A window-only aggregate: no update / finalize, so DuckDB evaluates it with
+// the custom window aggregator. The family of a row is its window frame (the
+// whole partition without ORDER BY); the result is the row's own adjusted
+// p-value, NULL when the row is outside its frame. window_init only reads the
+// p-values, since the rows it gets (a hash group) may span several partitions;
+// each distinct frame is adjusted once, on first use, and shared by the threads.
+// Needs the batched window callback, the first one that is told which row it
+// computes (row_idx); DuckDB 1.x has none, so there p_adjust is not registered.
+// ---------------------------------------------------------------------------
+
+//! One family: the adjusted p-values of the rows of one frame, in row order.
+struct PAdjustFamily {
+	mutex lock;
+	bool adjusted = false;
+	vector<double> adj;
+};
+
+//! Shared by the threads evaluating one hash group.
+struct PAdjustWindowShared {
+	//! The p-values of the hash group; NaN for NULL or filtered-out rows.
+	vector<double> p;
+	mutex lock;
+	//! Families by frame, as [start, end) pairs of the non-empty subframes.
+	map<vector<idx_t>, shared_ptr<PAdjustFamily>> families;
+	//! Number of p-values in `families`; bounded, so sliding frames do not pile up.
+	idx_t cached = 0;
+};
+
+//! The global state (window_init) holds `shared`; each thread's local state
+//! remembers the family of its last frame.
+struct PAdjustWindowState {
+	unique_ptr<PAdjustWindowShared> shared;
+	vector<idx_t> frame;
+	vector<idx_t> scratch;
+	shared_ptr<PAdjustFamily> family;
+};
+
+static void PAdjustWindowInitialize(data_ptr_t state_p) {
+	new (state_p) PAdjustWindowState();
+}
+
+static void PAdjustWindowDestroy(Vector &state_vector, AggregateInputData &, idx_t count) {
+	UnifiedVectorFormat sdata;
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto states = (PAdjustWindowState **)sdata.data;
+	for (idx_t i = 0; i < count; i++) {
+		states[sdata.sel->get_index(i)]->~PAdjustWindowState();
+	}
+}
+
+static void PAdjustWindowInit(AggregateInputData &, const WindowPartitionInput &partition, data_ptr_t g_state) {
+	auto &state = *reinterpret_cast<PAdjustWindowState *>(g_state);
+	state.shared = make_uniq<PAdjustWindowShared>();
+	auto &p = state.shared->p;
+	p.assign(static_cast<size_t>(partition.count), NAN);
+	if (!partition.inputs || partition.column_ids.empty()) {
+		return;
+	}
+	auto &inputs = *partition.inputs;
+	ColumnDataScanState scan;
+	DataChunk chunk;
+	vector<column_t> p_column {partition.column_ids[0]};
+	inputs.InitializeScan(scan, p_column);
+	inputs.InitializeScanChunk(scan, chunk);
+	idx_t row = 0;
+	while (inputs.Scan(scan, chunk)) {
+		UnifiedVectorFormat p_data;
+		chunk.data[0].ToUnifiedFormat(chunk.size(), p_data);
+		auto values = UnifiedVectorFormat::GetData<double>(p_data);
+		for (idx_t i = 0; i < chunk.size(); i++) {
+			auto idx = p_data.sel->get_index(i);
+			if (p_data.validity.RowIsValid(idx) && partition.filter_mask.RowIsValid(row + i)) {
+				p[static_cast<size_t>(row + i)] = values[idx];
+			}
+		}
+		row += chunk.size();
+	}
+}
+
+//! The family of `frame`, adjusted on first use.
+static shared_ptr<PAdjustFamily> GetPAdjustFamily(PAdjustWindowShared &shared, const vector<idx_t> &frame,
+                                                  const PAdjustBindData &bind) {
+	idx_t size = 0;
+	for (idx_t k = 0; k < frame.size(); k += 2) {
+		size += frame[k + 1] - frame[k];
+	}
+	shared_ptr<PAdjustFamily> family;
+	{
+		lock_guard<mutex> guard(shared.lock);
+		auto entry = shared.families.find(frame);
+		if (entry != shared.families.end()) {
+			family = entry->second;
+		} else {
+			family = make_shared_ptr<PAdjustFamily>();
+			if (shared.cached + size <= 2 * static_cast<idx_t>(shared.p.size())) {
+				shared.families.emplace(frame, family);
+				shared.cached += size;
+			}
+		}
+	}
+	lock_guard<mutex> guard(family->lock);
+	if (!family->adjusted) {
+		vector<double> p;
+		p.reserve(static_cast<size_t>(size));
+		for (idx_t k = 0; k < frame.size(); k += 2) {
+			p.insert(p.end(), shared.p.begin() + static_cast<std::ptrdiff_t>(frame[k]),
+			         shared.p.begin() + static_cast<std::ptrdiff_t>(frame[k + 1]));
+		}
+		family->adj = AdjustPValues("p_adjust", p, bind.method, bind.n);
+		family->adjusted = true;
+	}
+	return family;
+}
+
+static void PAdjustWindowBatch(AggregateInputData &aggr_input_data, const WindowPartitionInput &, const_data_ptr_t g_state,
+                               data_ptr_t l_state, const SubFrames *subframes_per_row, idx_t count, Vector &result,
+                               idx_t row_idx) {
+	auto &shared = *reinterpret_cast<const PAdjustWindowState *>(g_state)->shared;
+	auto &local = *reinterpret_cast<PAdjustWindowState *>(l_state);
+	auto &bind = aggr_input_data.bind_data->Cast<PAdjustBindData>();
+	auto data = FlatDataMut<double>(result);
+	for (idx_t i = 0; i < count; i++) {
+		auto &frame = local.scratch;
+		frame.clear();
+		for (const auto &bounds : subframes_per_row[i]) {
+			if (bounds.start < bounds.end) {
+				frame.push_back(bounds.start);
+				frame.push_back(bounds.end);
+			}
+		}
+		if (!local.family || frame != local.frame) {
+			local.family = GetPAdjustFamily(shared, frame, bind);
+			local.frame = frame;
+		}
+		// The position of the row in its family, if it is in its frame.
+		const idx_t row = row_idx + i;
+		idx_t pos = 0;
+		bool in_frame = false;
+		for (idx_t k = 0; k < frame.size(); k += 2) {
+			if (row >= frame[k] && row < frame[k + 1]) {
+				pos += row - frame[k];
+				in_frame = true;
+				break;
+			}
+			pos += frame[k + 1] - frame[k];
+		}
+		const auto &adj = local.family->adj;
+		if (!in_frame || std::isnan(adj[static_cast<size_t>(pos)])) {
+			FlatVector::SetNull(result, i, true);
+		} else {
+			data[i] = adj[static_cast<size_t>(pos)];
+		}
+	}
+}
+
+static unique_ptr<FunctionData> PAdjustWindowBind(ClientContext &context, AggregateBindFunction &,
+                                                  vector<unique_ptr<Expression>> &arguments) {
+	return BindPAdjustArguments(context, arguments, "p_adjust");
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +465,38 @@ void RegisterPAdjustFunctions(ExtensionLoader &loader) {
 		                "; case-insensitive. n: number of hypotheses (default: the number of non-NULL p-values; " +
 		                "may not be smaller).";
 		d.examples = {"p_adjust_agg(p_value, 'BH' ORDER BY test)"};
+		d.categories = {"hypothesis-testing", "multiple-testing"};
+		d.parameter_names = {"p", "method", "n"};
+		d.parameter_types = {LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::BIGINT};
+		info.descriptions.push_back(std::move(d));
+		loader.RegisterFunction(std::move(info));
+	}
+
+	if (kHasWindowBatchCallback) {
+		AggregateFunctionSet set("p_adjust");
+		for (auto &args : signatures) {
+			AggregateFunction fn("p_adjust", args, LogicalType::DOUBLE, AggregateFunction::StateSize<PAdjustWindowState>,
+			                     ANOFOX_AGG_INIT(PAdjustWindowInitialize), nullptr, nullptr, nullptr, nullptr,
+			                     ANOFOX_AGG_BIND(PAdjustWindowBind), PAdjustWindowDestroy);
+			fn.SetWindowInitCallback(PAdjustWindowInit);
+			// Volatile keeps DuckDB 2.0's WindowSelfJoinOptimizer from rewriting
+			// p_adjust(...) OVER (PARTITION BY ...) into GROUP BY + join: it does not
+			// check that the aggregate has update/combine, and this one is window-only.
+			fn.SetStability(FunctionStability::VOLATILE);
+			SetWindowBatchCallbackOf(fn, PAdjustWindowBatch);
+			// The family is the frame, whatever order the arguments come in.
+			SetOrderDependentOf(fn, AggregateOrderDependent::NOT_ORDER_DEPENDENT);
+			set.AddFunction(fn);
+		}
+		CreateAggregateFunctionInfo info(std::move(set));
+		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+		FunctionDescription d;
+		d.description = std::string("Window function (DuckDB 2.0+): the p-value of the row adjusted for multiple ") +
+		                "testing (R p.adjust) within its window frame, i.e. within the partition when OVER has no " +
+		                "ORDER BY. NULL p-values stay NULL and are not counted. method: " + P_ADJUST_METHODS +
+		                "; case-insensitive. n: number of hypotheses (default: the number of non-NULL p-values; " +
+		                "may not be smaller).";
+		d.examples = {"p_adjust(p_value, 'BH') OVER (PARTITION BY endpoint)"};
 		d.categories = {"hypothesis-testing", "multiple-testing"};
 		d.parameter_names = {"p", "method", "n"};
 		d.parameter_types = {LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::BIGINT};

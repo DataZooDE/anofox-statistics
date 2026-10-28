@@ -1,0 +1,266 @@
+# name: test/sql/reference/p_adjust_window.test
+# description: #224 window function p_adjust(p, method, n) OVER (...) on DuckDB 2.0 vs R p.adjust and p_adjust_by; absent on DuckDB 1.5
+# group: [reference]
+#
+# p_adjust needs DuckDB 2.0's batched window callback, so it is registered on 2.0 only.
+# This file runs on both lines: every query that uses p_adjust goes through
+# v2_or(sql, fallback), which runs `sql` on DuckDB 2.0 and the constant `fallback`
+# (the expected result) on 1.5, where `sql` would not bind.
+#
+# R 4.6.1 reference values: the families of test/sql/reference/p_adjust_reference.test,
+#   fam <- list(e1 = c(0.01, 0.04, 0.04, 0.0001, 0.2, 0.9, NA, 0.03, 0, 1),
+#               e2 = c(0.02, 0.5, 0.013), e3 = c(0.3))
+#   p.adjust(fam[[e]], m) and p.adjust(fam[[e]], m, n = 15) for every method m.
+
+require anofox_statistics
+
+statement ok
+CREATE MACRO v2_or(sql, fallback) AS TABLE
+    SELECT * FROM query(CASE WHEN version() >= 'v2' THEN sql ELSE fallback END);
+
+# Registered exactly on DuckDB 2.0.
+query I
+SELECT (count(*) > 0) = (version() >= 'v2') FROM duckdb_functions() WHERE function_name = 'p_adjust';
+----
+true
+
+statement ok
+CREATE TABLE ref(endpoint VARCHAR, id INTEGER, method VARCHAR, n BIGINT, p DOUBLE, expected DOUBLE);
+
+statement ok
+INSERT INTO ref VALUES
+    ('e1', 1, 'holm', NULL, 0.01, 0.070000000000000007), ('e1', 2, 'holm', NULL, 0.040000000000000001, 0.20000000000000001),
+    ('e1', 3, 'holm', NULL, 0.040000000000000001, 0.20000000000000001), ('e1', 4, 'holm', NULL, 0.0001, 0.00080000000000000004),
+    ('e1', 5, 'holm', NULL, 0.20000000000000001, 0.60000000000000009), ('e1', 6, 'holm', NULL, 0.90000000000000002, 1),
+    ('e1', 7, 'holm', NULL, NULL, NULL), ('e1', 8, 'holm', NULL, 0.029999999999999999, 0.17999999999999999),
+    ('e1', 9, 'holm', NULL, 0, 0), ('e1', 10, 'holm', NULL, 1, 1),
+    ('e1', 1, 'holm', 15, 0.01, 0.13), ('e1', 2, 'holm', 15, 0.040000000000000001, 0.44),
+    ('e1', 3, 'holm', 15, 0.040000000000000001, 0.44), ('e1', 4, 'holm', 15, 0.0001, 0.0014),
+    ('e1', 5, 'holm', 15, 0.20000000000000001, 1), ('e1', 6, 'holm', 15, 0.90000000000000002, 1),
+    ('e1', 7, 'holm', 15, NULL, NULL), ('e1', 8, 'holm', 15, 0.029999999999999999, 0.35999999999999999),
+    ('e1', 9, 'holm', 15, 0, 0), ('e1', 10, 'holm', 15, 1, 1),
+    ('e1', 1, 'hommel', NULL, 0.01, 0.070000000000000007), ('e1', 2, 'hommel', NULL, 0.040000000000000001, 0.16),
+    ('e1', 3, 'hommel', NULL, 0.040000000000000001, 0.16), ('e1', 4, 'hommel', NULL, 0.0001, 0.00080000000000000004),
+    ('e1', 5, 'hommel', NULL, 0.20000000000000001, 0.60000000000000009), ('e1', 6, 'hommel', NULL, 0.90000000000000002, 1),
+    ('e1', 7, 'hommel', NULL, NULL, NULL), ('e1', 8, 'hommel', NULL, 0.029999999999999999, 0.12),
+    ('e1', 9, 'hommel', NULL, 0, 0), ('e1', 10, 'hommel', NULL, 1, 1),
+    ('e1', 1, 'BH', NULL, 0.01, 0.029999999999999999), ('e1', 2, 'BH', NULL, 0.040000000000000001, 0.059999999999999998),
+    ('e1', 3, 'BH', NULL, 0.040000000000000001, 0.059999999999999998), ('e1', 4, 'BH', NULL, 0.0001, 0.00045000000000000004),
+    ('e1', 5, 'BH', NULL, 0.20000000000000001, 0.25714285714285717), ('e1', 6, 'BH', NULL, 0.90000000000000002, 1),
+    ('e1', 7, 'BH', NULL, NULL, NULL), ('e1', 8, 'BH', NULL, 0.029999999999999999, 0.059999999999999998),
+    ('e1', 9, 'BH', NULL, 0, 0), ('e1', 10, 'BH', NULL, 1, 1),
+    ('e1', 1, 'BY', 15, 0.01, 0.16591144966144966), ('e1', 2, 'BY', 15, 0.040000000000000001, 0.33182289932289932),
+    ('e1', 3, 'BY', 15, 0.040000000000000001, 0.33182289932289932), ('e1', 4, 'BY', 15, 0.0001, 0.002488671744921745),
+    ('e1', 5, 'BY', 15, 0.20000000000000001, 1), ('e1', 6, 'BY', 15, 0.90000000000000002, 1),
+    ('e1', 7, 'BY', 15, NULL, NULL), ('e1', 8, 'BY', 15, 0.029999999999999999, 0.33182289932289932),
+    ('e1', 9, 'BY', 15, 0, 0), ('e1', 10, 'BY', 15, 1, 1),
+    ('e2', 1, 'holm', NULL, 0.02, 0.040000000000000001), ('e2', 2, 'holm', NULL, 0.5, 0.5),
+    ('e2', 3, 'holm', NULL, 0.012999999999999999, 0.039),
+    ('e2', 1, 'holm', 15, 0.02, 0.28000000000000003), ('e2', 2, 'holm', 15, 0.5, 1),
+    ('e2', 3, 'holm', 15, 0.012999999999999999, 0.19499999999999998),
+    ('e2', 1, 'hommel', NULL, 0.02, 0.040000000000000001), ('e2', 2, 'hommel', NULL, 0.5, 0.5),
+    ('e2', 3, 'hommel', NULL, 0.012999999999999999, 0.029999999999999999),
+    ('e2', 1, 'BH', NULL, 0.02, 0.029999999999999999), ('e2', 2, 'BH', NULL, 0.5, 0.5),
+    ('e2', 3, 'BH', NULL, 0.012999999999999999, 0.029999999999999999),
+    ('e2', 1, 'BY', 15, 0.02, 0.49773434898434898), ('e2', 2, 'BY', 15, 0.5, 1),
+    ('e2', 3, 'BY', 15, 0.012999999999999999, 0.49773434898434898),
+    ('e3', 1, 'holm', NULL, 0.29999999999999999, 0.29999999999999999), ('e3', 1, 'holm', 15, 0.29999999999999999, 1),
+    ('e3', 1, 'hommel', NULL, 0.29999999999999999, 0.29999999999999999),
+    ('e3', 1, 'BH', NULL, 0.29999999999999999, 0.29999999999999999),
+    ('e3', 1, 'BY', 15, 0.29999999999999999, 1);
+
+statement ok
+CREATE TABLE results AS SELECT DISTINCT endpoint, id, p FROM ref;
+
+statement ok
+CREATE MACRO padj_matches(got, want) AS
+    CASE WHEN want IS NULL THEN got IS NULL ELSE coalesce(abs(got - want) <= 1e-14 * (1 + abs(want)), false) END;
+
+# ---------------------------------------------------------------------------
+# Against R: one family per endpoint (no ORDER BY in OVER: the frame is the partition)
+# ---------------------------------------------------------------------------
+
+foreach method holm hommel BH
+
+query I
+FROM v2_or($$
+    SELECT count(*) FILTER (WHERE NOT padj_matches(got, expected)) || ' mismatches of ' || count(*)
+    FROM (SELECT endpoint, id, p_adjust(p, '${method}') OVER (PARTITION BY endpoint) AS got FROM results)
+    JOIN ref USING (endpoint, id) WHERE ref.method = '${method}' AND ref.n IS NULL
+$$, $$SELECT '0 mismatches of 14'$$);
+----
+0 mismatches of 14
+
+endloop
+
+foreach method holm BY
+
+query I
+FROM v2_or($$
+    SELECT count(*) FILTER (WHERE NOT padj_matches(got, expected)) || ' mismatches of ' || count(*)
+    FROM (SELECT endpoint, id, p_adjust(p, '${method}', 15) OVER (PARTITION BY endpoint) AS got FROM results)
+    JOIN ref USING (endpoint, id) WHERE ref.method = '${method}' AND ref.n = 15
+$$, $$SELECT '0 mismatches of 14'$$);
+----
+0 mismatches of 14
+
+endloop
+
+# The whole-partition frame written out, and an ORDER BY inside the call, change nothing.
+query I
+FROM v2_or($$
+    SELECT count(*) FILTER (WHERE NOT padj_matches(got, expected)) || ' mismatches of ' || count(*)
+    FROM (SELECT endpoint, id,
+                 p_adjust(p ORDER BY p DESC) OVER (PARTITION BY endpoint ORDER BY id
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS got
+          FROM results)
+    JOIN ref USING (endpoint, id) WHERE ref.method = 'holm' AND ref.n IS NULL
+$$, $$SELECT '0 mismatches of 14'$$);
+----
+0 mismatches of 14
+
+# ---------------------------------------------------------------------------
+# Equal to p_adjust_by on many partitions and on one large family, all methods
+# (parallel evaluation of one hash group shares the family)
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE big AS
+SELECT i, i % 37 AS g,
+       CASE WHEN i % 11 = 0 THEN NULL ELSE ((i * 7919) % 10007) / 10007.0 END AS p
+FROM range(150000) t(i);
+
+statement ok
+CREATE TABLE big_one AS SELECT i, 1 AS g, p FROM big;
+
+foreach method holm hochberg hommel bonferroni BH BY none
+
+query I
+FROM v2_or($$
+    SELECT count(*) FILTER (WHERE NOT padj_matches(w.got, a.p_adjusted)) || ' mismatches of ' || count(*)
+    FROM (SELECT i, p_adjust(p, '${method}') OVER (PARTITION BY g) AS got FROM big) w
+    JOIN p_adjust_by('big', g, p, method := '${method}') a USING (i)
+$$, $$SELECT '0 mismatches of 150000'$$);
+----
+0 mismatches of 150000
+
+query I
+FROM v2_or($$
+    SELECT count(*) FILTER (WHERE NOT padj_matches(w.got, a.p_adjusted)) || ' mismatches of ' || count(*)
+    FROM (SELECT i, p_adjust(p, '${method}', 200000) OVER () AS got FROM big_one) w
+    JOIN p_adjust_by('big_one', g, p, method := '${method}', n := 200000) a USING (i)
+$$, $$SELECT '0 mismatches of 150000'$$);
+----
+0 mismatches of 150000
+
+endloop
+
+# ---------------------------------------------------------------------------
+# Semantics
+# ---------------------------------------------------------------------------
+
+# The family is the frame: with ORDER BY the default frame grows row by row, a row
+# outside its own frame and an EXCLUDE CURRENT ROW frame give NULL.
+query IIIII
+FROM v2_or($$
+    SELECT i,
+           p_adjust(p, 'bonferroni') OVER (PARTITION BY g) AS whole,
+           p_adjust(p, 'bonferroni') OVER (PARTITION BY g ORDER BY i) AS running,
+           p_adjust(p, 'bonferroni') OVER (PARTITION BY g ORDER BY i ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING) AS before,
+           p_adjust(p, 'bonferroni') OVER (PARTITION BY g ORDER BY i
+               ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS excluded
+    FROM (VALUES ('a', 1, 0.01), ('a', 2, 0.02), ('a', 3, 0.03), ('b', 4, 0.2)) t(g, i, p)
+    ORDER BY i
+$$, $$SELECT * FROM (VALUES (1, 0.03, 0.01, NULL::DOUBLE, NULL::DOUBLE), (2, 0.06, 0.04, NULL, NULL),
+                            (3, 0.09, 0.09, NULL, NULL), (4, 0.2, 0.2, NULL, NULL)) t(i, a, b, c, d)$$);
+----
+1	0.03	0.01	NULL	NULL
+2	0.06	0.04	NULL	NULL
+3	0.09	0.09	NULL	NULL
+4	0.2	0.2	NULL	NULL
+
+# NULL p-values stay NULL and are not counted; rows removed by FILTER are NULL and not
+# counted; NULL method / n mean holm / the non-NULL count.
+query IIII
+FROM v2_or($$
+    SELECT i,
+           p_adjust(p, 'bonferroni') OVER () AS bonf,
+           p_adjust(p, 'bonferroni') FILTER (WHERE i <> 3) OVER () AS filtered,
+           p_adjust(p, NULL, NULL) OVER () AS defaults
+    FROM (VALUES (1, 0.01), (2, NULL), (3, 0.02), (4, 0.04)) t(i, p)
+    ORDER BY i
+$$, $$SELECT * FROM (VALUES (1, 0.03, 0.02, 0.03), (2, NULL, NULL, NULL), (3, 0.06, NULL, 0.04),
+                            (4, 0.12, 0.08, 0.04)) t(i, a, b, c)$$);
+----
+1	0.03	0.02	0.03
+2	NULL	NULL	NULL
+3	0.06	NULL	0.04
+4	0.12	0.08	0.04
+
+# An all-NULL partition, an empty table, and the default method (holm).
+query III
+FROM v2_or($$
+    SELECT g, i, p_adjust(p) OVER (PARTITION BY g) AS got
+    FROM (VALUES ('a', 1, NULL::DOUBLE), ('b', 2, 0.01), ('b', 3, 0.02)) t(g, i, p)
+    ORDER BY i
+$$, $$SELECT * FROM (VALUES ('a', 1, NULL::DOUBLE), ('b', 2, 0.02), ('b', 3, 0.02)) t(g, i, got)$$);
+----
+a	1	NULL
+b	2	0.02
+b	3	0.02
+
+query I
+FROM v2_or($$
+    SELECT count(*) FROM (SELECT p_adjust(p) OVER () AS got FROM (SELECT 0.5::DOUBLE AS p WHERE false))
+$$, $$SELECT 0::BIGINT$$);
+----
+0
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+statement error
+FROM v2_or($$
+    SELECT p_adjust(p) FROM (VALUES (0.01), (0.02)) t(p)
+$$, $$SELECT error('Function ''p_adjust'' can only be used as a window function')$$);
+----
+can only be used as a window function
+
+statement error
+FROM v2_or($$
+    SELECT p_adjust(p, 'nope') OVER () FROM (VALUES (0.01), (0.02)) t(p)
+$$, $$SELECT error('unknown p-value adjustment method ''nope''')$$);
+----
+unknown p-value adjustment method 'nope'
+
+statement error
+FROM v2_or($$
+    SELECT p_adjust(p, m) OVER () FROM (VALUES (0.01, 'holm'), (0.02, 'BH')) t(p, m)
+$$, $$SELECT error('p_adjust: method must be a constant')$$);
+----
+method must be a constant
+
+statement error
+FROM v2_or($$
+    SELECT p_adjust(p, 'holm', -1) OVER () FROM (VALUES (0.01), (0.02)) t(p)
+$$, $$SELECT error('p_adjust: n must be non-negative')$$);
+----
+n must be non-negative
+
+# n may not be smaller than the number of non-NULL p-values of a family.
+statement error
+FROM v2_or($$
+    SELECT p_adjust(p, 'holm', 2) OVER (PARTITION BY g)
+    FROM (VALUES ('a', 0.01), ('a', 0.02), ('b', 0.01), ('b', 0.02), ('b', 0.03)) t(g, p)
+$$, $$SELECT error('n (2) must be at least the number of non-missing p-values (3)')$$);
+----
+must be at least the number of non-missing p-values
+
+# The connection is still usable after the errors above.
+query I
+FROM v2_or($$
+    SELECT p_adjust(p, 'bonferroni') OVER () FROM (VALUES (0.25)) t(p)
+$$, $$SELECT 0.25$$);
+----
+0.25
