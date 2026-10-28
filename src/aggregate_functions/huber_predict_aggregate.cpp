@@ -409,7 +409,9 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
                                     nullptr, 0.0);
-for (idx_t row = 0; row < n_rows; row++) {
+        // Every row's prediction in one batched call (#268).
+        const auto preds = PredictAllRows(intervals, state);
+        for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
 
             if (state.y_is_null[row]) {
@@ -418,10 +420,9 @@ for (idx_t row = 0; row < n_rows; row++) {
                 FlatDataMut<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
-            AnofoxPredictionResult pred;
-            bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
+            const AnofoxPredictionResult &pred = preds[row];
 
-            if (pred_success && std::isfinite(pred.yhat)) {
+            if (std::isfinite(pred.yhat)) {
                 FlatDataMut<double>(yhat_vec)[child_idx] = pred.yhat;
                 WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
                 WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);

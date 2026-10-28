@@ -57,6 +57,16 @@ Breaking changes are called out explicitly.
   now treat it as no options, like the aggregates and macros already did. A NULL `y`, `X` or
   weights row still gives a NULL result.
 
+### Performance
+
+- **`*_fit_predict_agg` and the `*_fit_predict_by` macros: one batched interval call per
+  group (#268).** The finalize of the ten fit-predict aggregates (OLS, WLS, ridge, elastic
+  net, Huber, RLS, Theil–Sen, RANSAC, ALM, BLS) predicted each row with its own FFI call,
+  allocating small matrices and computing a Student-t quantile per row. All rows are now
+  predicted in one call (`anofox_predict_with_interval_matrix_batch`); the results are
+  bitwise identical. On 500K series × 20 rows (DuckDB 2.0): `ols_fit_predict_agg` with
+  `GROUP BY` goes from 2.5 s to 1.2 s, and `ols_fit_predict_by` from 3.0 s to 2.1 s.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

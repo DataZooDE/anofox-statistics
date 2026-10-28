@@ -826,6 +826,23 @@ bool anofox_predict_with_interval_matrix(const double *coefficients, size_t coef
                                          double residual_std_error, double confidence_level, int32_t interval_type,
                                          AnofoxPredictionResult *out_result, AnofoxError *out_error);
 
+/**
+ * anofox_predict_with_interval_matrix for n_rows rows at once.
+ *
+ * x_rows holds the rows one after another (n_rows * x_len doubles, row-major). Row i's
+ * results go to out_yhat[i], out_lower[i] and out_upper[i]. They equal the single-row
+ * call's, but the matrix, the t quantile and the allocations are shared by all rows.
+ *
+ * @param out_yhat, out_lower, out_upper Output arrays of n_rows doubles each
+ * @return true on success, false on error (then no output is written)
+ */
+bool anofox_predict_with_interval_matrix_batch(const double *coefficients, size_t coefficients_len, double intercept,
+                                               const double *x_rows, size_t n_rows, size_t x_len,
+                                               const double *matrix, size_t dim, size_t n_observations,
+                                               size_t n_params_effective, double residual_std_error,
+                                               double confidence_level, int32_t interval_type, double *out_yhat,
+                                               double *out_lower, double *out_upper, AnofoxError *out_error);
+
 /* ============================================================================
  * GLM (Generalized Linear Models) Functions
  * ============================================================================ */

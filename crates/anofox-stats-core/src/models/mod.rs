@@ -60,8 +60,8 @@ pub use glmm::{
 };
 pub use huber::{fit_huber, HuberResult};
 pub use interval::{
-    interval_matrix, predict_with_centroid_interval, predict_with_interval_matrix, t_critical,
-    IntervalType,
+    interval_matrix, predict_with_centroid_interval, predict_with_interval_matrix,
+    predict_with_interval_matrix_batch, t_critical, IntervalType,
 };
 pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
