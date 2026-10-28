@@ -14,6 +14,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/null_rows.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -141,7 +142,8 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 	// The implementation reads list arguments by row index; flatten constant and
 	// dictionary inputs first so every row has its own entry (#210).
 	args.Flatten();
-	RidgeFitFunctionImpl(args, state, result);
+	// A NULL data argument gives a NULL row; a NULL options argument means no options (#276).
+	ExecuteOnNonNullRows(args, state, result, 2, RidgeFitFunctionImpl);
 	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
@@ -268,6 +270,7 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitFunction),
                         ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind)));
     MarkFallible(map_func);
+    SetNullHandlingOf(map_func, FunctionNullHandling::SPECIAL_HANDLING);
 
     // Primary
     {

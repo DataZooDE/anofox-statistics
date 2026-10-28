@@ -104,6 +104,18 @@ Option keys are `snake_case` and case-insensitive. Keys that a function does not
 SELECT ols_fit_agg(y, [x], {'intercept_mode': true}) FROM tbl;
 ```
 
+### No options
+
+Omitting the options argument, passing `NULL` and (on DuckDB 2.0) passing an empty
+`{}` all mean the same thing: every option takes its default. This holds for every
+aggregate, scalar, window function and table macro. `{}` does not parse on DuckDB
+v1.5.6, so `NULL` (or leaving the argument out) is the portable form.
+
+```sql
+SELECT (ols_fit_agg(y, [x], NULL)).r_squared = (ols_fit_agg(y, [x])).r_squared AS same
+FROM (VALUES (1.0, 1.0), (2.1, 2.0), (2.9, 3.0), (4.2, 4.0)) t(y, x);
+```
+
 ### Common option keys
 
 The table lists the most common keys; each reference page in [docs/api/](api/) lists exactly the keys that function reads.

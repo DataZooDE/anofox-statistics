@@ -18,6 +18,16 @@ Breaking changes are called out explicitly.
   are in `docs/PERFORMANCE.md`. Main finding: `*_fit_predict_by` runs 2× faster on 2.0 (DuckDB's
   window operator), while the aggregate-bound workloads are within ±15%.
 
+### Fixed
+
+- **Empty `{}` and NULL options mean "no options" everywhere (#276).** On DuckDB 2.0,
+  `options := {}` parses, and every aggregate, scalar, window function and table macro gives
+  the same result for `{}` as for no options (checked for all of them). The list-input scalar
+  fits (`ols_fit`, `wls_fit`, `ridge_fit`, `rls_fit`, `ransac_fit`, `theil_sen_fit`,
+  `huber_fit`, `elasticnet_fit`) used to return NULL when the options argument was NULL. They
+  now treat it as no options, like the aggregates and macros already did. A NULL `y`, `X` or
+  weights row still gives a NULL result.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

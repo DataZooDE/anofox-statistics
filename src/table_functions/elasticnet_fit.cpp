@@ -14,6 +14,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/null_rows.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -133,7 +134,8 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
 	// The implementation reads list arguments by row index; flatten constant and
 	// dictionary inputs first so every row has its own entry (#210).
 	args.Flatten();
-	ElasticNetFitFunctionImpl(args, state, result);
+	// A NULL data argument gives a NULL row; a NULL options argument means no options (#276).
+	ExecuteOnNonNullRows(args, state, result, 2, ElasticNetFitFunctionImpl);
 	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
@@ -249,6 +251,7 @@ void RegisterElasticNetFitFunction(ExtensionLoader &loader) {
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, ElasticNetFitFunction),
                         ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, ElasticNetFitBind)));
     MarkFallible(map_func);
+    SetNullHandlingOf(map_func, FunctionNullHandling::SPECIAL_HANDLING);
 
     // Primary
     {
