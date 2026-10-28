@@ -519,6 +519,7 @@ struct DriftMapOptions {
 	std::optional<string> binning;          // auto / sturges / quantile / categorical
 	std::optional<uint32_t> n_bins;         // quantile binning
 	std::optional<double> base;             // kl, jensen_shannon
+	std::optional<double> epsilon;          // psi, kl: constant zero fill
 	std::optional<double> threshold;        // drift flag of the divergences
 
 	//! kind: an AnofoxDriftKind, or -1 for ad_test_agg.

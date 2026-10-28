@@ -440,15 +440,15 @@ the pooled IQR is 0.
 
 1-D Wasserstein-p distance (earth mover's distance for p = 1), as
 `transport::wasserstein1d`. `distance_normed` is evidently's score
-W₁ / max(SD(reference), 0.001), with the **population** SD (ddof = 0), and is set for p = 1
-only. evidently flags drift at `distance_normed ≥ 0.1`. With `n_permutations > 0` (p = 1),
-`p_value` is a seeded permutation p-value (1 + #{W* ≥ W}) / (1 + B); otherwise it is NULL.
+W_p / max(SD(reference), 0.001), with the **population** SD (ddof = 0). evidently uses
+p = 1 and flags drift at `distance_normed ≥ 0.1`. With `n_permutations > 0`, `p_value` is
+a seeded permutation p-value on W_p, (1 + #{W* ≥ W}) / (1 + B); otherwise it is NULL.
 
 | Key | Default | Description |
 |---|---|---|
 | reference | smaller label | Group whose SD norms `distance_normed` |
 | p | 1 | Order of the distance (≥ 1) |
-| n_permutations (alias `permutations`) | 0 | Permutations of the p-value (p = 1) |
+| n_permutations (alias `permutations`) | 0 | Permutations of the p-value |
 | seed (alias `random_state`) | 42 | Seed of the permutation draw |
 
 ### psi_agg, kl_divergence_agg, jensen_shannon_agg, hellinger_agg
@@ -469,13 +469,14 @@ bins shared by both groups:
 - **KL** = Σ p ln(p / q), **asymmetric**: the reference is p. The proportions are
   zero-filled and renormalized, as `scipy.stats.entropy`.
 - **Jensen-Shannon**: `distance` is the square root of the JS divergence, as
-  `scipy.spatial.distance.jensenshannon` and evidently report it. `divergence` is
-  `distance²`. It is symmetric and bounded by √ln 2 (1 in base 2). There is no zero fill.
+  `scipy.spatial.distance.jensenshannon` and evidently report it. `divergence` is the
+  JS divergence itself (`philentropy::JSD`). It is symmetric and bounded by √ln 2 (1 in base 2). There is no zero fill.
 - **Hellinger** = √(1 − Σ √(p q)), in [0, 1]. `philentropy`'s `"hellinger"` is twice
   this value. There is no zero fill.
 
-The zero fill (PSI and KL) is evidently's: an empty bin gets 1e-4, or min_nonzero / 1e6
-when the smallest non-zero proportion is ≤ 1e-4.
+The zero fill (PSI and KL) is evidently's by default: an empty bin gets 1e-4, or
+min_nonzero / 1e6 when the smallest non-zero proportion is ≤ 1e-4. The `epsilon` option
+replaces every empty bin by that constant instead (KL renormalizes afterwards).
 
 Binning:
 
@@ -483,10 +484,9 @@ Binning:
   distinct values, it uses equal-width **Sturges** bins over the pooled sample (numpy
   `histogram_bin_edges(..., "sturges")`; R's `hist(breaks = "Sturges")` uses `pretty()`
   breaks instead). Otherwise it uses one bin per distinct value.
-- For `hellinger_agg`, `'auto'` copies evidently's numeric rule: always Sturges bins,
-  with the bin count taken from the number of **distinct** pooled values (even when
-  there are few of them). For numeric category codes, pass `binning = 'categorical'` or
-  VARCHAR values.
+- For `hellinger_agg`, `'auto'` also bins per value up to 20 distinct reference values.
+  Above that it uses evidently's numeric Hellinger rule: Sturges bins whose count comes
+  from the number of **distinct** pooled values.
 - `'quantile'` uses `n_bins` bins at the reference quantiles (R type 7), the classic
   credit-scoring PSI. The outer edges are open, so current values outside the
   reference range fall into the first or last bin. Tied breaks are merged.
@@ -501,6 +501,7 @@ Binning:
 | n_bins | 10 | Bins of `binning = 'quantile'` |
 | threshold | 0.1 | Drift threshold of the `drift` flag |
 | base | e | Logarithm base (`kl_divergence_agg`, `jensen_shannon_agg`) |
+| epsilon | evidently's fill | Constant zero fill, > 0 (`psi_agg`, `kl_divergence_agg`) |
 
 ```sql
 SELECT (psi_agg(v, grp, {'binning': 'quantile', 'n_bins': 10})).psi AS psi_deciles,

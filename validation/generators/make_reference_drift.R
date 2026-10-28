@@ -93,7 +93,7 @@ r <- es2(x, y, c(0.5, 1, 1.5)); p("es t3 W", r[1]); p("es t3 df", r[3])
 # --- wasserstein_agg (#249) -------------------------------------------------
 sdpop <- function(v) sqrt(mean((v - mean(v))^2))
 w <- wasserstein1d(x, y, p = 1); p("wasserstein W1", w); p("wasserstein normed", w / max(sdpop(x), 0.001))
-p("wasserstein W2", wasserstein1d(x, y, p = 2))
+w2 <- wasserstein1d(x, y, p = 2); p("wasserstein W2", w2); p("wasserstein W2 normed", w2 / max(sdpop(x), 0.001))
 w <- wasserstein1d(y, x, p = 1); p("wasserstein normed (ref = y)", w / max(sdpop(y), 0.001))
 
 # --- binning shared by psi / kl / js ------------------------------------------
@@ -110,6 +110,9 @@ qq <- tabulate(findInterval(y, qb, left.open = FALSE), length(qb) - 1) / length(
 # --- psi_agg (#250) ---------------------------------------------------------
 psi <- function(p, q) { P <- fill(p); Q <- fill(q); sum((P - Q) * log(P / Q)) }
 p("psi numeric", psi(pn, qn)); p("psi categorical", psi(pc, qc)); p("psi quantile", psi(pq, qq))
+cfill <- function(a, e) { a[a == 0] <- e; a }   # constant zero fill ('epsilon')
+P <- cfill(pc, 1e-3); Q <- cfill(qc, 1e-3); p("psi categorical eps 1e-3", sum((P - Q) * log(P / Q)))
+p("kl categorical eps 1e-3", sum((P / sum(P)) * log((P / sum(P)) / (Q / sum(Q)))))
 
 # --- kl_divergence_agg (#251) -----------------------------------------------
 kl <- function(p, q, unit = "log") {

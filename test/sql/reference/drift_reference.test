@@ -131,9 +131,18 @@ FROM (SELECT wasserstein_agg(v, grp) r FROM drift);
 ----
 true	true	true	true	true
 
-query II
-SELECT abs(r.distance - 0.636546114292603) < 1e-10, r.distance_normed IS NULL
+# p = 2: W_2 and W_2 / population SD of the reference.
+query III
+SELECT abs(r.distance - 0.636546114292603) < 1e-10, abs(r.distance_normed - 0.446953341978072) < 1e-10,
+       r.p_value IS NULL
 FROM (SELECT wasserstein_agg(v, grp, {'p': 2}) r FROM drift);
+----
+true	true	true
+
+# A permutation p-value for p = 2 is seeded and reproducible.
+query II
+SELECT r.p_value > 0 AND r.p_value <= 1, r.p_value = (SELECT wasserstein_agg(v, grp, {'p': 2, 'n_permutations': 199}).p_value FROM drift)
+FROM (SELECT wasserstein_agg(v, grp, {'p': 2, 'n_permutations': 199}) r FROM drift);
 ----
 true	true
 
@@ -182,6 +191,13 @@ SELECT psi_agg(v, grp, {'threshold': 0.6}).drift FROM drift;
 ----
 false
 
+# Constant zero fill (category 4 is missing from the reference).
+# R: P[P == 0] <- 1e-3; Q[Q == 0] <- 1e-3; sum((P - Q) * log(P / Q))
+query I
+SELECT abs((SELECT psi_agg(c, grp, {'epsilon': 1e-3}).psi FROM drift) - 1.10043459222267) < 1e-10;
+----
+true
+
 # ---------------------------------------------------------------------------
 # kl_divergence_agg (#251). R: philentropy::KL on renormalized zero-filled proportions
 # ---------------------------------------------------------------------------
@@ -191,6 +207,12 @@ SELECT abs(n.kl - 0.264782319603019) < 1e-10, abs(c.kl - 0.223061363402066) < 1e
 FROM (SELECT kl_divergence_agg(v, grp) n, kl_divergence_agg(c, grp) c, kl_divergence_agg(c, grp, {'base': 2}) c2 FROM drift);
 ----
 true	true	true
+
+# Constant zero fill, then renormalized. R: philentropy::KL on the filled, renormalized proportions
+query I
+SELECT abs((SELECT kl_divergence_agg(c, grp, {'epsilon': 1e-3}).kl FROM drift) - 0.217427520064165) < 1e-10;
+----
+true
 
 # ---------------------------------------------------------------------------
 # jensen_shannon_agg (#252). R: sqrt(philentropy::JSD(rbind(p, q), unit = "log"))
@@ -203,16 +225,17 @@ FROM (SELECT jensen_shannon_agg(v, grp) n, jensen_shannon_agg(c, grp) c, jensen_
 true	true	true	true
 
 # ---------------------------------------------------------------------------
-# hellinger_agg (#253). evidently's numeric rule: Sturges bins from the distinct pooled values,
-# also for few distinct values; category codes need binning 'categorical' (or VARCHAR).
+# hellinger_agg (#253). 'auto': one bin per value up to 20 distinct reference values (as
+# psi / kl / js), above that evidently's numeric rule (Sturges count from the distinct
+# pooled values).
 # ---------------------------------------------------------------------------
-query IIII
-SELECT abs(n.distance - 0.262287362722968) < 1e-10, abs(c.distance - 0.325194993744079) < 1e-10,
-       abs(s.distance - 0.325194993744079) < 1e-10, n.drift
-FROM (SELECT hellinger_agg(v, grp) n, hellinger_agg(c, grp, {'binning': 'categorical'}) c,
+query IIIII
+SELECT abs(n.distance - 0.262287362722968) < 1e-10, abs(a.distance - 0.325194993744079) < 1e-10,
+       abs(c.distance - 0.325194993744079) < 1e-10, abs(s.distance - 0.325194993744079) < 1e-10, n.drift
+FROM (SELECT hellinger_agg(v, grp) n, hellinger_agg(c, grp) a, hellinger_agg(c, grp, {'binning': 'categorical'}) c,
              hellinger_agg(c::VARCHAR, grp) s FROM drift);
 ----
-true	true	true	true
+true	true	true	true	true
 
 # ---------------------------------------------------------------------------
 # tvd_agg (#254). Statistic: 0.5 * sum(|p - q|). The permutation p-value (seed 42,

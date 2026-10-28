@@ -94,6 +94,16 @@ SELECT wasserstein_agg(v, grp, {'p': 0.5}) FROM drift;
 p must be a finite number >= 1
 
 statement error
+SELECT psi_agg(c, grp, {'epsilon': 0}) FROM drift;
+----
+epsilon must be a finite number > 0
+
+statement error
+SELECT jensen_shannon_agg(c, grp, {'epsilon': 1e-3}) FROM drift;
+----
+unknown option 'epsilon'
+
+statement error
 SELECT cvm_test_agg(v, grp, {'method': 'bootstrap'}) FROM drift;
 ----
 Invalid method

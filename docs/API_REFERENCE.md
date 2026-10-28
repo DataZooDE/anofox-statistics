@@ -1227,10 +1227,10 @@ unless `reference` names it. Every result also carries the unified test fields.
 | `cvm_test_agg` | `(value DOUBLE, group [, options])` | `reference`, `method` (`auto` / `exact` / `asymptotic`) | `statistic, p_value, n1, n2, method, exact` |
 | `epps_singleton_agg` | `(value DOUBLE, group [, options])` | `reference`, `t` ([0.4, 0.8]) | `statistic, p_value, df, n1, n2, method` |
 | `wasserstein_agg` | `(value DOUBLE, group [, options])` | `reference`, `p` (1), `n_permutations` (0), `seed` (42) | `distance, distance_normed, p_value, n1, n2, method` |
-| `psi_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | `reference`, `binning`, `n_bins`, `threshold` (0.1) | `psi, n_bins, n1, n2, drift, method` |
-| `kl_divergence_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg`, plus `base` | `kl, n_bins, n1, n2, drift, method` |
-| `jensen_shannon_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg`, plus `base` | `distance, divergence, n_bins, n1, n2, drift, method` |
-| `hellinger_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg` | `distance, n_bins, n1, n2, drift, method` |
+| `psi_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | `reference`, `binning`, `n_bins`, `threshold` (0.1), `epsilon` | `psi, n_bins, n1, n2, drift, method` |
+| `kl_divergence_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg` (incl. `epsilon`), plus `base` | `kl, n_bins, n1, n2, drift, method` |
+| `jensen_shannon_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg` (no `epsilon`), plus `base` | `distance, divergence, n_bins, n1, n2, drift, method` |
+| `hellinger_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg` (no `epsilon`) | `distance, n_bins, n1, n2, drift, method` |
 | `tvd_agg` | `(category DOUBLE \| VARCHAR, group [, options])` | `reference`, `n_permutations` (1000), `seed` (42) | `statistic, p_value, n_categories, n1, n2, method` |
 
 ```sql

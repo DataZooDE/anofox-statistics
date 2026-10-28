@@ -4,7 +4,7 @@
 use super::*;
 use anofox_stats_core::tests::drift::{
     anderson_darling_ksamp, drift_test, Alternative, Binning, CvmMethod, DriftKind, DriftOptions,
-    DriftResult,
+    DriftResult, ZeroFill,
 };
 
 /// Options of `anofox_drift_test`; each kind reads only its own.
@@ -18,6 +18,8 @@ pub struct DriftOptionsFFI {
     pub p: f64,
     /// Logarithm base of KL / Jensen-Shannon; NaN for e.
     pub base: f64,
+    /// Zero fill of PSI / KL; NaN for evidently's rule.
+    pub epsilon: f64,
     /// Permutations of Wasserstein / TVD (0: none).
     pub n_permutations: usize,
     pub seed: u64,
@@ -126,6 +128,11 @@ unsafe fn drift_options(o: &DriftOptionsFFI) -> Result<DriftOptions, &'static st
             _ => return Err("invalid binning"),
         },
         base: if o.base.is_nan() { None } else { Some(o.base) },
+        zero_fill: if o.epsilon.is_nan() {
+            ZeroFill::Evidently
+        } else {
+            ZeroFill::Constant(o.epsilon)
+        },
     })
 }
 

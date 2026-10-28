@@ -12,6 +12,17 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Drift tests on anofox-statistics 0.6.0** (upstream sipemu/anofox-statistics-rs#42-#45):
+  - `psi_agg` / `kl_divergence_agg`: new option `epsilon`, a constant zero fill in place
+    of evidently's rule (KL renormalizes afterwards).
+  - `wasserstein_agg`: `distance_normed` and the permutation p-value now work for any
+    order `p` (W_p / population SD of the reference). Previously they were p = 1 only.
+  - `jensen_shannon_agg`: `divergence` now comes from upstream (`philentropy::JSD`).
+    It was previously computed in the extension as `distance²`.
+  - `hellinger_agg`: `binning = 'auto'` now bins per value when the reference has at most
+    20 distinct values, as the other divergences do. Integer category codes no longer need
+    `binning = 'categorical'`. This is a behaviour change for numeric data with ≤ 20
+    distinct values.
 - **Data-drift tests (#245-#255): evidently's drift statistics as aggregates.** They come
   from upstream anofox-statistics 0.5.0 and are validated against R
   (`validation/generators/make_reference_drift.R`, `test/sql/reference/drift_reference.test`).
@@ -36,7 +47,7 @@ Breaking changes are called out explicitly.
     (default 0.1). KL and JS also take a logarithm `base`.
   - `tvd_agg` (#254): total variation distance between category distributions, with a
     seeded permutation p-value (1000 permutations, seed 42).
-- Dependency: anofox-statistics 0.4.11 → 0.5.0.
+- Dependency: anofox-statistics 0.4.11 → 0.6.0.
 - **Exact leave-one-out diagnostics for Ridge, approximate leave-one-out for the GLMs (#235).**
   Computed upstream in anofox-regression 0.5.37 (`FittedRidge::loo`,
   `Augment::approx_loo_fitted` / `approx_loo_residual`); the extension maps fields.
