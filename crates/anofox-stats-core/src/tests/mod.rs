@@ -7,6 +7,7 @@ pub mod categorical;
 pub mod classification;
 pub mod correlation;
 pub mod distributional;
+pub mod drift;
 pub mod equivalence;
 pub mod forecast;
 pub mod modern;

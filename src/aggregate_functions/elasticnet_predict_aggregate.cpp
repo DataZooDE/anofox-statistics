@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -339,6 +340,8 @@ static void ElasticNetPredictAggFinalize(Vector &state_vector, AggregateInputDat
         }
 
         // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        SortRowsCanonically(state.y_train, state.x_train);
         AnofoxDataArray y_array;
         y_array.data = state.y_train.data();
         y_array.validity = nullptr;

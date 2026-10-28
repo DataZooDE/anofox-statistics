@@ -12,12 +12,14 @@ description: >
   Wilcoxon signed-rank, Brunner-Munzel, permutation t-test), pairwise post-hoc
   tests (pairwise_t_test_agg, tukey_hsd_agg, dunn_test_agg and their _by
   macros, p_adjust holm / BH / bonferroni), multiple-testing correction of any
-  p-values (p_adjust_by, p_adjust_agg, p_adjust_list; R p.adjust), correlation
+  p-values (p_adjust_by, p_adjust_agg, p_adjust_list, p_adjust window function on
+  DuckDB 2.0; R p.adjust), correlation
   (Pearson, Spearman, Kendall, distance correlation, ICC), categorical /
   contingency tests (chi-squared, chi-squared GOF, G-test, Fisher's exact,
   McNemar), effect sizes (Cramér's V, phi, contingency coefficient, Cohen's
   kappa), proportion tests, TOST equivalence tests, distribution comparison
-  (energy distance, MMD), forecast-evaluation tests (Diebold-Mariano,
+  (energy distance, MMD), data-drift tests (KS, Anderson-Darling, Cramér-von
+  Mises, Epps-Singleton, Wasserstein, PSI, KL, Jensen-Shannon, Hellinger, TVD), forecast-evaluation tests (Diebold-Mariano,
   Clark-West), residual autocorrelation and heteroskedasticity tests
   (Ljung-Box, Box-Pierce, Durbin-Watson with p-value, Breusch-Pagan, White),
   survival tests (Kaplan-Meier, log-rank), causal mediation analysis
@@ -26,7 +28,7 @@ description: >
   Brier score, log loss, roc_curve_by). Also: multiple-testing correction
   (p_adjust_by / p_adjust_agg / p_adjust_list, holm / BH / BY …), causal
   mediation (mediation_by: ACME, ADE, proportion mediated), the nested-model F
-  test (ols_anova_by), and seeded, bitwise-reproducible Monte Carlo and group
+  test (ols_anova_by), type I / II ANOVA tables (ols_anova_table_by), and seeded, bitwise-reproducible Monte Carlo and group
   tests. Use when running a significance test, comparing many groups,
   measuring association/effect size, evaluating a classifier, or comparing
   distributions or survival in SQL.
@@ -133,6 +135,18 @@ user-invocable: false
 | `energy_distance_agg` | Energy distance; `n_permutations` (1000), `seed` (default 42) |
 | `mmd_agg` | Maximum mean discrepancy; `n_permutations` (1000), `seed` (default 42) |
 
+### Data drift (evidently's stattests)
+`(value, group [, options])`; the reference is the smaller group label unless `reference` names it.
+| Function | Measure |
+|---|---|
+| `ks_test_agg` | Two-sample KS (R `ks.test`): exact p when n1·n2 < 10000, else limiting distribution; `alternative`, `exact` |
+| `ad_test_agg` | k-sample Anderson-Darling (kSamples, asymptotic p, not capped like scipy); `midrank` (true) |
+| `cvm_test_agg` | Two-sample Cramér-von Mises; exact when max(n1, n2) ≤ 20; `method` |
+| `epps_singleton_agg` | Epps-Singleton ECF test (works for discrete data); `t` ([0.4, 0.8]) |
+| `wasserstein_agg` | `distance` W_p and evidently's `distance_normed` = W₁ / population SD of the reference; `n_permutations` (0) |
+| `psi_agg` / `kl_divergence_agg` / `jensen_shannon_agg` / `hellinger_agg` | Binned divergences (DOUBLE or VARCHAR values); `binning` auto (evidently: Sturges if > 20 distinct reference values, else per value) / sturges / quantile (`n_bins`) / categorical; `drift` = value ≥ `threshold` (0.1); KL is asymmetric (reference = p); JS `distance` is √divergence |
+| `tvd_agg` | Total variation distance of categories + permutation p (1000, seed 42); weaker than `chisq_test_agg` |
+
 ### Forecast evaluation
 | Function | Test |
 |---|---|
@@ -155,8 +169,9 @@ The aggregates return `LIST<STRUCT(group1, group2, estimate, statistic, p_value,
 | `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row (source order) with `p_adjusted`; one family per group. The row-aligned form |
 | `p_adjust_agg(p[, method[, n]] ORDER BY …)` | `DOUBLE[]` per group, in input order; `method`/`n` constant |
 | `p_adjust_list(p_list[, method[, n]])` | `DOUBLE[]` for a list of p-values |
+| `p_adjust(p[, method[, n]]) OVER (PARTITION BY g)` | **DuckDB 2.0+ only.** The row's adjusted p-value inline; the family is the window frame, so leave `ORDER BY` out of `OVER` |
 
-R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. There is no `p_adjust(...) OVER (...)` window function (DuckDB 1.x window aggregates can't produce per-row values over a whole partition); use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
+R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. `p_adjust(...) OVER (...)` exists on DuckDB 2.0 only (check `SELECT version()`); on 1.5 window aggregates can't produce per-row values over a whole partition, so use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
 
 ### Residual autocorrelation and heteroskedasticity
 | Function | Test |

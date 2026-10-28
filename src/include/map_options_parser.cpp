@@ -1474,6 +1474,44 @@ PosthocMapOptions PosthocMapOptions::ParseFromValue(const Value &map_value, cons
 	                                           });
 }
 
+AnovaTableMapOptions AnovaTableMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"fit_intercept", {"intercept"}}, {"type", {"anova_type"}}, {"terms", {"term_names"}}};
+	return ParseTestOptions<AnovaTableMapOptions>(
+	    map_value, function_name, keys, [&](AnovaTableMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "fit_intercept") {
+			    result.fit_intercept = ExtractBool(val);
+		    } else if (key == "type") {
+			    string v = ToLower(val.ToString());
+			    if (v == "i" || v == "1" || v == "sequential") {
+				    result.anova_type = 1;
+			    } else if (v == "ii" || v == "2" || v == "partial") {
+				    result.anova_type = 2;
+			    } else {
+				    throw InvalidInputException("%s: invalid type '%s'. Valid values are 'I' (sequential) and 'II' "
+				                                "(partial)",
+				                                function_name, val.ToString());
+			    }
+		    } else if (key == "terms") {
+			    if (val.type().id() != LogicalTypeId::LIST) {
+				    throw InvalidInputException("%s: terms must be a LIST of VARCHAR labels, one per x column, got %s",
+				                                function_name, val.type().ToString());
+			    }
+			    vector<string> labels;
+			    for (auto &child : ListValue::GetChildren(val)) {
+				    if (child.IsNull()) {
+					    throw InvalidInputException("%s: terms must not contain NULL", function_name);
+				    }
+				    labels.push_back(child.ToString());
+			    }
+			    result.terms = std::move(labels);
+		    }
+	    });
+}
+
 MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {
 	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};
@@ -1575,6 +1613,84 @@ EnergyDistanceMapOptions EnergyDistanceMapOptions::ParseFromValue(const Value &m
 			    result.seed = ExtractUInt64(val);
 		    }
 	    });
+}
+
+DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const string &function_name, int kind) {
+	// kind follows AnofoxDriftKind (anofox_stats_ffi.h); -1 is ad_test_agg.
+	static const OptionKeyDef KEY_REFERENCE = {"reference", {}};
+	static const OptionKeyDef KEY_BINNING = {"binning", {}};
+	static const OptionKeyDef KEY_N_BINS = {"n_bins", {}};
+	static const OptionKeyDef KEY_THRESHOLD = {"threshold", {}};
+	vector<OptionKeyDef> keys;
+	switch (kind) {
+	case -1:
+		keys = {{"midrank", {}}};
+		break;
+	case 0:
+		keys = {KEY_REFERENCE, KEY_ALTERNATIVE, {"exact", {}}};
+		break;
+	case 1:
+		keys = {KEY_REFERENCE, {"method", {}}};
+		break;
+	case 2:
+		keys = {KEY_REFERENCE, {"t", {}}};
+		break;
+	case 3:
+		keys = {KEY_REFERENCE, {"p", {}}, KEY_PERMUTATIONS, KEY_SEED};
+		break;
+	case 4:
+	case 7:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
+		break;
+	case 5:
+	case 6:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD, {"base", {}}};
+		break;
+	default:
+		keys = {KEY_REFERENCE, KEY_PERMUTATIONS, KEY_SEED};
+		break;
+	}
+	auto result = ParseTestOptions<DriftMapOptions>(
+	    map_value, function_name, keys, [&](DriftMapOptions &result, const string &key, const Value &val) {
+		    if (key == "reference") {
+			    if (!val.IsNull()) {
+				    result.reference = val;
+			    }
+		    } else if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "exact" || key == "midrank") {
+			    (key == "exact" ? result.exact : result.midrank) = ExtractBool(val);
+		    } else if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"auto", "exact", "asymptotic"});
+		    } else if (key == "t") {
+			    result.t = ExtractDoubleList(val, "t");
+		    } else if (key == "p") {
+			    result.p = ExtractDouble(val);
+			    if (result.p && !(*result.p >= 1.0 && std::isfinite(*result.p))) {
+				    throw InvalidInputException("%s: p must be a finite number >= 1, got %s", function_name,
+				                                val.ToString());
+			    }
+		    } else if (key == "n_permutations") {
+			    result.n_permutations = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "binning") {
+			    result.binning = ExtractChoice(val, "binning", {"auto", "sturges", "quantile", "categorical"});
+		    } else if (key == "n_bins") {
+			    result.n_bins = ExtractUInt32(val);
+			    if (result.n_bins && *result.n_bins < 1) {
+				    throw InvalidInputException("%s: n_bins must be at least 1", function_name);
+			    }
+		    } else if (key == "base") {
+			    result.base = ExtractDouble(val);
+		    } else if (key == "threshold") {
+			    result.threshold = ExtractDouble(val);
+		    }
+	    });
+	if (result.n_bins && result.binning.value_or("auto") != "quantile") {
+		throw InvalidInputException("%s: n_bins applies only to binning = 'quantile'", function_name);
+	}
+	return result;
 }
 
 MmdMapOptions MmdMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {

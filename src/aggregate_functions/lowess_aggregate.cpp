@@ -22,6 +22,7 @@
 #include "aggregate_finalize_guard.hpp"
 #include "error_dispatch.hpp"
 #include "telemetry.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -124,6 +125,8 @@ void LowessFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		CanonicalRows().Key(state.x).Key(state.y).Sort();
 		AnofoxDataArray x = {state.x.data(), nullptr, state.x.size()};
 		AnofoxDataArray y = {state.y.data(), nullptr, state.y.size()};
 		AnofoxLowessResult curve;

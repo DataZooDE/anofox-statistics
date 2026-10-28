@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 
 namespace duckdb {
@@ -182,6 +183,8 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
             continue;
         }
 
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Key(state.x_values).Key(state.y_values).Sort();
         AnofoxDataArray x_array;
         x_array.data = state.x_values.data();
         x_array.validity = nullptr;

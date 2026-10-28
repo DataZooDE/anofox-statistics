@@ -17,6 +17,7 @@
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -270,6 +271,8 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             continue;
         }
 
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
         AnofoxDataArray y_array = {state.y_values.data(), nullptr, state.y_values.size()};
         AnofoxDataArray w_array = {state.weights.data(), nullptr, state.weights.size()};
         vector<AnofoxDataArray> x_arrays;

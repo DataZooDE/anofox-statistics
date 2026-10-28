@@ -38,6 +38,7 @@ passed through and the prediction columns appended.
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
 | `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
 | `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
+| `ols_anova_table_by` | `ols_anova_table_agg` | one row per group and term (type I / II ANOVA table, `test` schema) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
@@ -450,6 +451,29 @@ See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
 ```sql
 SELECT region, round(statistic, 2) AS f, df1, df2, round(delta_adj_r_squared, 4) AS delta_adj_r2
 FROM ols_anova_by('macro_demo', region, sales, x_reduced := [price], x_full := [price, promo]);
+```
+
+## ols_anova_table_by
+
+```text
+ols_anova_table_by(source VARCHAR, group_col, y_col, x_cols, options := NULL) -> TABLE
+```
+
+Per-term ANOVA table per group: R's `anova(lm(y ~ x))` (type I, sequential
+sums of squares in the column order, the default) or `car::Anova(fit, type = 2)`
+(`options := {'type': 'II'}`, each term adjusted for all others). Returns one
+row per group and term: the group column, `id`, `model_id` / `model_name`
+(`'ols'`), `term`, `method`, `statistic` (F), `p_value`, `df1`, `df2` (residual
+df), `sum_sq`, `mean_sq`, `residual_sum_sq`, `residual_mean_sq` and
+`n_observations`. Terms are `x1`, `x2`, ... unless the `terms` option labels
+the columns; equal labels form one term (factor dummies). An aliased term has
+`df1 = 0` and NULL `statistic` / `p_value`. Options: `type`, `terms`,
+`fit_intercept`.
+See [OLS](../regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by).
+
+```sql
+SELECT region, term, df1, round(statistic, 2) AS f, round(p_value, 4) AS p
+FROM ols_anova_table_by('macro_demo', region, sales, [price, promo], options := {'terms': ['price', 'promo']});
 ```
 
 ## aid_by

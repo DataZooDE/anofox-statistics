@@ -12,6 +12,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -165,6 +166,9 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Keys(state.x_columns).Sort();
 
         // Prepare FFI data
         vector<AnofoxDataArray> x_arrays;

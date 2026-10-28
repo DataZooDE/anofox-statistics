@@ -12,6 +12,31 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Data-drift tests (#245-#255): evidently's drift statistics as aggregates.** They come
+  from upstream anofox-statistics 0.5.0 and are validated against R
+  (`validation/generators/make_reference_drift.R`, `test/sql/reference/drift_reference.test`).
+  All take `(value, group [, options])`. The group is BIGINT or VARCHAR. The reference
+  sample is the smaller label unless the new `reference` option names it.
+  - `ks_test_agg` (#245): two-sample Kolmogorov-Smirnov test as R `ks.test`. The p-value
+    is exact (also with ties) when n1·n2 < 10000, otherwise R's limiting distribution.
+    Options: `alternative`, `exact`.
+  - `ad_test_agg` (#246): k-sample Anderson-Darling test as `kSamples::ad.test`, for k ≥ 2.
+    Its asymptotic p-value is not capped like scipy's. Option: `midrank`.
+  - `cvm_test_agg` (#247): two-sample Cramér-von Mises test. The p-value is exact when
+    max(n1, n2) ≤ 20, otherwise asymptotic. Option: `method`.
+  - `epps_singleton_agg` (#248): Epps-Singleton test as scipy. Option: `t`.
+  - `wasserstein_agg` (#249): 1-D Wasserstein-p distance, plus evidently's
+    `distance_normed` (W₁ / population SD of the reference) and an optional seeded
+    permutation p-value.
+  - `psi_agg` (#250), `kl_divergence_agg` (#251), `jensen_shannon_agg` (#252) and
+    `hellinger_agg` (#253): binned divergences for numeric or VARCHAR values. Binning is
+    evidently's `auto` rule (Sturges bins when the reference has more than 20 distinct
+    values, otherwise one bin per value), `sturges`, `quantile` (reference quantiles,
+    `n_bins`) or `categorical`. Each returns a `drift` flag for `value ≥ threshold`
+    (default 0.1). KL and JS also take a logarithm `base`.
+  - `tvd_agg` (#254): total variation distance between category distributions, with a
+    seeded permutation p-value (1000 permutations, seed 42).
+- Dependency: anofox-statistics 0.4.11 → 0.5.0.
 - **Exact leave-one-out diagnostics for Ridge, approximate leave-one-out for the GLMs (#235).**
   Computed upstream in anofox-regression 0.5.37 (`FittedRidge::loo`,
   `Augment::approx_loo_fitted` / `approx_loo_residual`); the extension maps fields.
@@ -35,9 +60,60 @@ Breaking changes are called out explicitly.
   - Validation: `test/sql/macros/test_ridge_loo.test` checks every ridge LOO value against an
     explicit refit without the row (in SQL, to 1e-9) and R's explicitly built hat matrix, and
     the GLM approximation against R 4.6.1 `influence()`.
+- **`p_adjust(p [, method [, n]]) OVER (...)` window function on DuckDB 2.0 (#224).**
+  Returns each row's p-value adjusted for multiple testing (R `p.adjust`, the same
+  methods and `n` as `p_adjust_agg`) within its window frame, i.e. within the partition
+  when `OVER` has no `ORDER BY`, so `p_adjust(p_value, 'BH') OVER (PARTITION BY
+  endpoint)` gives the row-aligned result inline. NULL p-values and rows removed by
+  `FILTER` stay NULL and are not counted; a row outside its own frame is NULL. It is
+  window-only (no plain aggregate form) and uses DuckDB 2.0's batched window callback,
+  detected in `duckdb_compat.hpp`; each distinct frame is adjusted once. On DuckDB 1.5
+  it is not registered: use `p_adjust_by` or the plain-window recipe there. Matches R
+  and `p_adjust_by` (`test/sql/reference/p_adjust_window.test`).
+- **`ols_anova_table_agg` / `ols_anova_table_by`: per-term ANOVA tables (#231).** One
+  OLS fit, one row per term with its sum of squares and F test, as R's `anova(lm(...))`
+  (type I, sequential sums of squares in the column order, the default) or
+  `car::Anova(fit, type = 2)` (`{'type': 'II'}`, each term adjusted for all others, the
+  drop-one F test). `ols_anova_table_agg(y, x[, options])` returns a LIST of STRUCTs in
+  the contract `test` schema: `term`, `method` (`'type I ANOVA'` / `'type II ANOVA'`),
+  `statistic`, `df1` (term df), `df2` (residual df), `p_value`, `sum_sq`, `mean_sq`,
+  `residual_sum_sq`, `residual_mean_sq`, `n_observations` and the remaining unified test
+  fields. `ols_anova_table_by(source, group_col, y_col, x_cols, options := NULL)` returns
+  one row per group and term with `id` and `model_id` / `model_name` = `'ols'`. Terms are
+  `x1`, `x2`, ... unless the `terms` option labels the columns; equal labels form one term
+  (factor dummies). Degrees of freedom count the rank: an aliased term has `df1 = 0` and
+  NULL statistic / p-value. Options: `type`, `terms`, `fit_intercept`. The table comes from
+  anofox-regression 0.5.36 (`inference::anova_table`, validated against R `anova()` and
+  car 3.1.5 `Anova(type = 2)` to 1e-9).
+
+### Fixed
+
+- **Bitwise-reproducible results with more than one thread (#226).** The one-sample
+  and paired tests, the correlation aggregates, the regression `*_fit_agg` and
+  `*_fit_predict_agg` aggregates and the `*_fit_predict` window functions summed their
+  rows in the order DuckDB's threads delivered them, so with `threads > 1` the same
+  data could give results that differed in the last bits from run to run. Their
+  finalizers now sort the buffered rows into a canonical order (lexicographic on the
+  full row, with a total order on doubles) before computing, as #225 did for the
+  group tests; `*_fit_predict_agg` fits on the sorted training rows and still returns
+  each row's own prediction in input order. `glmm_fit_agg` and `log_rank_test_agg`
+  number their groups by sorted label and `icc_agg` its subjects and raters by sorted
+  id, instead of first-seen order, so `glmm_fit_agg`'s random effects are now listed
+  in label order. `eb_shrink_agg` keeps its per-group list in input order. Results can
+  move in the last bits compared with earlier releases. The aggregates that depend on
+  the row order by design (RLS, Passive-Aggressive, lmDynamic, AID, the time-series
+  tests) and the per-row `*_augment_agg` / `residuals_diagnostics_agg` are unchanged
+  and documented (Methodology, "Reproducibility across threads"). Sorting adds
+  O(n log n) work: on 2M rows with 8 threads, `ols_fit_agg` (3 features) took about 5%
+  longer (20% with 100 groups), `t_test_agg` about 10%, and the cheap O(n) correlation
+  aggregates up to about 4× (`pearson_agg` 0.08 s → 0.3 s).
 
 ### Changed
 
+- **CI: PR fast lane (#243).** Pull requests now build and test linux_amd64 only, on both
+  DuckDB lines, plus the required Windows MSVC suite. The full platform matrix (macOS,
+  arm64, musl, WASM and the WASM runtime test) runs on main, on tags, on
+  `workflow_dispatch` and on PRs labelled `full-ci`. Adding the label re-runs the pipeline.
 - The augment STRUCT of `<model>_augment_agg` has two more fields (`approx_loo_fitted`,
   `approx_loo_residual`; NULL for OLS / WLS / Ridge), and the GLM `_augment_by` macros two
   more `obs` columns.

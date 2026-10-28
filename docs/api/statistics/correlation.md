@@ -2,6 +2,10 @@
 
 Correlation coefficients and tests for measuring relationships between variables.
 
+The correlation aggregates sort their (x, y) pairs before computing, so the same rows
+give bitwise-identical results whatever the thread count or row order (see
+[Methodology](../../METHODOLOGY.md#reproducibility-across-threads)).
+
 ## Pearson Correlation
 
 ### pearson_agg

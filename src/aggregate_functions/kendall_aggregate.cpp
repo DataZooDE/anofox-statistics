@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -174,6 +175,9 @@ static void KendallAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Key(state.x_values).Key(state.y_values).Sort();
 
         // Prepare FFI data
         AnofoxDataArray x_array;

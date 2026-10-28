@@ -347,7 +347,7 @@ fn alternative_name(a: anofox_stats_core::tests::Alternative) -> &'static str {
     }
 }
 
-fn fixed_buffer<const N: usize>(name: &str) -> [c_char; N] {
+pub(crate) fn fixed_buffer<const N: usize>(name: &str) -> [c_char; N] {
     let mut buf = [0 as c_char; N];
     for (dst, &b) in buf.iter_mut().zip(name.as_bytes().iter().take(N - 1)) {
         *dst = b as c_char;

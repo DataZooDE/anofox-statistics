@@ -190,6 +190,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
     src/aggregate_functions/ols_anova_aggregate.cpp
+    src/aggregate_functions/ols_anova_table_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
@@ -218,6 +219,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/brunner_munzel_aggregate.cpp
     src/aggregate_functions/dagostino_k2_aggregate.cpp
     src/aggregate_functions/energy_distance_aggregate.cpp
+    src/aggregate_functions/drift_aggregates.cpp
     src/aggregate_functions/mmd_aggregate.cpp
     src/aggregate_functions/tost_t_test_aggregate.cpp
     src/aggregate_functions/wilcoxon_signed_rank_aggregate.cpp

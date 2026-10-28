@@ -1,0 +1,32 @@
+# name: test/sql/issues/issue_226.test
+# description: #226 bitwise-identical results for 1 and 8 threads and any row order
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i % 7 AS g, (i % 2)::BIGINT AS g2, sin(i * 0.37) * 1e3 + i * 1e-3 AS x, cos(i * 0.11) * 1e-2 + sin(i) AS y,
+    sin(i * 1.7) AS z FROM range(300000) r(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT g, ols_fit_agg(y, [x, z]) AS ols, pearson_agg(x, y) AS pr, spearman_agg(x, y) AS sp,
+    t_test_agg(x, g2) AS tt, wilcoxon_signed_rank_agg(x, y) AS wsr
+FROM d GROUP BY g;
+
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE many AS SELECT g, ols_fit_agg(y, [x, z]) AS ols, pearson_agg(x, y) AS pr, spearman_agg(x, y) AS sp,
+    t_test_agg(x, g2) AS tt, wilcoxon_signed_rank_agg(x, y) AS wsr
+FROM (SELECT * FROM d ORDER BY random()) GROUP BY g;
+
+query IIIIII
+SELECT count(*), bool_and(o.ols = m.ols), bool_and(o.pr = m.pr), bool_and(o.sp = m.sp), bool_and(o.tt = m.tt),
+       bool_and(o.wsr = m.wsr)
+FROM one o JOIN many m USING (g);
+----
+7	true	true	true	true	true

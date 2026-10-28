@@ -17,6 +17,7 @@
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -260,6 +261,8 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             continue;
         }
 
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        SortRowsCanonically(state.y_values, state.x_columns);
         AnofoxDataArray y_array = {state.y_values.data(), nullptr, state.y_values.size()};
         vector<AnofoxDataArray> x_arrays;
         for (auto &col : state.x_columns) {

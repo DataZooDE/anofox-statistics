@@ -3536,6 +3536,121 @@ bool anofox_ols_anova(AnofoxDataArray y, const AnofoxDataArray *x_reduced, size_
                       const AnofoxDataArray *x_full, size_t x_full_count, bool fit_intercept,
                       AnofoxOlsAnovaResult *out_result, AnofoxError *out_error);
 
+/* ============================================================================
+ * Data-drift tests (#245-#255)
+ * ============================================================================ */
+
+typedef enum {
+	ANOFOX_DRIFT_KS = 0,
+	ANOFOX_DRIFT_CVM = 1,
+	ANOFOX_DRIFT_EPPS_SINGLETON = 2,
+	ANOFOX_DRIFT_WASSERSTEIN = 3,
+	ANOFOX_DRIFT_PSI = 4,
+	ANOFOX_DRIFT_KL = 5,
+	ANOFOX_DRIFT_JENSEN_SHANNON = 6,
+	ANOFOX_DRIFT_HELLINGER = 7,
+	ANOFOX_DRIFT_TVD = 8,
+} AnofoxDriftKind;
+
+/**
+ * Options of anofox_drift_test; each kind reads only its own. Must match
+ * DriftOptionsFFI in crates/anofox-stats-ffi/src/drift_ffi.rs.
+ */
+typedef struct {
+	/** Epps-Singleton evaluation points; NULL / 0 for the default [0.4, 0.8] */
+	const double *t;
+	size_t t_len;
+	/** Wasserstein order */
+	double p;
+	/** Logarithm base of KL / Jensen-Shannon; NaN for e */
+	double base;
+	/** Permutations of Wasserstein / TVD (0: none) */
+	size_t n_permutations;
+	uint64_t seed;
+	/** Bins of the quantile binning */
+	size_t n_bins;
+	/** AnofoxAlternative */
+	int32_t alternative;
+	/** KS exact p-value: -1 auto, 0 no, 1 yes */
+	int32_t exact;
+	/** Cramer-von Mises: 0 auto, 1 exact, 2 asymptotic */
+	int32_t cvm_method;
+	/** 0 auto (evidently), 1 sturges, 2 categorical, 3 quantile */
+	int32_t binning;
+	bool has_seed;
+} AnofoxDriftOptions;
+
+/**
+ * Result of a drift test. A field that does not apply is NaN (numbers) or 0
+ * (n_bins). Must match DriftResultFFI in crates/anofox-stats-ffi/src/drift_ffi.rs.
+ */
+typedef struct {
+	double statistic;
+	/** Normed Wasserstein distance, Jensen-Shannon divergence, or raw AD criterion */
+	double statistic2;
+	double p_value;
+	double df;
+	/** Reference size (Anderson-Darling: total size) */
+	size_t n1;
+	/** Current size (Anderson-Darling: number of groups) */
+	size_t n2;
+	size_t n_bins;
+	bool exact;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxDriftResult;
+
+/**
+ * Two-sample drift test of current against reference (NaN entries are dropped).
+ */
+bool anofox_drift_test(int32_t kind, AnofoxDataArray reference, AnofoxDataArray current, AnofoxDriftOptions options,
+                       AnofoxDriftResult *out_result, AnofoxError *out_error);
+
+/**
+ * k-sample Anderson-Darling test of values grouped by the numeric codes in groups.
+ */
+bool anofox_ad_test_ksamp(AnofoxDataArray values, AnofoxDataArray groups, bool midrank, AnofoxDriftResult *out_result,
+                          AnofoxError *out_error);
+
+/* ============================================================================
+ * Per-term ANOVA table of an OLS fit (issue #231)
+ * ============================================================================ */
+
+/**
+ * One term (row) of anofox_ols_anova_table. NaN marks a value that does not
+ * apply. Must match AnovaTermFFI in the Rust FFI crate.
+ */
+typedef struct {
+	double df;
+	double sum_sq;
+	double mean_sq;
+	double statistic;
+	double p_value;
+} AnofoxAnovaTerm;
+
+/**
+ * Residual row of anofox_ols_anova_table. Must match OlsAnovaTableResultFFI in
+ * the Rust FFI crate.
+ */
+typedef struct {
+	double residual_df;
+	double residual_sum_sq;
+	double residual_mean_sq;
+	size_t n_observations;
+} AnofoxOlsAnovaTableResult;
+
+/**
+ * Per-term ANOVA table (R's anova(lm(...)) for anova_type 1, car::Anova(fit,
+ * type = 2) for anova_type 2) of the OLS fit of y on the x columns, on the rows
+ * where every value is finite. term_of_column[j] is the 0-based term of column
+ * j; terms are numbered 0..n_terms-1 in table order and out_terms receives
+ * n_terms rows.
+ */
+bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            const uint64_t *term_of_column, size_t n_terms, bool fit_intercept, int32_t anova_type,
+                            AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
+                            AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

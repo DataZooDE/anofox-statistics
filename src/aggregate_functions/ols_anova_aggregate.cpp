@@ -29,6 +29,7 @@
 #include "error_dispatch.hpp"
 #include "list_input.hpp"
 #include "telemetry.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -216,6 +217,8 @@ void OlsAnovaFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		CanonicalRows().Keys(state.full).Keys(state.reduced).Key(state.y_values).Sort();
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};
 		auto reduced = ColumnArrays(state.reduced);
 		auto full = ColumnArrays(state.full);
