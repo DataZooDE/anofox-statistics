@@ -1,0 +1,64 @@
+# name: test/sql/issues/issue_271.test
+# description: #271 ORDER BY inside the aggregate makes the order-dependent aggregates bitwise reproducible for 1 and 8 threads and any input order
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i % 5 AS g, i // 5 AS t,
+    sin(0.05 * i) * 3 + (i % 5) + cos(0.7 * i) AS y, cos(0.03 * i) AS x1, sin(0.011 * i) AS x2,
+    greatest(0, round(3 + 3 * sin(0.2 * i) + (i % 7 = 0)::INT * 4)) AS qty,
+    (i * 7919 % 1000) / 1000.0 AS p
+FROM range(100000) r(i);
+
+# One SELECT with every order-dependent aggregate, ORDER BY t inside each, per group g.
+statement ok
+CREATE MACRO run_all() AS TABLE
+SELECT g,
+    rls_fit_agg(y, [x1, x2] ORDER BY t) AS rls,
+    passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t) AS pa,
+    lm_dynamic_fit_agg(y, [x1, x2] ORDER BY t) AS lmd,
+    aid_agg(qty ORDER BY t) AS aid,
+    acf_agg(y, 12 ORDER BY t) AS acf,
+    pacf_agg(y, 12 ORDER BY t) AS pacf,
+    ljung_box_agg(y, 10 ORDER BY t) AS lb,
+    box_pierce_agg(y, 10 ORDER BY t) AS bp,
+    durbin_watson_agg(y ORDER BY t) AS dw,
+    diebold_mariano_agg(y, x1, x2 ORDER BY t) AS dm,
+    clark_west_agg(y, x1, x2 ORDER BY t) AS cw,
+    rls_fit_predict_agg(y, [x1, x2] ORDER BY t) AS rls_pred,
+    ols_augment_agg(y, [x1, x2] ORDER BY t) AS aug,
+    residuals_diagnostics_agg(y, x1 ORDER BY t) AS rd,
+    p_adjust_agg(p, 'BH' ORDER BY t) AS padj
+FROM d GROUP BY g;
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT * FROM run_all();
+
+statement ok
+SET threads = 8;
+
+# Same data, shuffled input order, 8 threads.
+statement ok
+CREATE OR REPLACE TABLE d AS SELECT * FROM d ORDER BY random();
+
+statement ok
+CREATE TABLE many AS SELECT * FROM run_all();
+
+query I
+SELECT count(*) FROM one JOIN many USING (g) WHERE
+    one.rls IS DISTINCT FROM many.rls OR one.pa IS DISTINCT FROM many.pa OR one.lmd IS DISTINCT FROM many.lmd OR
+    one.aid IS DISTINCT FROM many.aid OR one.acf IS DISTINCT FROM many.acf OR one.pacf IS DISTINCT FROM many.pacf OR
+    one.lb IS DISTINCT FROM many.lb OR one.bp IS DISTINCT FROM many.bp OR one.dw IS DISTINCT FROM many.dw OR
+    one.dm IS DISTINCT FROM many.dm OR one.cw IS DISTINCT FROM many.cw OR one.rls_pred IS DISTINCT FROM many.rls_pred OR
+    one.aug IS DISTINCT FROM many.aug OR one.rd IS DISTINCT FROM many.rd OR one.padj IS DISTINCT FROM many.padj;
+----
+0
+
+query I
+SELECT count(*) FROM many;
+----
+5

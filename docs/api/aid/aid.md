@@ -42,9 +42,15 @@ aid_by(
     source VARCHAR,           -- Table name (as string)
     group_col COLUMN,         -- Column to group by
     y_col COLUMN,             -- Demand/value column
-    [options MAP]             -- Optional configuration (default: NULL)
+    [options MAP],            -- Optional configuration (default: NULL)
+    order_by := COLUMN        -- Optional, by name: the time column (default: NULL)
 ) -> TABLE
 ```
+
+AID reads each series **in order**: leading zeros mark a new product, trailing zeros an
+obsolete one, and stockouts are zeros inside positive demand. Pass `order_by :=` the time
+column. Without it the rows are classified in the order they arrive, which can change
+from run to run with more than one thread (#271).
 
 **Options:**
 | Key | Type | Default | Description |
@@ -74,8 +80,8 @@ aid_by(
 
 **Example:**
 ```sql
--- Classify demand pattern for each SKU
-SELECT * FROM aid_by('sales', sku, demand);
+-- Classify demand pattern for each SKU, reading each series in time order
+SELECT * FROM aid_by('sales', sku, demand, order_by := period);
 
 -- With custom intermittent threshold
 SELECT * FROM aid_by('sales', sku, demand, {'intermittent_threshold': 0.4});

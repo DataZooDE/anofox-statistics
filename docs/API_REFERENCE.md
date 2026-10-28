@@ -1097,11 +1097,11 @@ Table macro: one row per group with the `aid_agg` fields as columns (the group
 column keeps its name).
 
 ```sql skip
-aid_by(source VARCHAR, group_col, y_col [, options]) -> TABLE
+aid_by(source VARCHAR, group_col, y_col [, options] [, order_by := time_col]) -> TABLE
 ```
 
 ```sql
-SELECT sku, demand_type, is_new_product FROM aid_by('demand', sku, qty);
+SELECT sku, demand_type, is_new_product FROM aid_by('demand', sku, qty, order_by := week);
 ```
 
 ### aid_anomaly_by

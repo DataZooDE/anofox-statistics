@@ -10,6 +10,21 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`aid_by` takes `order_by := <time column>` (#271).** AID reads each series in order:
+  leading zeros mark a new product, trailing zeros an obsolete one. `aid_by` called
+  `aid_agg` without an `ORDER BY`, so the new / obsolete / stockout flags depended on the
+  scan order and could change with the thread count. Pass `order_by :=` the time column.
+  Without it the behaviour is unchanged (row arrival order).
+- **Determinism test for the order-dependent aggregates (#271).** With `ORDER BY` inside
+  the aggregate, `rls_fit_agg`, `passive_aggressive_fit_agg`, `lm_dynamic_fit_agg`,
+  `aid_agg`, `acf_agg` / `pacf_agg`, the time-series tests, `diebold_mariano_agg`,
+  `clark_west_agg`, `rls_fit_predict_agg`, `ols_augment_agg`, `residuals_diagnostics_agg`
+  and `p_adjust_agg` are bitwise identical for 1 and 8 threads and shuffled input
+  (`test/sql/issues/issue_271.test`). METHODOLOGY documents this and the cost of the
+  ordering.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

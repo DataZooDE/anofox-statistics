@@ -248,3 +248,47 @@ DROP TABLE IF EXISTS grouped_demand;
 
 statement ok
 DROP TABLE IF EXISTS single_obs;
+
+# =============================================================================
+# order_by (#271): AID reads each series in order. A product whose zeros come first
+# is new; with the rows reversed, the same zeros come last (obsolete).
+# =============================================================================
+
+statement ok
+CREATE TABLE ordered_demand AS
+SELECT 'P1' AS product_id, w AS week, CASE WHEN w < 6 THEN 0.0 ELSE 10.0 + w % 3 END AS demand FROM range(30) r(w);
+
+statement ok
+CREATE TABLE ordered_shuffled AS SELECT * FROM ordered_demand ORDER BY random();
+
+query II
+SELECT is_new_product, is_obsolete_product FROM aid_by('ordered_shuffled', product_id, demand, order_by := week);
+----
+true	false
+
+query II
+SELECT is_new_product, is_obsolete_product FROM aid_by('ordered_shuffled', product_id, demand, order_by := -week);
+----
+false	true
+
+# Same result for 1 and 8 threads.
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE aid1 AS SELECT * FROM aid_by('ordered_shuffled', product_id, demand, order_by := week);
+
+statement ok
+SET threads = 8;
+
+query I
+SELECT count(*) FROM aid1 JOIN aid_by('ordered_shuffled', product_id, demand, order_by := week) a USING (product_id)
+WHERE aid1.new_product_count IS DISTINCT FROM a.new_product_count;
+----
+0
+
+statement ok
+DROP TABLE ordered_demand;
+
+statement ok
+DROP TABLE ordered_shuffled;
