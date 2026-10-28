@@ -24,7 +24,8 @@ description: >
   *_fit_predict_agg aggregates, rolling *_fit_predict window functions, the
   glmm_fit_by / eb_shrink_by / aid_by macros, and scaling patterns for fitting
   a separate model per segment / SKU / cohort over large panels. Also
-  glmm_tidy_by / glance_by / augment_by, ols_anova_by, mediation_by,
+  glmm_tidy_by / glance_by / augment_by, ols_anova_by / ols_anova_table_by,
+  mediation_by,
   p_adjust_by, ridge / elasticnet_nested_cv_by, the split := rule and order_by
   := for rls_tidy_by. Use when the task is "fit one model per group" at scale,
   or "give me a coefficient / fit / residual / prediction table per group",

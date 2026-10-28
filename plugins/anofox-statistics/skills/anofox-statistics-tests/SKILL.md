@@ -28,7 +28,7 @@ description: >
   Brier score, log loss, roc_curve_by). Also: multiple-testing correction
   (p_adjust_by / p_adjust_agg / p_adjust_list, holm / BH / BY …), causal
   mediation (mediation_by: ACME, ADE, proportion mediated), the nested-model F
-  test (ols_anova_by), and seeded, bitwise-reproducible Monte Carlo and group
+  test (ols_anova_by), type I / II ANOVA tables (ols_anova_table_by), and seeded, bitwise-reproducible Monte Carlo and group
   tests. Use when running a significance test, comparing many groups,
   measuring association/effect size, evaluating a classifier, or comparing
   distributions or survival in SQL.

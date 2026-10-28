@@ -14,6 +14,8 @@ and optional heteroscedasticity-consistent (HC0-HC3) standard errors.
 | `ols_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#ols_fit_predict_by) |
 | `ols_anova_agg` | Aggregate | Nested-model F test (reduced vs full model), see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | `ols_anova_by` | Table macro | Nested-model F test per group, see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
+| `ols_anova_table_agg` | Aggregate | Per-term ANOVA table (type I / type II), see [below](#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
+| `ols_anova_table_by` | Table macro | Per-term ANOVA table per group, see [below](#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 
 ## ols_fit
 
@@ -245,14 +247,86 @@ SELECT region, round(statistic, 3) AS f, df1, df2, round(adj_r_squared_reduced, 
 FROM ols_anova_by('ols_demo', region, sales, x_reduced := [price], x_full := [price, ads]);
 ```
 
-Sequential (type I) and partial (type II) ANOVA tables per term are not
-available yet.
+## Per-term ANOVA tables: ols_anova_table_agg / ols_anova_table_by
+
+Which regressors matter? `ols_anova_table_agg` fits one OLS model and returns
+one row per term with its sum of squares and F test, as R's `anova(lm(...))`
+(type I) or `car::Anova(fit, type = 2)` (type II).
+
+**Signatures:**
+
+```text
+ols_anova_table_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT[]
+ols_anova_table_by(source VARCHAR, group_col, y_col, x_cols, options := NULL) -> TABLE
+```
+
+- **Type I (sequential, the default).** Each term is adjusted for the terms
+  before it, in the order of `x`: `SS_k = RSS(terms 1..k−1) − RSS(terms 1..k)`.
+  The sums of squares add up to `TSS − RSS`, and the table depends on the
+  column order.
+- **Type II (partial, `{'type': 'II'}`).** Each term is adjusted for all other
+  terms: `SS_k = RSS(all but k) − RSS(full)`, the drop-one nested F test
+  (`ols_anova_agg`) of the term. The table does not depend on the order. Models
+  with interactions are not supported (there are no interaction terms here).
+- Every `F = (SS_k / df_k) / (RSS / df_res)` uses the full model's residual mean
+  square; types I and II agree for the last term.
+- **Terms.** By default every column of `x` is a term, labelled `x1`, `x2`, ....
+  The `terms` option gives one label per column; columns with the same label
+  form one term, for example the dummies of a factor
+  (`{'terms': ['wt', 'cyl', 'cyl', 'hp']}`), ordered by first appearance.
+- **Options.** `type` (`'I'` default, `'II'`; also `1` / `2`, `'sequential'` /
+  `'partial'`; alias key `anova_type`), `terms` and `fit_intercept` (default
+  `true`; without an intercept the sums of squares are uncentred, as R's
+  `y ~ 0 + ...`).
+- **Rank deficiency.** Degrees of freedom count the numerical rank. A term that
+  adds no rank (aliased with the terms before it, or for type II with all
+  other terms) gets `df1 = 0`, `sum_sq = 0` and NULL `mean_sq`, `statistic` and
+  `p_value`; R's `anova()` drops such a term. With no residual degrees of
+  freedom every `statistic` and `p_value` is NULL.
+- **Rows.** A row is used when `y`, the list and every list element are
+  non-NULL and finite. A group with too few rows returns NULL.
+
+Each list element follows the integration contract's `test` schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `term` | `VARCHAR` | Term label |
+| `method` | `VARCHAR` | `'type I ANOVA'` or `'type II ANOVA'` |
+| `statistic` | `DOUBLE` | F statistic of the term |
+| `df1` | `DOUBLE` | Degrees of freedom of the term (the rank it adds) |
+| `df2` | `DOUBLE` | Residual degrees of freedom of the full model |
+| `p_value` | `DOUBLE` | Upper tail of `F(df1, df2)` |
+| `sum_sq`, `mean_sq` | `DOUBLE` | Sum of squares of the term and `sum_sq / df1` |
+| `residual_sum_sq`, `residual_mean_sq` | `DOUBLE` | The residual row of R's table |
+| `n_observations` | `BIGINT` | Rows used by the fits |
+| `alternative`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`, `effect_name` | | Unified `test` fields; NULL here |
+| `n` | `BIGINT` | Same as `n_observations` |
+
+`ols_anova_table_by` returns one row per group and term: the group column,
+`id`, `model_id` / `model_name` (`'ols'`), `term`, `method`, `statistic`,
+`p_value`, `df1`, `df2`, `sum_sq`, `mean_sq`, `residual_sum_sq`,
+`residual_mean_sq` and `n_observations`.
+
+**Example** (continues with `ols_demo` from above):
+
+```sql
+-- Sequential (type I) table per region: price first, then ads.
+SELECT region, (r).term, (r).df1, round((r).sum_sq, 2) AS sum_sq, round((r).statistic, 2) AS f
+FROM (SELECT region, unnest(ols_anova_table_agg(sales, [price, ads])) AS r FROM ols_demo GROUP BY region)
+ORDER BY region, (r).term;
+
+-- Type II with named terms, as a table macro.
+SELECT region, term, df1, df2, round(statistic, 2) AS f, p_value < 0.05 AS significant
+FROM ols_anova_table_by('ols_demo', region, sales, [price, ads],
+                        options := {'type': 'II', 'terms': ['price', 'ads']});
+```
 
 ## Use Cases
 
 - Standard linear regression and baseline models
 - When inference (p-values, confidence intervals) is needed
 - Testing whether added regressors improve a model (`ols_anova_agg` / `ols_anova_by`)
+- Per-term ANOVA tables, sequential or partial (`ols_anova_table_agg` / `ols_anova_table_by`)
 - Robust inference under heteroscedasticity via `hc_type`
 
 ## See Also

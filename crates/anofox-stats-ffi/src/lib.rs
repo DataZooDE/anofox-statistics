@@ -23,9 +23,9 @@ use anofox_stats_core::{
         compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
         fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic,
         fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac,
-        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, predict,
-        AftDistribution, AftOptions, EbShrinkOptions, GlmmDdf, GlmmFamily, GlmmOptions, GlmmResult,
-        NestedFTestOptions, RlsOptions, TauMethod,
+        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, ols_anova_table,
+        predict, AftDistribution, AftOptions, AnovaTableOptions, AnovaType, EbShrinkOptions,
+        GlmmDdf, GlmmFamily, GlmmOptions, GlmmResult, NestedFTestOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -10543,6 +10543,128 @@ pub unsafe extern "C" fn anofox_ols_anova(
                     delta_adj_r_squared: r.delta_adj_r_squared(),
                     n_observations: r.n_observations,
                     unified: TestSummaryFFI::from(&r),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}
+
+// =============================================================================
+// Per-term ANOVA table of an OLS fit — issue #231
+// =============================================================================
+
+/// One term (row) of `anofox_ols_anova_table`. NaN marks a value that does not
+/// apply (`mean_sq` for a term that adds no rank; `statistic` and `p_value`
+/// also when there are no residual degrees of freedom).
+#[repr(C)]
+pub struct AnovaTermFFI {
+    pub df: f64,
+    pub sum_sq: f64,
+    pub mean_sq: f64,
+    pub statistic: f64,
+    pub p_value: f64,
+}
+
+/// Residual row of `anofox_ols_anova_table`.
+#[repr(C)]
+pub struct OlsAnovaTableResultFFI {
+    pub residual_df: f64,
+    pub residual_sum_sq: f64,
+    /// NaN when `residual_df` is 0.
+    pub residual_mean_sq: f64,
+    pub n_observations: usize,
+}
+
+/// Per-term ANOVA table of the OLS fit of `y` on the `x` columns: R's
+/// `anova(lm(...))` (`anova_type` 1, sequential) or `car::Anova(fit, type = 2)`
+/// (`anova_type` 2, partial). `term_of_column[j]` is the 0-based term of column
+/// `j`, terms numbered `0..n_terms` in table order.
+///
+/// # Safety
+/// `x` and `term_of_column` must point to `x_count` valid entries, each array as
+/// long as `y`; `out_terms` to `n_terms` writable entries. `out_result` is
+/// required.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn anofox_ols_anova_table(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    term_of_column: *const u64,
+    n_terms: usize,
+    fit_intercept: bool,
+    anova_type: i32,
+    out_terms: *mut AnovaTermFFI,
+    out_result: *mut OlsAnovaTableResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if out_result.is_null()
+            || x.is_null()
+            || term_of_column.is_null()
+            || x_count == 0
+            || (out_terms.is_null() && n_terms > 0)
+        {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_result, x or terms is NULL");
+            }
+            return false;
+        }
+        let anova_type = match anova_type {
+            1 => AnovaType::I,
+            2 => AnovaType::II,
+            other => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InvalidInput,
+                        &format!("anova type must be 1 or 2, got {other}"),
+                    );
+                }
+                return false;
+            }
+        };
+
+        let columns: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let terms: Vec<usize> = slice::from_raw_parts(term_of_column, x_count)
+            .iter()
+            .map(|&t| t as usize)
+            .collect();
+        let options = AnovaTableOptions {
+            anova_type,
+            with_intercept: fit_intercept,
+            ..Default::default()
+        };
+
+        match ols_anova_table(&y.to_vec(), &columns, &terms, n_terms, &options) {
+            Ok(t) => {
+                let out = slice::from_raw_parts_mut(out_terms, n_terms);
+                for (dst, row) in out.iter_mut().zip(&t.terms) {
+                    *dst = AnovaTermFFI {
+                        df: row.df as f64,
+                        sum_sq: row.sum_sq,
+                        mean_sq: row.mean_sq,
+                        statistic: row.f_statistic,
+                        p_value: row.p_value,
+                    };
+                }
+                *out_result = OlsAnovaTableResultFFI {
+                    residual_df: t.residual_df as f64,
+                    residual_sum_sq: t.residual_sum_sq,
+                    residual_mean_sq: t.residual_mean_sq,
+                    n_observations: t.n_observations,
                 };
                 true
             }

@@ -70,6 +70,21 @@ Breaking changes are called out explicitly.
   detected in `duckdb_compat.hpp`; each distinct frame is adjusted once. On DuckDB 1.5
   it is not registered: use `p_adjust_by` or the plain-window recipe there. Matches R
   and `p_adjust_by` (`test/sql/reference/p_adjust_window.test`).
+- **`ols_anova_table_agg` / `ols_anova_table_by`: per-term ANOVA tables (#231).** One
+  OLS fit, one row per term with its sum of squares and F test, as R's `anova(lm(...))`
+  (type I, sequential sums of squares in the column order, the default) or
+  `car::Anova(fit, type = 2)` (`{'type': 'II'}`, each term adjusted for all others, the
+  drop-one F test). `ols_anova_table_agg(y, x[, options])` returns a LIST of STRUCTs in
+  the contract `test` schema: `term`, `method` (`'type I ANOVA'` / `'type II ANOVA'`),
+  `statistic`, `df1` (term df), `df2` (residual df), `p_value`, `sum_sq`, `mean_sq`,
+  `residual_sum_sq`, `residual_mean_sq`, `n_observations` and the remaining unified test
+  fields. `ols_anova_table_by(source, group_col, y_col, x_cols, options := NULL)` returns
+  one row per group and term with `id` and `model_id` / `model_name` = `'ols'`. Terms are
+  `x1`, `x2`, ... unless the `terms` option labels the columns; equal labels form one term
+  (factor dummies). Degrees of freedom count the rank: an aliased term has `df1 = 0` and
+  NULL statistic / p-value. Options: `type`, `terms`, `fit_intercept`. The table comes from
+  anofox-regression 0.5.36 (`inference::anova_table`, validated against R `anova()` and
+  car 3.1.5 `Anova(type = 2)` to 1e-9).
 
 ### Changed
 

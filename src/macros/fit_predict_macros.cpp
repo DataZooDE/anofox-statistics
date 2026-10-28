@@ -605,6 +605,43 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // ols_anova_table_by: per-term ANOVA table per group (issue #231), R's
+    // anova(lm(y ~ x)) (type I) or car::Anova(fit, type = 2) (type II).
+    // C++ API: ols_anova_table_by(source, group_col, y_col, x_cols, options)
+    // options: type ('I' | 'II'), terms (one label per x column), fit_intercept.
+    // Returns: one row per group and term -- the group column, id (the group as
+    // text), model_id / model_name 'ols' (#187), term, the contract `test` fields
+    // method, statistic, p_value, df1, df2, then sum_sq, mean_sq,
+    // residual_sum_sq, residual_mean_sq and n_observations.
+    {"ols_anova_table_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+R"(
+SELECT
+    group_col,
+    group_col::VARCHAR AS id,
+    'ols' AS model_id,
+    'ols' AS model_name,
+    (_t).term AS term,
+    (_t).method AS method,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).df1 AS df1,
+    (_t).df2 AS df2,
+    (_t).sum_sq AS sum_sq,
+    (_t).mean_sq AS mean_sq,
+    (_t).residual_sum_sq AS residual_sum_sq,
+    (_t).residual_mean_sq AS residual_mean_sq,
+    (_t).n_observations AS n_observations
+FROM (
+    SELECT group_col, unnest(range(len(_l))) AS _i, unnest(_l) AS _t
+    FROM (
+        SELECT group_col, ols_anova_table_agg(y_col, x_cols, options) AS _l
+        FROM query_table(source::VARCHAR)
+        GROUP BY group_col
+    )
+) sub
+ORDER BY group_col, _i
+)"},
+
     // eb_shrink_by: empirical-Bayes shrinkage of per-group estimates (issue #107)
     // C++ API: eb_shrink_by(source, estimate_col, se_col, options)
     // Unlike the *_fit_predict_by macros this does not fit a model -- it consumes
@@ -1082,6 +1119,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},
+    {"ols_anova_table_by", "Table macro: per-term ANOVA table per group of source (R's anova(lm(y ~ x)), type I sequential sums of squares in the column order, or car::Anova(fit, type = 2) with options {'type': 'II'}); returns one row per group and term with term, method, statistic (F), p_value, df1, df2 (residual df), sum_sq, mean_sq and the residual sum of squares. options terms: one label per x column, equal labels form one term (e.g. factor dummies).", "ols_anova_table_by('sales', region, y, [price, promo, temp], options := {'type': 'II'})", "regression"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
     {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},
     {"mediation_by", "Table macro: causal mediation analysis per group of source (linear models, as R mediation::mediate): fits mediator ~ treatment + covariates and outcome ~ treatment + mediator + covariates and returns one row per group and effect (acme, ade, total, prop_mediated) in the contract terms schema plus method, n_obs and n_sims. Inference by nonparametric bootstrap (default, n_bootstrap 1000, seed 42), Sobel or quasi-Bayesian Monte Carlo (options method, ci_type, n_bootstrap, seed, confidence_level, treat_value, control_value).", "mediation_by('trial', site, treat, m, y, covariates := [age, baseline])", "mediation"},

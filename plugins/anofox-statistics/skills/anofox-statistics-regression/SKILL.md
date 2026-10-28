@@ -24,7 +24,7 @@ description: >
   / aft_quantile / aft_survival helpers. Also: GLMM Wald / Satterthwaite
   inference and BLUP SEs (ddf, glmm_tidy_by), Bayesian credible intervals,
   Theil-Sen exact / bootstrap CIs (ci_method), nested F tests (ols_anova_by),
-  CV strategies (cv_strategy group / logo / stratified / time_series, nested
+  type I / II per-term ANOVA tables (ols_anova_table_by), CV strategies (cv_strategy group / logo / stratified / time_series, nested
   CV) and exact leave-one-out PRESS for OLS / WLS / Ridge (compute_loo). Use when picking a regression
   method, choosing a penalty, getting standard errors or intervals for
   predictions, or writing ols_fit_agg / ridge_fit / ols_fit_predict / predict
@@ -97,7 +97,8 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial least squares; `n_components` (1), `fit_intercept`. Returns `coefficients`, `intercept`, `r_squared`, `n_components`, `n_observations`, `n_features` |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression on a single `x DOUBLE`; `increasing` (true). Returns knots `x[]`, `fitted[]`, `increasing`, `r_squared`, `n_observations`; `predict(m, [x])` interpolates, clamped at the ends |
 | Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression; `tau` (alias `quantile`, 0.5), `fit_intercept`, `max_iterations`, `tolerance`. Returns `coefficients`, `intercept`, `tau`, `n_observations`, `n_features` + inference fields. Standard errors with `se` (`'iid'`, `'nid'`, `'boot'`; `compute_inference: true` = `'nid'`), `n_boot` (200), `seed` (42), as `quantreg::summary.rq` |
-| Nested-model F test | `ols_anova_agg(y, x_reduced, x_full[, opts])`, `ols_anova_by(src, g, y, x_reduced := [...], x_full := [...])` | R `anova(lm(reduced), lm(full))` on the same rows (matches to 1e-9): does `x_full` beat `x_reduced`? `x_reduced` columns must appear in `x_full` (error otherwise); `[]` = intercept-only (overall F). Returns `test` fields `method` (`'nested F'`), `statistic`, `df1`, `df2`, `p_value` + `rss_reduced`, `rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared`, `n_observations`. Rank counted as R; `df1 = 0` or `df2 = 0` → NULL (not NaN) statistic and p-value. Option `fit_intercept` only. No type I/II per-term tables |
+| Nested-model F test | `ols_anova_agg(y, x_reduced, x_full[, opts])`, `ols_anova_by(src, g, y, x_reduced := [...], x_full := [...])` | R `anova(lm(reduced), lm(full))` on the same rows (matches to 1e-9): does `x_full` beat `x_reduced`? `x_reduced` columns must appear in `x_full` (error otherwise); `[]` = intercept-only (overall F). Returns `test` fields `method` (`'nested F'`), `statistic`, `df1`, `df2`, `p_value` + `rss_reduced`, `rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared`, `n_observations`. Rank counted as R; `df1 = 0` or `df2 = 0` → NULL (not NaN) statistic and p-value. Option `fit_intercept` only |
+| Per-term ANOVA table | `ols_anova_table_agg(y, x[, opts])` → `STRUCT[]`, `ols_anova_table_by(src, g, y, [x...], options := {...})` | R `anova(lm(...))` (type I, sequential in column order, default) or `car::Anova(fit, type = 2)` (`{'type': 'II'}`, each term adjusted for all others); matches to 1e-9. One row per term: `term`, `method`, `statistic` (F), `df1` (term df), `df2` (residual df), `p_value`, `sum_sq`, `mean_sq`, `residual_sum_sq`, `residual_mean_sq`, `n_observations`. Terms `x1`, `x2`, … or `'terms': [...]` labels (one per column; equal labels = one term, e.g. factor dummies). Aliased term → `df1 = 0`, NULL F/p. Options `type`, `terms`, `fit_intercept`; no interactions |
 | Quantile process | `quantile_process_agg(y, x[, opts])` | One fit per tau as `terms` rows (`index_name = 'tau'`); `taus` (default 0.1…0.9), `se` (`'nid'`), `compute_inference` (false = estimates only), `feature_names` |
 
 ### Regularisation paths and cross-validation
@@ -308,6 +309,11 @@ SELECT (r).statistic, (r).df1, (r).df2, (r).p_value, (r).delta_adj_r_squared
 FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) AS r FROM anova_demo);
 SELECT g, statistic, p_value, adj_r_squared_reduced, adj_r_squared_full
 FROM ols_anova_by('anova_demo', g, y, x_reduced := [x1], x_full := [x1, x2, x3]);
+-- Per-term tables: sequential (R anova(fit)) and partial (car::Anova(fit, type = 2))
+SELECT (r).term, (r).df1, (r).sum_sq, (r).statistic, (r).p_value
+FROM (SELECT unnest(ols_anova_table_agg(y, [x1, x2, x3])) AS r FROM anova_demo);
+SELECT g, term, statistic, p_value
+FROM ols_anova_table_by('anova_demo', g, y, [x1, x2, x3], options := {'type': 'II', 'terms': ['x1', 'x2', 'x3']});
 ```
 
 ```sql
