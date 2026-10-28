@@ -188,6 +188,7 @@ static void KaplanMeierFinalize(Vector &state_vector, AggregateInputData &aggr_i
 }
 
 static Value SurvivalConstant(ClientContext &context, Expression &expr, const char *what) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("kaplan_meier_agg: %s must be a constant", what);
 	}

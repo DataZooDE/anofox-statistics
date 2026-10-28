@@ -258,6 +258,7 @@ static void ClassifierFinalize(Vector &state_vector, AggregateInputData &aggr_in
 
 //! Evaluate a constant scalar argument; it must not vary per row.
 static Value ConstantArgument(ClientContext &context, Expression &expr, const string &fn, const char *param) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: %s must be a constant", fn, string(param));
 	}

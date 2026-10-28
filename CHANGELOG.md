@@ -12,6 +12,13 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Options from prepared-statement parameters (#274).** Options and the other constant
+  arguments (time-series `lag`, `p_adjust` method / `n`, classifier-curve and survival
+  constants, `predict` options) may now be `?` / `$1` / `$name` parameters. Bind throws
+  `ParameterNotResolvedException`, so DuckDB re-binds the statement with the values at
+  `EXECUTE`. Before, `PREPARE ... {'threshold': ?}` failed with "options must be a constant".
+  Options from SQL variables (`getvariable('x')`, `$x` on DuckDB 2.0) already worked and are
+  now documented (API_CONVENTIONS §2, batch skill).
 - **Benchmarks: DuckDB v1.5.6 vs v2.0 (#269).** New workloads: `_by` macros on Parquet,
   tests per VARCHAR segment, and a drift monitor over Hive-partitioned Parquet. A new
   `scripts/bench_compare.py` reports median timings for several DuckDB CLIs, and the results

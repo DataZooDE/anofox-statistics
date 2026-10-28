@@ -58,6 +58,8 @@ Fit + predict per group with one call. The macro renames the target and adds pre
 
 Pass `split` and `order_by` by name: `ols_fit_predict_by('sales', category, revenue, [units], split := sp, order_by := t)`.
 
+Options must be constant per query, not literal: a whole option struct can live in a variable (`SET VARIABLE opts = {'alpha': 1.0}`, then `options := getvariable('opts')`, or `$opts` on DuckDB 2.0) or be a prepared-statement parameter (`PREPARE p AS ... options := ?`). That makes it easy to parameterize scripts.
+
 Rows with a NULL `y_col` are not used for fitting but still receive a prediction, so appending future rows with `y = NULL` gives you a forecast.
 
 Available macros: `ols_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_predict_by`,

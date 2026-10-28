@@ -292,6 +292,7 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 		}
 	}
 	if (arguments.size() >= 3) {
+		RequireResolvedParameters(*arguments[2]);
 		if (!arguments[2]->IsFoldable()) {
 			throw InvalidInputException("predict: options must be a constant MAP or STRUCT");
 		}

@@ -47,6 +47,7 @@ static vector<double> AdjustPValues(const char *fn_name, const vector<double> &p
 
 //! Read a constant method argument; NULL means holm. Validated against upstream.
 static string BindMethod(ClientContext &context, Expression &expr, const char *fn_name) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: method must be a constant, not a value that varies per row", fn_name);
 	}
@@ -58,6 +59,7 @@ static string BindMethod(ClientContext &context, Expression &expr, const char *f
 
 //! Read a constant n argument; NULL means the number of non-NULL p-values (-1).
 static int64_t BindN(ClientContext &context, Expression &expr, const char *fn_name) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: n must be a constant, not a value that varies per row", fn_name);
 	}

@@ -1,0 +1,93 @@
+# name: test/sql/options/test_prepared_options.test
+# description: #274 options and constant arguments from SQL variables and prepared-statement parameters
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i % 2 AS g, sin(0.37 * i) + (i % 2) * 0.4 AS v, cos(i) AS x, i AS t FROM range(400) r(i);
+
+# Variables: a single option value, or the whole option struct.
+statement ok
+SET VARIABLE conf = 0.9;
+
+statement ok
+SET VARIABLE ridge_opts = {'alpha': 1.0};
+
+query II
+SELECT (t_test_agg(v, g, {'confidence_level': getvariable('conf')})).conf_level,
+       (ridge_fit_agg(v, [x], getvariable('ridge_opts'))).n_observations
+FROM d;
+----
+0.9	400
+
+# Prepared statements: the options are re-bound with the parameter values at EXECUTE.
+statement ok
+PREPARE drift AS SELECT (psi_agg(v, g, {'threshold': ?})).drift FROM d;
+
+query I
+EXECUTE drift(0.05);
+----
+true
+
+query I
+EXECUTE drift(50.0);
+----
+false
+
+statement ok
+PREPARE conf AS SELECT (t_test_agg(v, g, {'confidence_level': $1})).conf_level FROM d;
+
+query I
+EXECUTE conf(0.8);
+----
+0.8
+
+statement ok
+PREPARE named AS SELECT (t_test_agg(v, g, {'confidence_level': $level})).conf_level FROM d;
+
+query I
+EXECUTE named(level := 0.99);
+----
+0.99
+
+# The whole options struct as a parameter.
+statement ok
+PREPARE whole AS SELECT (ridge_fit_agg(v, [x], ?)).n_observations FROM d;
+
+query I
+EXECUTE whole({'alpha': 2.0});
+----
+400
+
+# Other constant arguments: a time-series lag, the p_adjust method.
+statement ok
+PREPARE lb AS SELECT (ljung_box_agg(v, ? ORDER BY t)).df1 FROM d;
+
+query I
+EXECUTE lb(5);
+----
+5.0
+
+statement ok
+PREPARE padj AS SELECT len(p_adjust_agg(p, ?)) FROM (VALUES (0.01), (0.04), (0.2)) t(p);
+
+query I
+EXECUTE padj('BH');
+----
+3
+
+# Invalid parameter values fail at EXECUTE with the usual message.
+statement ok
+PREPARE bad AS SELECT (t_test_agg(v, g, {'confidence_level': ?})).conf_level FROM d;
+
+statement error
+EXECUTE bad(1.5);
+----
+confidence_level
+
+# A column (varies per row) is still rejected.
+statement error
+SELECT t_test_agg(v, g, {'confidence_level': v}) FROM d;
+----
+must be a constant
