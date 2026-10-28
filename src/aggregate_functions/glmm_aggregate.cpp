@@ -1,6 +1,7 @@
 #include <type_traits>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <unordered_map>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -462,6 +464,33 @@ static void SetDoubleListG(Vector &target, idx_t row, const double *values, idx_
 	list_data[row].length = len;
 }
 
+//! Number the groups by sorted label and sort the rows (by group, then x, then y),
+//! so the fit and the order of the random effects are bitwise independent of the
+//! order in which threads delivered the rows (#226).
+static void CanonicalizeGlmmRows(GlmmAggregateState &state) {
+	const idx_t n_groups = state.group_labels.size();
+	vector<idx_t> order(n_groups);
+	std::iota(order.begin(), order.end(), idx_t(0));
+	std::sort(order.begin(), order.end(),
+	          [&](idx_t a, idx_t b) { return state.group_labels[a] < state.group_labels[b]; });
+	vector<int32_t> rank(n_groups);
+	vector<string> sorted(n_groups);
+	for (idx_t r = 0; r < n_groups; r++) {
+		rank[order[r]] = static_cast<int32_t>(r);
+		sorted[r] = state.group_labels[order[r]];
+	}
+	for (auto &g : state.group_ids) {
+		g = rank[static_cast<idx_t>(g)];
+	}
+	state.group_labels = std::move(sorted);
+	state.group_index = make_uniq<unordered_map<string, int32_t>>();
+	for (idx_t r = 0; r < n_groups; r++) {
+		state.group_index->emplace(state.group_labels[r], static_cast<int32_t>(r));
+	}
+	vector<double> group_key(state.group_ids.begin(), state.group_ids.end());
+	CanonicalRows().Key(group_key).Keys(state.x_columns).Key(state.y_values).Carry(state.group_ids).Sort();
+}
+
 static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &result, idx_t count, idx_t offset) {
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -478,6 +507,7 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 			continue;
 		}
 
+		CanonicalizeGlmmRows(state);
 		AnofoxDataArray y_array {state.y_values.data(), nullptr, state.y_values.size()};
 
 		GlmmCall call;

@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -135,6 +136,9 @@ static void DAgostinoK2AggFinalize(Vector &state_vector, AggregateInputData &agg
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Key(state.values).Sort();
 
         // Prepare FFI data
         AnofoxDataArray data_array;

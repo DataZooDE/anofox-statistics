@@ -29,6 +29,7 @@
 #include "prediction_interval.hpp"
 #include "telemetry.hpp"
 #include "xy_rows_aggregate.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -173,6 +174,8 @@ void BayesianFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_da
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		SortRowsCanonically(state.y_values, state.x_columns);
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};
 		auto x = XyRowsColumnArrays(state);
 		AnofoxBayesianFitResult fit;
@@ -256,6 +259,8 @@ void BayesianPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 				rows[r * p + j] = state.x_all[r][j];
 			}
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		SortRowsCanonically(state.y_train, state.x_train);
 		AnofoxDataArray y = {state.y_train.data(), nullptr, state.y_train.size()};
 		auto x = FitPredictTrainColumns(state);
 		vector<double> yhat(n_rows), lower(n_rows), upper(n_rows);

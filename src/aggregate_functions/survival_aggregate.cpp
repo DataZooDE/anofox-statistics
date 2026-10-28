@@ -8,7 +8,9 @@
 // Rows with a NULL time, event (or group) are skipped. The estimates come from
 // anofox-statistics (R survival::survfit, survival::survdiff).
 
+#include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -25,6 +27,7 @@
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
 #include "two_group.hpp"
+#include "canonical_order.hpp"
 
 namespace duckdb {
 
@@ -152,6 +155,8 @@ static void KaplanMeierFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		CanonicalRows().Key(state.time).Key(state.event).Sort();
 		AnofoxDataArray time_array {state.time.data(), nullptr, static_cast<size_t>(state.time.size())};
 		AnofoxDataArray event_array {state.event.data(), nullptr, static_cast<size_t>(state.event.size())};
 		AnofoxKaplanMeierResult km;
@@ -240,6 +245,27 @@ struct LogRankState {
 		labels.push_back(label);
 		return labels.size() - 1;
 	}
+
+	//! Renumber the groups by sorted label and sort the rows (by group, time,
+	//! event), so the result is bitwise independent of the row order (#226).
+	void Canonicalize() {
+		vector<idx_t> order(labels.size());
+		std::iota(order.begin(), order.end(), idx_t(0));
+		std::sort(order.begin(), order.end(), [&](idx_t a, idx_t b) { return labels[a] < labels[b]; });
+		vector<uint64_t> rank(labels.size());
+		vector<GroupLabel> sorted(labels.size());
+		for (idx_t r = 0; r < order.size(); r++) {
+			rank[order[r]] = r;
+			sorted[r] = labels[order[r]];
+		}
+		labels = std::move(sorted);
+		vector<double> group_key(codes.size());
+		for (idx_t k = 0; k < codes.size(); k++) {
+			codes[k] = rank[codes[k]];
+			group_key[k] = static_cast<double>(codes[k]);
+		}
+		CanonicalRows().Key(group_key).Key(time).Key(event).Carry(codes).Sort();
+	}
 };
 
 static void LogRankInitialize(data_ptr_t state_p) {
@@ -323,6 +349,7 @@ static void LogRankFinalize(Vector &state_vector, AggregateInputData &, Vector &
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		state.Canonicalize();
 		AnofoxDataArray time_array {state.time.data(), nullptr, static_cast<size_t>(state.time.size())};
 		AnofoxDataArray event_array {state.event.data(), nullptr, static_cast<size_t>(state.event.size())};
 		AnofoxTestSummaryFFI summary;

@@ -127,6 +127,8 @@ void PlsFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		SortRowsCanonically(state.y_values, state.x_columns);
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};
 		auto x = ColumnArrays(state);
 		AnofoxPlsOptions options;
@@ -181,10 +183,9 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
-		if (bind.compute_inference && bind.se_type == ANOFOX_QUANTILE_SE_BOOT) {
-			// The seeded bootstrap draws rows by position: fix their order.
-			SortRowsCanonically(state.y_values, state.x_columns);
-		}
+		// Canonical row order: bitwise-identical results whatever the thread count, and
+		// the seeded bootstrap (which draws rows by position) draws the same rows (#226).
+		SortRowsCanonically(state.y_values, state.x_columns);
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};
 		auto x = ColumnArrays(state);
 		AnofoxQuantileOptions options;
@@ -277,6 +278,8 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		SortRowsCanonically(state.y_values, state.x_columns);
 		auto &xs = state.x_columns[0];
 		AnofoxDataArray x = {xs.data(), nullptr, xs.size()};
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};

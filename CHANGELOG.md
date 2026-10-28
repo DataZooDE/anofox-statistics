@@ -36,6 +36,28 @@ Breaking changes are called out explicitly.
     explicit refit without the row (in SQL, to 1e-9) and R's explicitly built hat matrix, and
     the GLM approximation against R 4.6.1 `influence()`.
 
+### Fixed
+
+- **Bitwise-reproducible results with more than one thread (#226).** The one-sample
+  and paired tests, the correlation aggregates, the regression `*_fit_agg` and
+  `*_fit_predict_agg` aggregates and the `*_fit_predict` window functions summed their
+  rows in the order DuckDB's threads delivered them, so with `threads > 1` the same
+  data could give results that differed in the last bits from run to run. Their
+  finalizers now sort the buffered rows into a canonical order (lexicographic on the
+  full row, with a total order on doubles) before computing, as #225 did for the
+  group tests; `*_fit_predict_agg` fits on the sorted training rows and still returns
+  each row's own prediction in input order. `glmm_fit_agg` and `log_rank_test_agg`
+  number their groups by sorted label and `icc_agg` its subjects and raters by sorted
+  id, instead of first-seen order, so `glmm_fit_agg`'s random effects are now listed
+  in label order. `eb_shrink_agg` keeps its per-group list in input order. Results can
+  move in the last bits compared with earlier releases. The aggregates that depend on
+  the row order by design (RLS, Passive-Aggressive, lmDynamic, AID, the time-series
+  tests) and the per-row `*_augment_agg` / `residuals_diagnostics_agg` are unchanged
+  and documented (Methodology, "Reproducibility across threads"). Sorting adds
+  O(n log n) work: on 2M rows with 8 threads, `ols_fit_agg` (3 features) took about 5%
+  longer (20% with 100 groups), `t_test_agg` about 10%, and the cheap O(n) correlation
+  aggregates up to about 4× (`pearson_agg` 0.08 s → 0.3 s).
+
 ### Changed
 
 - The augment STRUCT of `<model>_augment_agg` has two more fields (`approx_loo_fitted`,
