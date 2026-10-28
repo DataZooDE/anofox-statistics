@@ -1577,6 +1577,84 @@ EnergyDistanceMapOptions EnergyDistanceMapOptions::ParseFromValue(const Value &m
 	    });
 }
 
+DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const string &function_name, int kind) {
+	// kind follows AnofoxDriftKind (anofox_stats_ffi.h); -1 is ad_test_agg.
+	static const OptionKeyDef KEY_REFERENCE = {"reference", {}};
+	static const OptionKeyDef KEY_BINNING = {"binning", {}};
+	static const OptionKeyDef KEY_N_BINS = {"n_bins", {}};
+	static const OptionKeyDef KEY_THRESHOLD = {"threshold", {}};
+	vector<OptionKeyDef> keys;
+	switch (kind) {
+	case -1:
+		keys = {{"midrank", {}}};
+		break;
+	case 0:
+		keys = {KEY_REFERENCE, KEY_ALTERNATIVE, {"exact", {}}};
+		break;
+	case 1:
+		keys = {KEY_REFERENCE, {"method", {}}};
+		break;
+	case 2:
+		keys = {KEY_REFERENCE, {"t", {}}};
+		break;
+	case 3:
+		keys = {KEY_REFERENCE, {"p", {}}, KEY_PERMUTATIONS, KEY_SEED};
+		break;
+	case 4:
+	case 7:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
+		break;
+	case 5:
+	case 6:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD, {"base", {}}};
+		break;
+	default:
+		keys = {KEY_REFERENCE, KEY_PERMUTATIONS, KEY_SEED};
+		break;
+	}
+	auto result = ParseTestOptions<DriftMapOptions>(
+	    map_value, function_name, keys, [&](DriftMapOptions &result, const string &key, const Value &val) {
+		    if (key == "reference") {
+			    if (!val.IsNull()) {
+				    result.reference = val;
+			    }
+		    } else if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "exact" || key == "midrank") {
+			    (key == "exact" ? result.exact : result.midrank) = ExtractBool(val);
+		    } else if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"auto", "exact", "asymptotic"});
+		    } else if (key == "t") {
+			    result.t = ExtractDoubleList(val, "t");
+		    } else if (key == "p") {
+			    result.p = ExtractDouble(val);
+			    if (result.p && !(*result.p >= 1.0 && std::isfinite(*result.p))) {
+				    throw InvalidInputException("%s: p must be a finite number >= 1, got %s", function_name,
+				                                val.ToString());
+			    }
+		    } else if (key == "n_permutations") {
+			    result.n_permutations = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "binning") {
+			    result.binning = ExtractChoice(val, "binning", {"auto", "sturges", "quantile", "categorical"});
+		    } else if (key == "n_bins") {
+			    result.n_bins = ExtractUInt32(val);
+			    if (result.n_bins && *result.n_bins < 1) {
+				    throw InvalidInputException("%s: n_bins must be at least 1", function_name);
+			    }
+		    } else if (key == "base") {
+			    result.base = ExtractDouble(val);
+		    } else if (key == "threshold") {
+			    result.threshold = ExtractDouble(val);
+		    }
+	    });
+	if (result.n_bins && result.binning.value_or("auto") != "quantile") {
+		throw InvalidInputException("%s: n_bins applies only to binning = 'quantile'", function_name);
+	}
+	return result;
+}
+
 MmdMapOptions MmdMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	// 'bandwidth'/'sigma' used to be accepted and silently ignored: the core
 	// always uses the median heuristic. They are now rejected.

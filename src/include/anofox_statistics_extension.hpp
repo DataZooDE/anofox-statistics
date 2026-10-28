@@ -115,6 +115,7 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader);
 void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader);
 void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader);
 void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader);
+void RegisterDriftAggregateFunctions(ExtensionLoader &loader);
 void RegisterMmdAggregateFunction(ExtensionLoader &loader);
 void RegisterTostTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader);

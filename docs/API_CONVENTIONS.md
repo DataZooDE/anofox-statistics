@@ -126,7 +126,7 @@ The table lists the most common keys; each reference page in [docs/api/](api/) l
 | `residual_threshold` | DOUBLE | MAD of `y` | RANSAC | Inlier threshold |
 | `min_samples` | INTEGER | `n_features + 1` | RANSAC | Sample size per trial |
 | `random_state` (`seed`) | INTEGER | — | RANSAC, Theil-Sen | Seed for reproducible subsampling |
-| `seed` (`random_state`) | INTEGER | 42 | `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg`, `distance_cor_agg` | Seed of the permutation draw; the default makes p-values reproducible |
+| `seed` (`random_state`) | INTEGER | 42 | `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg`, `distance_cor_agg`, `wasserstein_agg`, `tvd_agg` | Seed of the permutation draw; the default makes p-values reproducible |
 | `forgetting_factor` | DOUBLE | `1.0` | RLS | Exponential forgetting factor |
 | `link` (`poisson_link`) | VARCHAR | `'log'` | Poisson | `'log'`, `'identity'`, `'sqrt'` |
 | `binomial_link` | VARCHAR | `'logit'` | Binomial | `'logit'`, `'probit'`, `'cloglog'` |

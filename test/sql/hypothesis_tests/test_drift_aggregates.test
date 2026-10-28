@@ -1,0 +1,128 @@
+# name: test/sql/hypothesis_tests/test_drift_aggregates.test
+# description: Data-drift aggregates (#245-#255): group labels, reference option, NULLs, options, determinism
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE drift AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c FROM range(50) r(i)
+UNION ALL
+SELECT 1 AS grp, 2*sin(0.53*i) + 0.5 AS v, ((i*3) % 5)::INTEGER AS c FROM range(40) r(i);
+
+# VARCHAR group labels: the smaller label is the reference.
+query I
+SELECT (SELECT kl_divergence_agg(c, CASE grp WHEN 0 THEN 'a_ref' ELSE 'b_cur' END).kl FROM drift)
+     = (SELECT kl_divergence_agg(c, grp).kl FROM drift);
+----
+true
+
+# 'reference' names the reference group (KL is asymmetric).
+query II
+SELECT (SELECT kl_divergence_agg(c, grp, {'reference': 1}).kl FROM drift)
+     = (SELECT kl_divergence_agg(c, 1 - grp).kl FROM drift),
+       (SELECT kl_divergence_agg(c, grp, {'reference': 1}).kl FROM drift)
+    <> (SELECT kl_divergence_agg(c, grp).kl FROM drift);
+----
+true	true
+
+query I
+SELECT (SELECT psi_agg(v, CASE grp WHEN 0 THEN 'ref' ELSE 'cur' END, {'reference': 'ref'}).psi FROM drift)
+     = (SELECT psi_agg(v, grp).psi FROM drift);
+----
+true
+
+statement error
+SELECT psi_agg(v, grp, {'reference': 7}) FROM drift;
+----
+reference group 7 not found
+
+# A third label is an error for the two-sample aggregates.
+statement error
+SELECT ks_test_agg(v, grp % 3) FROM (SELECT v, (row_number() OVER ())::BIGINT AS grp FROM drift);
+----
+compares exactly two groups
+
+# One group only, or no rows: NULL.
+query II
+SELECT ks_test_agg(v, grp) IS NULL, psi_agg(c, grp) IS NULL FROM drift WHERE grp = 0;
+----
+true	true
+
+query I
+SELECT ad_test_agg(v, grp) IS NULL FROM drift WHERE false;
+----
+true
+
+# NULL values and groups are skipped.
+query I
+SELECT (SELECT ks_test_agg(v, grp) FROM drift) = (SELECT ks_test_agg(v, grp) FROM (SELECT * FROM drift UNION ALL SELECT NULL, NULL, NULL UNION ALL SELECT 0, NULL, NULL UNION ALL SELECT NULL, 1.0, 1));
+----
+true
+
+# Per-group results with GROUP BY.
+query II
+SELECT s, round(ks_test_agg(v, grp).statistic, 3) FROM (SELECT 1 AS s, * FROM drift UNION ALL SELECT 2, grp, v * 2, c FROM drift) GROUP BY s ORDER BY s;
+----
+1	0.275
+2	0.275
+
+# Options are checked per function.
+statement error
+SELECT ks_test_agg(v, grp, {'binning': 'auto'}) FROM drift;
+----
+unknown option 'binning'
+
+statement error
+SELECT psi_agg(v, grp, {'binning': 'pretty'}) FROM drift;
+----
+Invalid binning
+
+statement error
+SELECT psi_agg(v, grp, {'n_bins': 5}) FROM drift;
+----
+n_bins applies only to binning = 'quantile'
+
+statement error
+SELECT psi_agg('x' || c, grp, {'binning': 'sturges'}) FROM drift;
+----
+needs numeric values
+
+statement error
+SELECT wasserstein_agg(v, grp, {'p': 0.5}) FROM drift;
+----
+p must be a finite number >= 1
+
+statement error
+SELECT cvm_test_agg(v, grp, {'method': 'bootstrap'}) FROM drift;
+----
+Invalid method
+
+statement error
+SELECT kl_divergence_agg(c, grp, {'base': 1}) FROM drift;
+----
+base
+
+# Epps-Singleton needs at least 5 observations per group: NULL.
+query I
+SELECT epps_singleton_agg(v, grp) IS NULL FROM (SELECT grp, v FROM drift WHERE grp = 1 UNION ALL SELECT 0, i FROM range(4) r(i));
+----
+true
+
+# Seeded permutation p-values are reproducible across thread counts and row orders.
+statement ok
+CREATE TABLE big AS SELECT (i % 2)::BIGINT AS grp, (i * 7919 % 13)::INTEGER AS c, sin(i * 0.1) + (i % 2) * 0.05 AS v FROM range(20000) r(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE t1 AS SELECT tvd_agg(c, grp) a, wasserstein_agg(v, grp, {'n_permutations': 200}) b FROM big;
+
+statement ok
+SET threads = 8;
+
+query II
+SELECT t1.a = t2.a, t1.b = t2.b FROM t1, (SELECT tvd_agg(c, grp) a, wasserstein_agg(v, grp, {'n_permutations': 200}) b FROM (SELECT * FROM big ORDER BY random())) t2;
+----
+true	true

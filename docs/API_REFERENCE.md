@@ -133,6 +133,7 @@ fitted model struct).
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
@@ -1177,6 +1178,32 @@ FROM reg_data;
 ```sql
 SELECT (energy_distance_agg(y, grp2, {'n_permutations': 199})).p_value AS energy_p,
        (mmd_agg(y, grp2, {'n_permutations': 199})).p_value AS mmd_p
+FROM reg_data;
+```
+
+### Data Drift
+
+Current sample against a reference sample (evidently's drift tests). `group` is BIGINT or
+VARCHAR with two labels (`ad_test_agg`: two or more); the reference is the smaller label
+unless `reference` names it. Every result also carries the unified test fields.
+
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `ks_test_agg` | `(value DOUBLE, group [, options])` | `reference`, `alternative`, `exact` | `statistic, p_value, n1, n2, method, exact` |
+| `ad_test_agg` | `(value DOUBLE, group [, options])` | `midrank` (true) | `statistic, ad, p_value, k, n, method` |
+| `cvm_test_agg` | `(value DOUBLE, group [, options])` | `reference`, `method` (`auto` / `exact` / `asymptotic`) | `statistic, p_value, n1, n2, method, exact` |
+| `epps_singleton_agg` | `(value DOUBLE, group [, options])` | `reference`, `t` ([0.4, 0.8]) | `statistic, p_value, df, n1, n2, method` |
+| `wasserstein_agg` | `(value DOUBLE, group [, options])` | `reference`, `p` (1), `n_permutations` (0), `seed` (42) | `distance, distance_normed, p_value, n1, n2, method` |
+| `psi_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | `reference`, `binning`, `n_bins`, `threshold` (0.1) | `psi, n_bins, n1, n2, drift, method` |
+| `kl_divergence_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg`, plus `base` | `kl, n_bins, n1, n2, drift, method` |
+| `jensen_shannon_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg`, plus `base` | `distance, divergence, n_bins, n1, n2, drift, method` |
+| `hellinger_agg` | `(value DOUBLE \| VARCHAR, group [, options])` | as `psi_agg` | `distance, n_bins, n1, n2, drift, method` |
+| `tvd_agg` | `(category DOUBLE \| VARCHAR, group [, options])` | `reference`, `n_permutations` (1000), `seed` (42) | `statistic, p_value, n_categories, n1, n2, method` |
+
+```sql
+SELECT (ks_test_agg(y, grp2)).p_value AS ks_p,
+       (psi_agg(y, grp2)).psi AS psi,
+       (tvd_agg(grp3::VARCHAR, grp2)).statistic AS tvd
 FROM reg_data;
 ```
 

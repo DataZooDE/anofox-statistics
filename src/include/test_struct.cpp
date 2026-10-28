@@ -26,6 +26,7 @@ ANOFOX_ASSERT_UNIFIED_LAST(AnofoxIccResult);
 ANOFOX_ASSERT_UNIFIED_LAST(AnofoxPropTestResult);
 ANOFOX_ASSERT_UNIFIED_LAST(AnofoxKappaResult);
 ANOFOX_ASSERT_UNIFIED_LAST(AnofoxJarqueBeraResult);
+ANOFOX_ASSERT_UNIFIED_LAST(AnofoxDriftResult);
 #undef ANOFOX_ASSERT_UNIFIED_LAST
 
 // Seven doubles, then the two group indices.

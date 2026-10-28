@@ -489,6 +489,30 @@ struct EnergyDistanceMapOptions {
 };
 
 /**
+ * Options of the data-drift aggregates (#245-#255). Each function accepts only
+ * its own keys (see DriftMapOptions::ParseFromValue).
+ */
+struct DriftMapOptions {
+	//! Label of the reference group (default: the smaller label).
+	std::optional<Value> reference;
+	std::optional<Alternative> alternative; // ks
+	std::optional<bool> exact;              // ks
+	std::optional<string> method;           // cvm: auto / exact / asymptotic
+	std::optional<vector<double>> t;        // epps_singleton
+	std::optional<bool> midrank;            // ad
+	std::optional<double> p;                // wasserstein order
+	std::optional<uint32_t> n_permutations; // wasserstein, tvd
+	std::optional<uint64_t> seed;           // default ANOFOX_DEFAULT_MC_SEED
+	std::optional<string> binning;          // auto / sturges / quantile / categorical
+	std::optional<uint32_t> n_bins;         // quantile binning
+	std::optional<double> base;             // kl, jensen_shannon
+	std::optional<double> threshold;        // drift flag of the divergences
+
+	//! kind: an AnofoxDriftKind, or -1 for ad_test_agg.
+	static DriftMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
+};
+
+/**
  * Options for MMD test
  */
 struct MmdMapOptions {
