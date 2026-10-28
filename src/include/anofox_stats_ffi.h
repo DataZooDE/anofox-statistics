@@ -3564,6 +3564,8 @@ typedef struct {
 	double p;
 	/** Logarithm base of KL / Jensen-Shannon; NaN for e */
 	double base;
+	/** Zero fill of PSI / KL; NaN for evidently's rule */
+	double epsilon;
 	/** Permutations of Wasserstein / TVD (0: none) */
 	size_t n_permutations;
 	uint64_t seed;

@@ -369,6 +369,7 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			o.t_len = t ? t->size() : 0;
 			o.p = bind.options.p.value_or(1.0);
 			o.base = bind.options.base.value_or(std::nan(""));
+			o.epsilon = bind.options.epsilon.value_or(std::nan(""));
 			o.n_permutations = bind.options.n_permutations.value_or(bind.kind == ANOFOX_DRIFT_TVD ? 1000 : 0);
 			o.seed = bind.options.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
 			o.has_seed = true;

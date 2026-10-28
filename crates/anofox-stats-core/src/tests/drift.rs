@@ -12,10 +12,10 @@
 
 use super::{convert_error, UnifiedTestResult};
 use crate::StatsResult;
-pub use anofox_tests::drift::Binning;
+pub use anofox_tests::drift::{Binning, ZeroFill};
 use anofox_tests::{
     ad_test_ksamp, cvm_test_2sample, epps_singleton_test, hellinger, jensen_shannon, kl_divergence,
-    ks_test_2sample, psi, tvd_test_numeric, wasserstein_distance_1d, wasserstein_test_1d,
+    ks_test_2sample, psi, tvd_test_numeric, wasserstein_test_1d,
 };
 pub use anofox_tests::{Alternative, CvmMethod};
 
@@ -54,6 +54,8 @@ pub struct DriftOptions {
     pub binning: Binning,
     /// Logarithm base of KL and Jensen-Shannon (`None`: e).
     pub base: Option<f64>,
+    /// Zero fill of PSI and KL.
+    pub zero_fill: ZeroFill,
 }
 
 impl Default for DriftOptions {
@@ -68,6 +70,7 @@ impl Default for DriftOptions {
             seed: None,
             binning: Binning::Auto,
             base: None,
+            zero_fill: ZeroFill::Evidently,
         }
     }
 }
@@ -79,7 +82,7 @@ pub struct DriftResult {
     /// The statistic (D, T, W, distance or divergence).
     pub statistic: f64,
     /// A second value: the normed Wasserstein distance, the Jensen-Shannon
-    /// divergence (the squared distance), or the raw Anderson-Darling criterion.
+    /// divergence, or the raw Anderson-Darling criterion.
     pub statistic2: f64,
     pub p_value: f64,
     /// Epps-Singleton degrees of freedom.
@@ -144,39 +147,32 @@ pub fn drift_test(
             d
         }
         DriftKind::Wasserstein => {
-            if options.p == 1.0 {
-                let r =
-                    wasserstein_test_1d(reference, current, options.n_permutations, options.seed)
-                        .map_err(convert_error)?;
-                let unified = UnifiedTestResult::from(&r).with_n(m + n);
-                let mut d = DriftResult::new(r.distance, m, n, unified);
-                d.statistic2 = r.distance_normed;
-                d
-            } else {
-                // Upstream norms and permutes only W_1.
-                if options.n_permutations > 0 {
-                    return Err(crate::StatsError::InvalidInput(
-                        "wasserstein: a permutation p-value needs p = 1".into(),
-                    ));
-                }
-                let w = wasserstein_distance_1d(reference, current, options.p)
-                    .map_err(convert_error)?;
-                let mut unified =
-                    UnifiedTestResult::new(format!("Wasserstein-{} distance", options.p))
-                        .with_n(m + n);
-                unified.statistic = Some(w);
-                DriftResult::new(w, m, n, unified)
-            }
+            let r = wasserstein_test_1d(
+                reference,
+                current,
+                options.p,
+                options.n_permutations,
+                options.seed,
+            )
+            .map_err(convert_error)?;
+            let unified = UnifiedTestResult::from(&r).with_n(m + n);
+            let mut d = DriftResult::new(r.distance, m, n, unified);
+            d.statistic2 = r.distance_normed;
+            d
         }
         DriftKind::Psi
         | DriftKind::KlDivergence
         | DriftKind::JensenShannon
         | DriftKind::Hellinger => {
             let r = match kind {
-                DriftKind::Psi => psi(reference, current, options.binning),
-                DriftKind::KlDivergence => {
-                    kl_divergence(reference, current, options.binning, options.base)
-                }
+                DriftKind::Psi => psi(reference, current, options.binning, options.zero_fill),
+                DriftKind::KlDivergence => kl_divergence(
+                    reference,
+                    current,
+                    options.binning,
+                    options.base,
+                    options.zero_fill,
+                ),
                 DriftKind::JensenShannon => {
                     jensen_shannon(reference, current, options.binning, options.base)
                 }
@@ -185,8 +181,8 @@ pub fn drift_test(
             .map_err(convert_error)?;
             let mut d = DriftResult::new(r.statistic, m, n, UnifiedTestResult::from(&r));
             d.n_bins = r.n_bins;
-            if kind == DriftKind::JensenShannon {
-                d.statistic2 = r.statistic * r.statistic;
+            if let Some(divergence) = r.divergence {
+                d.statistic2 = divergence;
             }
             d
         }
@@ -251,8 +247,24 @@ mod tests {
         assert!((run(DriftKind::KlDivergence, &xc, &yc).statistic - 0.223061363402).abs() < 1e-10);
         let js = run(DriftKind::JensenShannon, &x, &y);
         assert!((js.statistic - 0.257847900615).abs() < 1e-10);
-        assert!((js.statistic2 - js.statistic.powi(2)).abs() < 1e-15);
+        assert!((js.statistic2 - 0.0664855398517632).abs() < 1e-10);
         assert!((run(DriftKind::Hellinger, &x, &y).statistic - 0.262287362723).abs() < 1e-10);
+        // Integer codes: Auto bins per category for every divergence (upstream #45).
+        assert!((run(DriftKind::Hellinger, &xc, &yc).statistic - 0.325194993744).abs() < 1e-10);
+        let w2 = DriftOptions {
+            p: 2.0,
+            ..Default::default()
+        };
+        let w2 = drift_test(DriftKind::Wasserstein, &x, &y, &w2).unwrap();
+        assert!((w2.statistic2 - 0.446953341978072).abs() < 1e-10);
+        let eps = DriftOptions {
+            zero_fill: ZeroFill::Constant(1e-3),
+            ..Default::default()
+        };
+        let psi_eps = drift_test(DriftKind::Psi, &xc, &yc, &eps).unwrap();
+        assert!((psi_eps.statistic - 1.10043459222267).abs() < 1e-10);
+        let kl_eps = drift_test(DriftKind::KlDivergence, &xc, &yc, &eps).unwrap();
+        assert!((kl_eps.statistic - 0.217427520064165).abs() < 1e-10);
         let opts = DriftOptions {
             n_permutations: 1000,
             seed: Some(42),

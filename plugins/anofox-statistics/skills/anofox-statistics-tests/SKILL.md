@@ -143,8 +143,8 @@ user-invocable: false
 | `ad_test_agg` | k-sample Anderson-Darling (kSamples, asymptotic p, not capped like scipy); `midrank` (true) |
 | `cvm_test_agg` | Two-sample Cramér-von Mises; exact when max(n1, n2) ≤ 20; `method` |
 | `epps_singleton_agg` | Epps-Singleton ECF test (works for discrete data); `t` ([0.4, 0.8]) |
-| `wasserstein_agg` | `distance` W_p and evidently's `distance_normed` = W₁ / population SD of the reference; `n_permutations` (0) |
-| `psi_agg` / `kl_divergence_agg` / `jensen_shannon_agg` / `hellinger_agg` | Binned divergences (DOUBLE or VARCHAR values); `binning` auto (evidently: Sturges if > 20 distinct reference values, else per value) / sturges / quantile (`n_bins`) / categorical; `drift` = value ≥ `threshold` (0.1); KL is asymmetric (reference = p); JS `distance` is √divergence |
+| `wasserstein_agg` | `distance` W_p and evidently's `distance_normed` = W_p / population SD of the reference; `p` (1), `n_permutations` (0) |
+| `psi_agg` / `kl_divergence_agg` / `jensen_shannon_agg` / `hellinger_agg` | Binned divergences (DOUBLE or VARCHAR values); `binning` auto (evidently: Sturges if > 20 distinct reference values, else per value) / sturges / quantile (`n_bins`) / categorical; `drift` = value ≥ `threshold` (0.1); `epsilon` = constant zero fill (PSI, KL); KL is asymmetric (reference = p); JS `distance` is √divergence |
 | `tvd_agg` | Total variation distance of categories + permutation p (1000, seed 42); weaker than `chisq_test_agg` |
 
 ### Forecast evaluation

@@ -1639,12 +1639,16 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 		keys = {KEY_REFERENCE, {"p", {}}, KEY_PERMUTATIONS, KEY_SEED};
 		break;
 	case 4:
-	case 7:
-		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD, {"epsilon", {}}};
 		break;
 	case 5:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD, {"base", {}}, {"epsilon", {}}};
+		break;
 	case 6:
 		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD, {"base", {}}};
+		break;
+	case 7:
+		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
 		break;
 	default:
 		keys = {KEY_REFERENCE, KEY_PERMUTATIONS, KEY_SEED};
@@ -1683,6 +1687,12 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 			    }
 		    } else if (key == "base") {
 			    result.base = ExtractDouble(val);
+		    } else if (key == "epsilon") {
+			    result.epsilon = ExtractDouble(val);
+			    if (result.epsilon && !(*result.epsilon > 0.0 && std::isfinite(*result.epsilon))) {
+				    throw InvalidInputException("%s: epsilon must be a finite number > 0, got %s", function_name,
+				                                val.ToString());
+			    }
 		    } else if (key == "threshold") {
 			    result.threshold = ExtractDouble(val);
 		    }
