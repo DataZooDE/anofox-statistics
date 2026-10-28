@@ -419,8 +419,17 @@ static std::optional<TTestKind> ExtractTTestKind(const Value &val) {
 // The regression parser previously carried two verbatim copies of its ~100-line
 // if-chain, which is why nested and list-valued options had nowhere natural to
 // live. Adding one now only has to be done in a single place.
+//
+// VARIANT (#270): the options themselves may be a VARIANT (`{...}::VARIANT`), and the
+// entries of a MAP(VARCHAR, VARIANT) or STRUCT may be VARIANTs, which is how a map
+// with mixed value types is written. Both are unwrapped to plain Values here, so the
+// per-key parsing below sees the same Values as for a STRUCT literal.
 template <typename Callback>
-static void VisitOptionEntries(const Value &map_value, Callback callback) {
+static void VisitOptionEntries(const Value &options, Callback callback) {
+	if (options.IsNull()) {
+		return;
+	}
+	const Value map_value = UnwrapVariant(options);
 	if (map_value.IsNull()) {
 		return;
 	}
@@ -440,13 +449,13 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 			if (kv[0].IsNull()) {
 				throw InvalidInputException("MAP option keys must not be NULL");
 			}
-			callback(ToLower(kv[0].ToString()), kv[1]);
+			callback(ToLower(kv[0].ToString()), UnwrapVariant(kv[1]));
 		}
 	} else if (map_value.type().id() == LogicalTypeId::STRUCT) {
 		auto &children = StructValue::GetChildren(map_value);
 		auto &child_types = StructType::GetChildTypes(map_value.type());
 		for (idx_t i = 0; i < child_types.size(); i++) {
-			callback(ToLower(NameString(child_types[i].first)), children[i]);
+			callback(ToLower(NameString(child_types[i].first)), UnwrapVariant(children[i]));
 		}
 	} else {
 		throw InvalidInputException("Expected MAP or STRUCT type for options, got %s", map_value.type().ToString());

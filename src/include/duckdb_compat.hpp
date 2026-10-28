@@ -12,6 +12,8 @@
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/common/types/variant.hpp"
+#include "duckdb/function/scalar/variant_utils.hpp"
 #include "duckdb/parser/parser.hpp"
 
 // DuckDB 2.0 split the vector helpers (ListVector, StructVector, ...) out of
@@ -411,6 +413,33 @@ constexpr bool kHasWindowBatchCallback = compat_detail::HasWindowBatchCallback<A
 template <class FN>
 void SetWindowBatchCallbackOf(AggregateFunction &function, FN callback) {
 	compat_detail::SetWindowBatchCallback(function, callback, 0);
+}
+
+// VARIANT -> plain Value. DuckDB 2.0 has VariantValue::GetValue; 1.5 has the same
+// conversion (VariantUtils::ConvertVariantToValue) without the Value-level wrapper.
+struct VariantValue; // defined by DuckDB 2.0's value.hpp; only declared on 1.5
+namespace compat_detail {
+template <class VV = VariantValue>
+auto VariantToValue(const Value &v, int) -> decltype(VV::GetValue(v)) {
+	return VV::GetValue(v);
+}
+template <class V = Vector>
+Value VariantToValue(const Value &v, long) {
+	V tmp(v);
+	RecursiveUnifiedVectorFormat format;
+	V::RecursiveToUnifiedFormat(tmp, 1, format);
+	UnifiedVariantVectorData data(format);
+	return VariantUtils::ConvertVariantToValue(data, 0, 0);
+}
+} // namespace compat_detail
+
+//! The plain Value held by a non-NULL VARIANT (an object becomes a STRUCT, an array a
+//! LIST); any other Value is returned unchanged.
+inline Value UnwrapVariant(const Value &v) {
+	if (v.IsNull() || v.type().id() != LogicalTypeId::VARIANT) {
+		return v;
+	}
+	return compat_detail::VariantToValue(v, 0);
 }
 
 } // namespace duckdb
