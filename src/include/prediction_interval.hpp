@@ -76,6 +76,32 @@ public:
 		return true;
 	}
 
+	//! Predict for n_rows rows at once (x_rows row-major, x_len values per row); out[i] is
+	//! what Predict gives for row i. One FFI call shares the matrix, the t quantile and the
+	//! allocations, which per-row calls redo for every row (#268).
+	void PredictAll(const double *x_rows, idx_t n_rows, idx_t x_len, double confidence_level,
+	                vector<AnofoxPredictionResult> &out) const {
+		out.resize(n_rows);
+		if (residual_std_error != 0.0 && matrix && n_rows > 0) {
+			vector<double> yhat(n_rows), lower(n_rows), upper(n_rows);
+			AnofoxError error;
+			if (anofox_predict_with_interval_matrix_batch(coefficients, coefficients_len, intercept, x_rows, n_rows,
+			                                              x_len, matrix, dim, n_observations, n_params,
+			                                              residual_std_error, confidence_level, 0, yhat.data(),
+			                                              lower.data(), upper.data(), &error)) {
+				for (idx_t i = 0; i < n_rows; i++) {
+					out[i].yhat = yhat[i];
+					out[i].yhat_lower = lower[i];
+					out[i].yhat_upper = upper[i];
+				}
+				return;
+			}
+		}
+		for (idx_t i = 0; i < n_rows; i++) {
+			Predict(x_rows + i * x_len, x_len, confidence_level, out[i]);
+		}
+	}
+
 private:
 	double PointPrediction(const double *x_new, idx_t x_len) const {
 		double yhat = std::isfinite(intercept) ? intercept : 0.0;
@@ -104,6 +130,20 @@ inline void WriteIntervalBound(Vector &vec, idx_t idx, double value) {
 	} else {
 		FlatVector::SetNull(vec, idx, true);
 	}
+}
+
+//! Predictions for every output row of a fit-predict state whose x rows are padded to
+//! n_features (PadNullXRows), in one batched call.
+template <class STATE>
+vector<AnofoxPredictionResult> PredictAllRows(const LeverageIntervals &intervals, const STATE &state) {
+	vector<double> x_rows;
+	x_rows.reserve(state.x_all.size() * state.n_features);
+	for (auto &row : state.x_all) {
+		x_rows.insert(x_rows.end(), row.begin(), row.end());
+	}
+	vector<AnofoxPredictionResult> out;
+	intervals.PredictAll(x_rows.data(), state.x_all.size(), state.n_features, state.confidence_level, out);
+	return out;
 }
 
 } // namespace duckdb

@@ -31,15 +31,18 @@ python3 scripts/bench_compare.py --cli v1.5.6=<duckdb 1.5.6> --cli v2.0.0=<duckd
 
 ## Reading the numbers
 
-- **`*_fit_predict_by` is 2× faster on 2.0.** Its cost is almost all in DuckDB's window
-  operator: each series is fitted by the `*_fit_predict` window aggregate over
-  `PARTITION BY series`. That operator takes 97 s CPU on v1.5.6 and 46 s on v2.0 for 10M
-  rows; the rest of the plan (Parquet scan, the final `ORDER BY`) is under 2 s.
-- **Even on 2.0 the window path is the hotspot.** The same 500K fits as a plain
-  `GROUP BY` (`ols_fit_agg`, last row of workload 04) take 0.67 s wall-clock, against
-  3.5 s for `ols_fit_predict_by`. Fitting once per partition with the batched window
-  callback (#268), or a GROUP BY fit joined back to the rows, is the largest available
-  speed-up for the `_fit_predict` family.
+- **`*_fit_predict_by` is 2× faster on 2.0.** Each series is fitted by the
+  `*_fit_predict_agg` aggregate evaluated as a window over `PARTITION BY series`. The window
+  operator, including that aggregate's work, takes 97 s CPU on v1.5.6 and 46 s on v2.0 for
+  10M rows. The rest of the plan (Parquet scan, the final `ORDER BY`) is under 2 s.
+- **Most of that was the per-row prediction, not the window (#268).** The same
+  `ols_fit_predict_agg` as a plain `GROUP BY` took 2.5 s (33 s CPU) on v2.0, almost the whole
+  macro. Its finalize predicted each row with its own FFI call: matrix allocations and a
+  Student-t quantile per row. One batched call per group (identical results) brings the
+  aggregate to 1.2 s (15 s CPU) and `ols_fit_predict_by` from 3.0 s to 2.1 s (local v2.0.0
+  build, same CLI for both). The plain `ols_fit_agg` fit takes 0.67 s. What is left of the
+  gap is the inference the intervals need, the per-row output lists, and about 0.9 s of
+  window overhead.
 - **The aggregate-bound workloads are flat (±15%).** For `ols_fit_agg`, the tests and
   the drift statistics, the time goes to the extension's own per-group work (buffering,
   canonical sorting #226, marshalling, the fit). DuckDB 2.0's faster grouping and Parquet

@@ -2527,6 +2527,114 @@ pub unsafe extern "C" fn anofox_predict_with_interval_matrix(
     })
 }
 
+/// `anofox_predict_with_interval_matrix` for `n_rows` rows at once.
+///
+/// `x_rows` holds the rows one after another (`n_rows * x_len` doubles,
+/// row-major). Row `i`'s results are written to `out_yhat[i]`, `out_lower[i]`
+/// and `out_upper[i]`; they equal the single-row call's, but the matrix, the t
+/// quantile and the allocations are shared by all rows.
+///
+/// # Safety
+/// - `coefficients` must point to `coefficients_len` doubles, `x_rows` to
+///   `n_rows * x_len` doubles, `matrix` to `dim * dim` doubles
+/// - `out_yhat`, `out_lower`, `out_upper` must each point to `n_rows` writable
+///   doubles; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_predict_with_interval_matrix_batch(
+    coefficients: *const f64,
+    coefficients_len: usize,
+    intercept: f64,
+    x_rows: *const f64,
+    n_rows: usize,
+    x_len: usize,
+    matrix: *const f64,
+    dim: usize,
+    n_observations: usize,
+    n_params_effective: usize,
+    residual_std_error: f64,
+    confidence_level: f64,
+    interval_type: i32,
+    out_yhat: *mut f64,
+    out_lower: *mut f64,
+    out_upper: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        let fail = |code: ErrorCode, msg: &str| {
+            if !out_error.is_null() {
+                (*out_error).set(code, msg);
+            }
+            false
+        };
+        let kind = match interval_type {
+            0 => anofox_stats_core::models::IntervalType::Prediction,
+            1 => anofox_stats_core::models::IntervalType::Confidence,
+            _ => return fail(ErrorCode::InvalidInput, "interval_type must be 0 or 1"),
+        };
+        let n_x = match n_rows.checked_mul(x_len) {
+            Some(v) => v,
+            None => return fail(ErrorCode::InvalidInput, "n_rows * x_len overflows"),
+        };
+        if (coefficients.is_null() && coefficients_len > 0)
+            || (x_rows.is_null() && n_x > 0)
+            || matrix.is_null()
+            || (n_rows > 0 && (out_yhat.is_null() || out_lower.is_null() || out_upper.is_null()))
+        {
+            return fail(ErrorCode::InvalidInput, "NULL input pointer");
+        }
+        if x_len != coefficients_len {
+            return fail(
+                ErrorCode::DimensionMismatch,
+                &format!("x_len is {x_len} but there are {coefficients_len} coefficients"),
+            );
+        }
+        let n_m = match dim.checked_mul(dim) {
+            Some(v) if v > 0 => v,
+            _ => return fail(ErrorCode::InvalidInput, "invalid matrix dim"),
+        };
+        if n_rows == 0 {
+            return true;
+        }
+        let coef: &[f64] = if coefficients_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(coefficients, coefficients_len)
+        };
+        let xs: &[f64] = if n_x == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(x_rows, n_x)
+        };
+        let m = slice::from_raw_parts(matrix, n_m);
+        match anofox_stats_core::models::predict_with_interval_matrix_batch(
+            coef,
+            intercept,
+            xs,
+            n_rows,
+            m,
+            dim,
+            n_observations,
+            n_params_effective,
+            residual_std_error,
+            confidence_level,
+            kind,
+        ) {
+            Ok(rows) => {
+                for (i, (yhat, lo, hi)) in rows.into_iter().enumerate() {
+                    *out_yhat.add(i) = yhat;
+                    *out_lower.add(i) = lo;
+                    *out_upper.add(i) = hi;
+                }
+                true
+            }
+            Err(e) => fail(error_to_code(&e), &e.to_string()),
+        }
+    })
+}
+
 /// Core options of a `poisson` fit from its FFI options (shared by the fit and
 /// augment entry points).
 unsafe fn poisson_options_from_ffi(options: &PoissonOptionsFFI) -> PoissonOptions {

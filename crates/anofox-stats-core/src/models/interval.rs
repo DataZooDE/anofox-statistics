@@ -170,12 +170,55 @@ pub fn predict_with_interval_matrix(
     confidence_level: f64,
     interval_type: IntervalType,
 ) -> StatsResult<(f64, f64, f64)> {
-    validate_level(confidence_level)?;
-    let p = x_new.len();
-    if coefficients.len() != p {
+    if coefficients.len() != x_new.len() {
         return Err(StatsError::DimensionMismatchMsg(format!(
-            "x_new has {p} entries but there are {} coefficients",
+            "x_new has {} entries but there are {} coefficients",
+            x_new.len(),
             coefficients.len()
+        )));
+    }
+    let r = predict_with_interval_matrix_batch(
+        coefficients,
+        intercept,
+        x_new,
+        1,
+        matrix,
+        dim,
+        n_observations,
+        n_params_effective,
+        residual_std_error,
+        confidence_level,
+        interval_type,
+    )?;
+    Ok(r[0])
+}
+
+/// [`predict_with_interval_matrix`] for `n_rows` rows at once. `x_rows` holds the
+/// rows one after another (row-major, `coefficients.len()` values per row).
+///
+/// The result per row is identical to the single-row call (the leverage of each
+/// row is computed on its own), but the matrix, the t quantile and the
+/// allocations are shared by all rows instead of being redone per row.
+#[allow(clippy::too_many_arguments)]
+pub fn predict_with_interval_matrix_batch(
+    coefficients: &[f64],
+    intercept: f64,
+    x_rows: &[f64],
+    n_rows: usize,
+    matrix: &[f64],
+    dim: usize,
+    n_observations: usize,
+    n_params_effective: usize,
+    residual_std_error: f64,
+    confidence_level: f64,
+    interval_type: IntervalType,
+) -> StatsResult<Vec<(f64, f64, f64)>> {
+    validate_level(confidence_level)?;
+    let p = coefficients.len();
+    if n_rows.checked_mul(p) != Some(x_rows.len()) {
+        return Err(StatsError::DimensionMismatchMsg(format!(
+            "x_rows has {} entries, expected {n_rows} rows of {p}",
+            x_rows.len()
         )));
     }
     let has_intercept = !intercept.is_nan();
@@ -194,33 +237,38 @@ pub fn predict_with_interval_matrix(
         )));
     }
 
-    let yhat = linear_predictor(coefficients, intercept, x_new);
+    let row = |i: usize| &x_rows[i * p..(i + 1) * p];
+    let yhat: Vec<f64> = (0..n_rows)
+        .map(|i| linear_predictor(coefficients, intercept, row(i)))
+        .collect();
     let df = n_observations.saturating_sub(n_params_effective);
     if df == 0 || !(residual_std_error.is_finite() && residual_std_error > 0.0) {
-        return Ok((yhat, f64::NAN, f64::NAN));
+        return Ok(yhat.into_iter().map(|y| (y, f64::NAN, f64::NAN)).collect());
     }
 
     // Excluded features have zero rows/cols in M; zero their x so a NaN there
     // cannot leak into the leverage.
     let m = Mat::from_fn(dim, dim, |a, b| matrix[a * dim + b]);
-    let x0 = Mat::from_fn(1, p, |_, j| {
+    let x0 = Mat::from_fn(n_rows, p, |i, j| {
         if is_excluded(coefficients[j]) {
             0.0
         } else {
-            x_new[j]
+            x_rows[i * p + j]
         }
     });
     let r = intervals_from_variance_factor(
         &x0,
         &m,
-        &Col::from_fn(1, |_| yhat),
+        &Col::from_fn(n_rows, |i| yhat[i]),
         residual_std_error * residual_std_error,
         df as f64,
         confidence_level,
         interval_type.into(),
         has_intercept,
     );
-    Ok((yhat, r.lower[0], r.upper[0]))
+    Ok((0..n_rows)
+        .map(|i| (yhat[i], r.lower[i], r.upper[i]))
+        .collect())
 }
 
 /// Two-sided Student-t critical value `t_{(1+level)/2, df}`, or NaN for
@@ -490,5 +538,76 @@ mod tests {
         assert!((hi - (5.0 + half)).abs() < 1e-8 && (lo - (5.0 - half)).abs() < 1e-8);
         let (_, lo, hi) = predict_with_centroid_interval(&[2.0], 1.0, &[2.0], f64::NAN, 8, 0.9);
         assert!(lo == 5.0 && hi == 5.0);
+    }
+
+    #[test]
+    fn batch_matches_single_rows_bitwise() {
+        let (x, _) = data();
+        let x2: Vec<f64> = x.iter().map(|v| (v * 1.7).sin()).collect();
+        let junk = vec![5.0; 8];
+        let cols = [x.clone(), x2.clone(), junk];
+        let coef = [2.0, 0.5, f64::NAN]; // third feature excluded
+        let (m, dim) = interval_matrix(&cols, &coef, true, None, 0.0).unwrap();
+        // Includes a NaN feature value (NULL x) and an excluded column with a NaN.
+        let rows = [
+            [4.5, 0.2, 1.0],
+            [12.0, -0.3, f64::NAN],
+            [f64::NAN, 0.1, 2.0],
+            [0.0, 0.0, 0.0],
+        ];
+        let flat: Vec<f64> = rows.iter().flatten().copied().collect();
+        for kind in [IntervalType::Prediction, IntervalType::Confidence] {
+            let batch = predict_with_interval_matrix_batch(
+                &coef,
+                1.0,
+                &flat,
+                rows.len(),
+                &m,
+                dim,
+                8,
+                3,
+                0.4,
+                0.9,
+                kind,
+            )
+            .unwrap();
+            for (r, b) in rows.iter().zip(&batch) {
+                let s = predict_with_interval_matrix(&coef, 1.0, r, &m, dim, 8, 3, 0.4, 0.9, kind)
+                    .unwrap();
+                assert_eq!(s.0.to_bits(), b.0.to_bits());
+                assert_eq!(s.1.to_bits(), b.1.to_bits());
+                assert_eq!(s.2.to_bits(), b.2.to_bits());
+            }
+        }
+        // df == 0: NaN bounds for every row; wrong lengths are rejected.
+        let b = predict_with_interval_matrix_batch(
+            &coef,
+            1.0,
+            &flat,
+            4,
+            &m,
+            dim,
+            3,
+            3,
+            0.4,
+            0.9,
+            IntervalType::Prediction,
+        )
+        .unwrap();
+        assert!(b.iter().all(|r| r.1.is_nan() && r.2.is_nan()));
+        assert!(predict_with_interval_matrix_batch(
+            &coef,
+            1.0,
+            &flat[..5],
+            2,
+            &m,
+            dim,
+            8,
+            3,
+            0.4,
+            0.9,
+            IntervalType::Prediction
+        )
+        .is_err());
     }
 }
