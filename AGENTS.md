@@ -1,16 +1,15 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+Issues are tracked as GitHub issues (`gh issue list`).
 
-## Quick Reference
+## Validation
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+**R is always the reference.** Every statistic and p-value is validated against R
+(base R or a CRAN package): a generator in `validation/generators/` prints the reference
+values, and the sqllogictests in `test/sql/reference/` hold them. Other implementations
+(scipy, evidently, ...) may be cross-checked, but where they differ from R, match R and
+document the difference. Statistical methods live in the upstream crates
+(anofox-regression, anofox-statistics); this extension only maps them to SQL.
 
 ## Landing the Plane (Session Completion)
 
@@ -24,7 +23,6 @@ bd sync               # Sync with git
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
