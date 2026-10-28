@@ -21,13 +21,13 @@ description: >
   Use when checking whether a fitted regression is sound — influential points,
   outliers, nonlinearity, multicollinearity, autocorrelated or heteroskedastic
   residuals — or classifying a series' demand regime before choosing a model.
-version: 0.13.0
+version: 0.14.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.14.0 | **DuckDB:** v1.5.6 / v2.0
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 
