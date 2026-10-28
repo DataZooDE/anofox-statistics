@@ -10,6 +10,8 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-28
+
 ### Added
 
 - **Drift tests on anofox-statistics 0.6.0** (upstream sipemu/anofox-statistics-rs#42-#45):
@@ -1219,7 +1221,8 @@ Breaking changes are called out explicitly.
 - Initial release: OLS, Ridge, WLS, RLS and Elastic Net regression as scalar
   and aggregate functions, plus diagnostics.
 
-[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.0...v0.12.1
