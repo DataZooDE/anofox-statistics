@@ -156,6 +156,7 @@ void LowessFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 
 //! The value of a constant argument; a non-constant one is an error naming it.
 Value ConstantArgument(ClientContext &context, Expression &expr, const string &name, const char *argument) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: %s must be a constant", name, argument);
 	}

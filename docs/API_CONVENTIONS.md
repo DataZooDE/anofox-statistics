@@ -95,6 +95,41 @@ SELECT (ols_fit_agg(y, [x], {'fit_intercept': true, 'compute_inference': true}))
 FROM (VALUES (1.0, 1.0), (2.1, 2.0), (2.9, 3.0), (4.2, 4.0)) t(y, x);
 ```
 
+### Options from variables and prepared-statement parameters
+
+Options only have to be **constant per query**, not literal. Any expression that is
+constant at bind time works: SQL variables, whole option structs held in a variable, and
+(on DuckDB 2.0) the `$name` shorthand. So an analysis script can set its parameters once:
+
+```sql
+SET VARIABLE conf = 0.90;
+SET VARIABLE ridge_opts = {'alpha': 1.0, 'fit_intercept': true};
+
+SELECT (t_test_agg(y, grp2, {'confidence_level': getvariable('conf')})).conf_low AS ci_low,
+       (ridge_fit_agg(y, [x1, x2], getvariable('ridge_opts'))).r_squared AS ridge_r2
+FROM (SELECT i % 2 AS grp2, sin(i) + (i % 2) * 0.3 AS y, cos(i) AS x1, sin(0.5 * i) AS x2
+      FROM range(200) r(i));
+```
+
+On DuckDB 2.0, `getvariable('conf')` can be written `$conf`.
+
+Prepared-statement parameters work as well. The statement is re-bound with the parameter
+value when it is executed:
+
+```sql
+CREATE OR REPLACE TABLE scores AS
+SELECT i % 2 AS grp, sin(0.37 * i) + (i % 2) * 0.4 AS v FROM range(400) r(i);
+
+PREPARE drift_check AS
+    SELECT (psi_agg(v, grp, {'threshold': ?})).drift AS drifted FROM scores;
+EXECUTE drift_check(0.05);
+EXECUTE drift_check(5.0);
+```
+
+The same holds for the other arguments that must be constant (a time-series `lag`, the
+`p_adjust` method, a classifier curve's `n_bins`). A value that varies per row, such as a
+column, is rejected at bind time.
+
 ### Key convention
 
 Option keys are `snake_case` and case-insensitive. Keys that a function does not support raise an `InvalidInputException` at bind time instead of being silently ignored:

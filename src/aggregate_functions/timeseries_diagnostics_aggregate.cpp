@@ -60,6 +60,7 @@ static const char *SeriesName(SeriesKind kind) {
 
 //! A constant argument (lag, fitdf, studentize, ...), evaluated at bind time.
 static Value ConstantArgument(ClientContext &context, Expression &expr, const string &function_name, const char *what) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: %s must be a constant", function_name, what);
 	}

@@ -10,6 +10,16 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Options from prepared-statement parameters (#274).** Options and the other constant
+  arguments (time-series `lag`, `p_adjust` method / `n`, classifier-curve and survival
+  constants, `predict` options) may now be `?` / `$1` / `$name` parameters. Bind throws
+  `ParameterNotResolvedException`, so DuckDB re-binds the statement with the values at
+  `EXECUTE`. Before, `PREPARE ... {'threshold': ?}` failed with "options must be a constant".
+  Options from SQL variables (`getvariable('x')`, `$x` on DuckDB 2.0) already worked and are
+  now documented (API_CONVENTIONS §2, batch skill).
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

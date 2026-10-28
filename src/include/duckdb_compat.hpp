@@ -13,6 +13,7 @@
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/parser/parser.hpp"
+#include "duckdb/planner/expression.hpp"
 
 // DuckDB 2.0 split the vector helpers (ListVector, StructVector, ...) out of
 // vector.hpp into one header each.
@@ -377,6 +378,16 @@ static_assert(!compat_detail::BindAdapter<bind_scalar_function_t>::kNewApi ||
 inline void MarkFallible(ScalarFunction &function) {
 	if (compat_detail::BindAdapter<bind_scalar_function_t>::kNewApi) {
 		compat_detail::SetFallible(function, 0);
+	}
+}
+
+//! Arguments that must be constant at bind time (options, method names, lags) may
+//! come from prepared-statement parameters (`?`, `$1`, `$name`). Those are not
+//! foldable while the statement is prepared; DuckDB re-binds it with their values
+//! at EXECUTE when bind throws ParameterNotResolvedException (#274).
+inline void RequireResolvedParameters(const Expression &expr) {
+	if (expr.HasParameter()) {
+		throw ParameterNotResolvedException();
 	}
 }
 

@@ -1352,6 +1352,7 @@ RegressionMapOptions RegressionMapOptions::ParseFromExpression(ClientContext &co
 }
 
 Value EvaluateConstantOptions(ClientContext &context, Expression &expr, const string &function_name) {
+	RequireResolvedParameters(expr);
 	if (!expr.IsFoldable()) {
 		throw InvalidInputException("%s: options must be a constant expression (a MAP or STRUCT literal), not a "
 		                            "value that varies per row",
