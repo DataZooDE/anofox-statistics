@@ -29,6 +29,12 @@ working tree, never an autoloaded community build.
 | **Fit + predict** | `workloads/02-fit-predict.sql` | Fit-once-per-group + predict-all-rows (`predict_agg`) — the fit → predict → marshalling path | 10K groups / 1M rows |
 | **FFI micro-bench (inference)** | `workloads/03-ffi-micro.sql` | FFI marshalling micro-bench — `compute_inference: true` forces the 5-array `libc::malloc` inference block on every group invocation | 500 groups / 50K rows |
 | **Aggregate dispatch, full scale** | `workloads/01-agg-dispatch-1m.sql` | Same as aggregate dispatch at full scale (`--full` only) | 1M groups / 100M rows |
+| **`_by` macros on Parquet** | `workloads/04-by-macros-parquet.sql` | `ols_fit_predict_by` / `ols_tidy_by` / `ols_fit_agg GROUP BY` over a Parquet panel, VARCHAR series ids | 500K series / 10M rows |
+| **Tests per VARCHAR segment** | `workloads/05-tests-varchar-groups.sql` | `t_test_agg`, `ks_test_agg`, `psi_agg` (VARCHAR categories), `pearson_agg` per segment | 500 segments / 20M rows |
+| **Drift monitor** | `workloads/06-drift-monitor.sql` | KS, Wasserstein, PSI and Jensen-Shannon of every day against day 0, Hive-partitioned Parquet | 30 days / 30M rows |
+
+Workloads 04-06 read Parquet inputs that `workloads/setup-parquet.sql` writes once into
+`bench/data/` (git-ignored, about 1 GB). Timed statements carry a `.print @@ <label>` line.
 
 The FFI micro-bench is the workload most sensitive to FFI allocation changes: its
 tiny fits make per-call marshalling/allocation dominate the timing.
@@ -36,6 +42,22 @@ tiny fits make per-call marshalling/allocation dominate the timing.
 Each workload SQL file starts with `.timer on` and contains **no** `LOAD`
 statement — the harness loads the extension. Data is generated with `random()`;
 no external files are read.
+
+## Comparing DuckDB versions (#269)
+
+`scripts/bench_compare.py` runs the workloads with several DuckDB CLIs, repeats each run
+and prints the median time of every timed statement as a markdown table:
+
+```bash
+python3 scripts/bench_compare.py --cli v1.5.6=/path/to/duckdb-1.5.6 --cli v2.0.0=/path/to/duckdb-2.0.0 \
+    --install-from https://get.erpl.io --runs 5
+```
+
+`--install-from` installs the released extension that matches each CLI into a private
+directory (`bench/results/extensions/`, never `~/.duckdb`). `--extension PATH` loads a local
+build instead; it only matches a CLI of the same DuckDB version. It writes the inputs
+under `bench/data/` on its first run. The numbers in [docs/PERFORMANCE.md](../docs/PERFORMANCE.md)
+come from this script.
 
 ## Results & diffing
 

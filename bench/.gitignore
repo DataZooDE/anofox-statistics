@@ -1,2 +1,3 @@
-# Benchmark result files are local run artifacts, not source.
+# Benchmark result files and generated inputs are local run artifacts, not source.
 results/
+data/
