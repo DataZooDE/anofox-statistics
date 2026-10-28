@@ -253,3 +253,14 @@ They are `rls_fit_agg` / `rls_fit_predict_agg` / `rls_fit_predict`,
 input row in input order; give them an `ORDER BY` (as the `*_by` macros do) for a
 fixed result.
 
+With `ORDER BY` inside the aggregate, all of these are bitwise identical for 1 and 8
+threads and any input order (`test/sql/issues/issue_271.test`). Without it they are not:
+for example, `rls_fit_agg` and `ljung_box_agg` differ in the last bits between thread
+counts. The `*_by` macros pass their order column into the aggregate's `ORDER BY`
+(`rls_*_by`, `passive_aggressive_*_by`, `lm_dynamic_*_by`, `aid_anomaly_by`, `acf_by`,
+`pacf_by`, `p_adjust_by`, the `*_augment_by` family). `aid_by` takes it by name:
+`aid_by(source, group_col, y_col, order_by := week)`.
+
+The ordering costs about 0.25–0.4 s per 20M rows (500 groups), about the same on DuckDB
+v1.5.6 and v2.0: `rls_fit_agg` 0.6 → 0.8 s, `ljung_box_agg` 0.1 → 0.4 s.
+

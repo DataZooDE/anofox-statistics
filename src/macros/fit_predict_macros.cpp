@@ -1017,12 +1017,15 @@ ORDER BY group_col
     //          n_observations, has_stockouts, is_new_product, is_obsolete_product, stockout_count,
     //          new_product_count, obsolete_product_count, high_outlier_count, low_outlier_count
     // Note: Output column preserves the original column name passed by the user
-    {"aid_by", {"source", "group_col", "y_col", nullptr}, {{"options", "NULL"}},
+    // order_by (#271): AID reads the series in order (leading / trailing zeros mark new and
+    // obsolete products), so pass the time column for a reproducible result. coalesce(): a bare
+    // ORDER BY order_by would expand to ORDER BY NULL, which aggregates reject.
+    {"aid_by", {"source", "group_col", "y_col", nullptr}, {{"options", "NULL"}, {"order_by", "NULL"}},
 R"(
 WITH agg AS (
     SELECT
         group_col,
-        aid_agg(y_col, options) AS result
+        aid_agg(y_col, options ORDER BY coalesce(order_by)) AS result
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 )
@@ -1123,7 +1126,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
     {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},
     {"mediation_by", "Table macro: causal mediation analysis per group of source (linear models, as R mediation::mediate): fits mediator ~ treatment + covariates and outcome ~ treatment + mediator + covariates and returns one row per group and effect (acme, ade, total, prop_mediated) in the contract terms schema plus method, n_obs and n_sims. Inference by nonparametric bootstrap (default, n_bootstrap 1000, seed 42), Sobel or quasi-Bayesian Monte Carlo (options method, ci_type, n_bootstrap, seed, confidence_level, treat_value, control_value).", "mediation_by('trial', site, treat, m, y, covariates := [age, baseline])", "mediation"},
-    {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group.", "aid_by('sales', product_id, demand)", "demand-analysis"},
+    {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group. Pass order_by := <time column> (by name): AID reads each series in order.", "aid_by('sales', product_id, demand, order_by := week)", "demand-analysis"},
     {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
     {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},

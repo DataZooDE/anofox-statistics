@@ -479,11 +479,12 @@ FROM ols_anova_table_by('macro_demo', region, sales, [price, promo], options := 
 ## aid_by
 
 ```text
-aid_by(source VARCHAR, group_col, y_col, options := NULL) -> TABLE
+aid_by(source VARCHAR, group_col, y_col, options := NULL, order_by := NULL) -> TABLE
 ```
 
 Demand classification per group (one row per group). Options:
-`intermittent_threshold`, `outlier_method`. See [AID](../aid/aid.md).
+`intermittent_threshold`, `outlier_method`. Pass `order_by :=` the time column: AID reads
+each series in order (new / obsolete products, stockouts). See [AID](../aid/aid.md).
 
 ```sql
 SELECT region, demand_type, is_intermittent, zero_proportion
