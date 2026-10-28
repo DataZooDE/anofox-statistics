@@ -189,6 +189,25 @@ There is no `family` key for the single-family GLM aggregates: the family is cho
 
 Option values outside their valid range raise `InvalidInputException`.
 
+### Mixed value types: VARIANT
+
+A STRUCT literal can mix value types (`{'binning': 'quantile', 'n_bins': 10}`). A MAP
+cannot: `MAP {'binning': 'quantile', 'n_bins': 10}` gets one value type and fails. To use a
+MAP anyway, make its values VARIANT. The options are then read exactly as for the STRUCT:
+
+```sql
+SELECT (psi_agg(v, grp, MAP {'binning': 'quantile'::VARIANT, 'n_bins': 5::VARIANT})).psi AS psi
+FROM (SELECT i % 2 AS grp, sin(0.37 * i) + (i % 2) * 0.4 AS v FROM range(400) r(i));
+```
+
+VARIANT entries inside a STRUCT, and a whole option bag cast to VARIANT
+(`{...}::VARIANT`), are accepted too, on DuckDB v1.5.6 and 2.0. STRUCT literals stay the
+portable, recommended form. One exception on DuckDB 2.0: the table macros that merge
+their own defaults into the options (`*_tidy_by`, `*_glance_by`, `*_prediction_by`, the
+effects macros and `glmm_*_by`) cast the options to `MAP(VARCHAR, VARCHAR)`. DuckDB 2.0
+cannot cast a VARIANT object to a MAP, so pass these macros a STRUCT or a
+`MAP(VARCHAR, VARIANT)`, not a top-level VARIANT.
+
 ---
 
 ## 3. Return-Struct Field Names

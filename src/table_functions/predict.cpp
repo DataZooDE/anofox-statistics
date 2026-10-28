@@ -296,7 +296,8 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 		if (!arguments[2]->IsFoldable()) {
 			throw InvalidInputException("predict: options must be a constant MAP or STRUCT");
 		}
-		auto options = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
+		// A VARIANT option bag (or VARIANT entries) is unwrapped first (#270).
+		auto options = UnwrapVariant(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
 		if (!options.IsNull()) {
 			auto visit = [&](const string &key, const Value &val) {
 				if (key == "type") {
@@ -338,12 +339,12 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 			if (options.type().id() == LogicalTypeId::STRUCT) {
 				auto &vals = StructValue::GetChildren(options);
 				for (idx_t i = 0; i < vals.size(); i++) {
-					visit(NameString(StructType::GetChildName(options.type(), i)), vals[i]);
+					visit(NameString(StructType::GetChildName(options.type(), i)), UnwrapVariant(vals[i]));
 				}
 			} else if (options.type().id() == LogicalTypeId::MAP) {
 				for (auto &entry : MapValue::GetChildren(options)) {
 					auto &kv = StructValue::GetChildren(entry);
-					visit(kv[0].ToString(), kv[1]);
+					visit(kv[0].ToString(), UnwrapVariant(kv[1]));
 				}
 			} else {
 				throw InvalidInputException("predict: options must be a MAP or STRUCT");

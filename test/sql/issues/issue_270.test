@@ -1,0 +1,85 @@
+# name: test/sql/issues/issue_270.test
+# description: #270 VARIANT options: a MAP(VARCHAR, VARIANT) with mixed value types, VARIANT entries, a VARIANT option bag
+# group: [issues]
+#
+# The VARIANT type exists on DuckDB v1.5.6 and 2.0, so this file runs on both lines.
+# Each form must give the same result as the STRUCT literal.
+
+require anofox_statistics
+
+statement ok
+CREATE MACRO same(a, b) AS a::VARCHAR IS NOT DISTINCT FROM b::VARCHAR;
+
+statement ok
+CREATE TABLE d AS SELECT i, i % 2 AS g, sin(i * 0.37) + (i % 2) * 0.4 AS v, i * 1.5 + sin(i) * 4 AS y, i::DOUBLE AS x
+FROM range(400) t(i);
+
+# A uniform MAP cannot mix a VARCHAR and an INTEGER value; MAP(VARCHAR, VARIANT) can.
+query IIII
+SELECT same(psi_agg(v, g, MAP {'binning': 'quantile'::VARIANT, 'n_bins': 5::VARIANT}),
+            psi_agg(v, g, {'binning': 'quantile', 'n_bins': 5})),
+       same(psi_agg(v, g, {'binning': 'quantile'::VARIANT, 'n_bins': 5::VARIANT}),
+            psi_agg(v, g, {'binning': 'quantile', 'n_bins': 5})),
+       same(psi_agg(v, g, {'binning': 'quantile', 'n_bins': 5}::VARIANT),
+            psi_agg(v, g, {'binning': 'quantile', 'n_bins': 5})),
+       same(psi_agg(v, g, MAP {'binning': 'quantile'::VARIANT, 'n_bins': 5::VARIANT}), psi_agg(v, g))
+FROM d;
+----
+true	true	true	false
+
+query III
+SELECT same(ols_fit_agg(y, [x], MAP {'compute_inference': true::VARIANT, 'confidence_level': 0.9::VARIANT}),
+            ols_fit_agg(y, [x], {'compute_inference': true, 'confidence_level': 0.9})),
+       same(t_test_agg(y, g, {'alternative': 'less', 'confidence_level': 0.9}::VARIANT),
+            t_test_agg(y, g, {'alternative': 'less', 'confidence_level': 0.9})),
+       (ols_fit_agg(y, [x], MAP {'compute_inference': true::VARIANT, 'confidence_level': 0.9::VARIANT})).conf_level
+FROM d;
+----
+true	true	0.9
+
+# Scalars and predict
+query II
+SELECT same(ols_fit(ys, xs, MAP {'fit_intercept': false::VARIANT, 'compute_inference': true::VARIANT}),
+            ols_fit(ys, xs, {'fit_intercept': false, 'compute_inference': true})),
+       same(predict(m, [3.0], MAP {'interval': 'prediction'::VARIANT, 'level': 0.9::VARIANT}),
+            predict(m, [3.0], {'interval': 'prediction', 'level': 0.9}))
+FROM (SELECT list(y ORDER BY i) AS ys, [list(x ORDER BY i)] AS xs, ols_fit_agg(y, [x], {'compute_inference': true}) AS m
+      FROM d);
+----
+true	true
+
+# Window
+query I
+SELECT bool_and(same(a, b)) FROM (
+    SELECT ols_fit_predict(y, [x], MAP {'fit_intercept': false::VARIANT, 'confidence_level': 0.9::VARIANT})
+               OVER (ORDER BY i ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) AS a,
+           ols_fit_predict(y, [x], {'fit_intercept': false, 'confidence_level': 0.9})
+               OVER (ORDER BY i ROWS BETWEEN 50 PRECEDING AND CURRENT ROW) AS b
+    FROM d);
+----
+true
+
+# Table macros: one that passes the options through, one that merges defaults into them
+foreach macro ols_fit_predict_by ols_tidy_by
+
+query I
+SELECT a.h = b.h
+FROM (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h
+      FROM ${macro}('d', g, y, [x], MAP {'fit_intercept': false::VARIANT, 'confidence_level': 0.9::VARIANT}) t) a,
+     (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h
+      FROM ${macro}('d', g, y, [x], {'fit_intercept': false, 'confidence_level': 0.9}) t) b;
+----
+true
+
+endloop
+
+# Per-key validation is unchanged: unknown keys and bad values still raise.
+statement error
+SELECT ols_fit_agg(y, [x], MAP {'intercept_mode': true::VARIANT}) FROM d;
+----
+intercept_mode
+
+statement error
+SELECT psi_agg(v, g, {'binning': 'quantile', 'n_bins': 'many'}::VARIANT) FROM d;
+----
+many

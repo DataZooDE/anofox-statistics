@@ -39,6 +39,13 @@ Breaking changes are called out explicitly.
   `scripts/bench_compare.py` reports median timings for several DuckDB CLIs, and the results
   are in `docs/PERFORMANCE.md`. Main finding: `*_fit_predict_by` runs 2× faster on 2.0 (DuckDB's
   window operator), while the aggregate-bound workloads are within ±15%.
+- **VARIANT options (#270).** An option bag can be a `MAP(VARCHAR, VARIANT)`, which allows
+  mixed value types in a MAP (`MAP {'binning': 'quantile'::VARIANT, 'n_bins': 5::VARIANT}`).
+  STRUCT entries can be VARIANT, and so can the whole bag (`{...}::VARIANT`). They are
+  unwrapped before the usual per-key validation, so the results equal the STRUCT form.
+  Works on DuckDB v1.5.6 and 2.0. On 2.0 the macros that merge defaults into the options
+  (`*_tidy_by`, `*_glance_by`, `*_prediction_by`, effects, `glmm_*_by`) need a STRUCT or a
+  `MAP(VARCHAR, VARIANT)`, not a top-level VARIANT.
 
 ### Fixed
 
