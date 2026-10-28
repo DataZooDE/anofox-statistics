@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/null_rows.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -156,7 +157,8 @@ static void RansacFitFunction(DataChunk &args, ExpressionState &state, Vector &r
 	// The implementation reads list arguments by row index; flatten constant and
 	// dictionary inputs first so every row has its own entry (#210).
 	args.Flatten();
-	RansacFitFunctionImpl(args, state, result);
+	// A NULL data argument gives a NULL row; a NULL options argument means no options (#276).
+	ExecuteOnNonNullRows(args, state, result, 2, RansacFitFunctionImpl);
 	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
@@ -278,6 +280,7 @@ void RegisterRansacFitFunction(ExtensionLoader &loader) {
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitFunction),
                         ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitBind)));
     MarkFallible(map_func);
+    SetNullHandlingOf(map_func, FunctionNullHandling::SPECIAL_HANDLING);
 
     {
         ScalarFunctionSet func_set("ransac_fit");

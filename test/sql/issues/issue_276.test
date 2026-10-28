@@ -1,0 +1,137 @@
+# name: test/sql/issues/issue_276.test
+# description: #276 empty STRUCT {} (DuckDB 2.0) and NULL options mean "no options" everywhere
+# group: [issues]
+#
+# {} parses only on DuckDB 2.0, so every query that writes it goes through
+# v2_or(sql, fallback): `sql` runs on 2.0, the constant `fallback` (the expected
+# result) on 1.5. The NULL-options checks run on both lines.
+
+require anofox_statistics
+
+statement ok
+CREATE MACRO v2_or(sql, fallback) AS TABLE
+    SELECT * FROM query(CASE WHEN version() >= 'v2' THEN sql ELSE fallback END);
+
+statement ok
+CREATE MACRO same(a, b) AS a::VARCHAR IS NOT DISTINCT FROM b::VARCHAR;
+
+statement ok
+CREATE TABLE d AS SELECT i, (i % 2) AS gi, CASE WHEN i % 4 < 2 THEN 'a' ELSE 'b' END AS g,
+    CASE WHEN i % 3 = 0 THEN 'c' WHEN i % 3 = 1 THEN 'e' ELSE 'f' END AS f,
+    ((i * 7) % 5 < 2)::INT::DOUBLE AS yb, i * 1.5 + sin(i * 7.3) * 3 + 10 AS y,
+    i::DOUBLE + cos(i) * 2 AS x, abs(sin(i * 1.7)) + 0.5 AS x2
+FROM range(1, 61) t(i);
+
+statement ok
+CREATE TABLE l AS SELECT list(y ORDER BY i) AS ys, [list(x ORDER BY i), list(x2 ORDER BY i)] AS xs,
+    list(x2 ORDER BY i) AS ws
+FROM d;
+
+# ---------------------------------------------------------------------------
+# NULL options = no options for the list-input scalar fits (both lines). These used
+# to return NULL: default NULL handling folded the whole call to NULL.
+# ---------------------------------------------------------------------------
+
+query IIIIIIII
+SELECT same(ols_fit(ys, xs, NULL), ols_fit(ys, xs)), same(wls_fit(ys, xs, ws, NULL), wls_fit(ys, xs, ws)),
+    same(ridge_fit(ys, xs, NULL), ridge_fit(ys, xs)), same(rls_fit(ys, xs, NULL), rls_fit(ys, xs)),
+    same(ransac_fit(ys, xs, NULL), ransac_fit(ys, xs)), same(theil_sen_fit(ys, xs, NULL), theil_sen_fit(ys, xs)),
+    same(huber_fit(ys, xs, NULL), huber_fit(ys, xs)), same(elasticnet_fit(ys, xs, NULL), elasticnet_fit(ys, xs))
+FROM l;
+----
+true	true	true	true	true	true	true	true
+
+query II
+SELECT (ols_fit(ys, xs, NULL)).r_squared IS NOT NULL, (ols_fit(ys, xs, NULL)).n_observations FROM l;
+----
+true	60
+
+# A NULL data argument still gives a NULL row, with or without options, and the
+# other rows are unaffected (5000 rows: several vectors).
+query IIII
+SELECT count(*), count(f), count(o), bool_and(same(f, o))
+FROM (SELECT i, ridge_fit(CASE WHEN i % 3 = 1 THEN NULL ELSE [1, 2, 3, 4.5, i % 7] END::DOUBLE[],
+                          [[1, 2, 3.5, 4, 5]]::DOUBLE[][], NULL) AS f,
+             ridge_fit(CASE WHEN i % 3 = 1 THEN NULL ELSE [1, 2, 3, 4.5, i % 7] END::DOUBLE[],
+                       [[1, 2, 3.5, 4, 5]]::DOUBLE[][]) AS o
+      FROM range(5000) t(i));
+----
+5000	3333	3333	true
+
+query III
+SELECT ols_fit(NULL::DOUBLE[], [[1.0, 2.0]], NULL) IS NULL, ols_fit([1.0, 2.0], NULL::DOUBLE[][], {'fit_intercept': true}) IS NULL,
+    wls_fit([1.0, 2.0], [[1.0, 2.0]], NULL::DOUBLE[], NULL) IS NULL;
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# {} = no options (DuckDB 2.0)
+# ---------------------------------------------------------------------------
+
+# Aggregates: regression, GLM, mixed, survival, CV, tests, correlation
+query I
+FROM v2_or($$
+    SELECT same(ols_fit_agg(y, [x], {}), ols_fit_agg(y, [x])) AND same(ridge_fit_agg(y, [x], {}), ridge_fit_agg(y, [x]))
+        AND same(logistic_fit_agg(yb, [x], {}), logistic_fit_agg(yb, [x]))
+        AND same(poisson_fit_agg(round(y), [x], {}), poisson_fit_agg(round(y), [x]))
+        AND same(glmm_fit_agg(y, [x], f, {}), glmm_fit_agg(y, [x], f, NULL))
+        AND same(aft_fit_agg(y, [x], yb, {}), aft_fit_agg(y, [x], yb))
+        AND same(ridge_cv_agg(y, [x, x2], i % 5, {}), ridge_cv_agg(y, [x, x2], i % 5, NULL))
+        AND same(t_test_agg(y, gi, {}), t_test_agg(y, gi))
+        AND same(pearson_agg(y, x, {}), pearson_agg(y, x))
+        AND same(chisq_test_agg(gi::INTEGER, (i % 3)::INTEGER, {}), chisq_test_agg(gi::INTEGER, (i % 3)::INTEGER))
+        AND same(ols_fit_predict_agg(y, [x], {}), ols_fit_predict_agg(y, [x])) AS ok
+    FROM d
+$$, $$SELECT true$$);
+----
+true
+
+# Scalars
+query I
+FROM v2_or($$
+    SELECT same(ols_fit(ys, xs, {}), ols_fit(ys, xs)) AND same(wls_fit(ys, xs, ws, {}), wls_fit(ys, xs, ws))
+        AND same(ridge_fit(ys, xs, {}), ridge_fit(ys, xs)) AND same(rls_fit(ys, xs, {}), rls_fit(ys, xs))
+        AND same(ransac_fit(ys, xs, {}), ransac_fit(ys, xs)) AND same(theil_sen_fit(ys, xs, {}), theil_sen_fit(ys, xs))
+        AND same(huber_fit(ys, xs, {}), huber_fit(ys, xs)) AND same(elasticnet_fit(ys, xs, {}), elasticnet_fit(ys, xs))
+        AND same(predict(ols_fit(ys, xs), [3.0, 1.0], {}), predict(ols_fit(ys, xs), [3.0, 1.0])) AS ok
+    FROM l
+$$, $$SELECT true$$);
+----
+true
+
+# Window
+query I
+FROM v2_or($$
+    SELECT bool_and(same(a, b)) FROM (SELECT ols_fit_predict(y, [x], {}) OVER (ORDER BY i) AS a,
+                                             ols_fit_predict(y, [x]) OVER (ORDER BY i) AS b FROM d)
+$$, $$SELECT true$$);
+----
+true
+
+# Table macros, including the ones that merge defaults into the options with
+# options::MAP(VARCHAR, VARCHAR) (tidy/glance, prediction level)
+foreach macro ols_fit_predict_by ols_tidy_by ols_glance_by logistic_tidy_by
+
+query I
+FROM v2_or($$
+    SELECT a.h = b.h AND a.n > 0
+    FROM (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h, count(*) AS n
+          FROM ${macro}('d', g, CASE WHEN '${macro}' LIKE 'logistic%' THEN yb ELSE y END, [x], options := {}) t) a,
+         (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h
+          FROM ${macro}('d', g, CASE WHEN '${macro}' LIKE 'logistic%' THEN yb ELSE y END, [x]) t) b
+$$, $$SELECT true$$);
+----
+true
+
+endloop
+
+query I
+FROM v2_or($$
+    SELECT a.h = b.h
+    FROM (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h
+          FROM ols_prediction_by('d', g, x, y, [x], options := {}, level := 0.9) t) a,
+         (SELECT md5(string_agg(t::VARCHAR, '|' ORDER BY t::VARCHAR)) AS h
+          FROM ols_prediction_by('d', g, x, y, [x], level := 0.9) t) b
+$$, $$SELECT true$$);
+----
+true

@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/null_rows.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -131,7 +132,8 @@ static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 	// The implementation reads list arguments by row index; flatten constant and
 	// dictionary inputs first so every row has its own entry (#210).
 	args.Flatten();
-	HuberFitFunctionImpl(args, state, result);
+	// A NULL data argument gives a NULL row; a NULL options argument means no options (#276).
+	ExecuteOnNonNullRows(args, state, result, 2, HuberFitFunctionImpl);
 	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
@@ -248,6 +250,7 @@ void RegisterHuberFitFunction(ExtensionLoader &loader) {
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitFunction),
                         ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitBind)));
     MarkFallible(map_func);
+    SetNullHandlingOf(map_func, FunctionNullHandling::SPECIAL_HANDLING);
 
     {
         ScalarFunctionSet func_set("huber_fit");
