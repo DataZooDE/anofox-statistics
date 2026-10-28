@@ -46,7 +46,7 @@ struct AugmentAggState {
     AugmentAggState() : n_features(0), initialized(false) {}
 };
 
-enum class AugmentModel : uint8_t { OLS, WLS, POISSON, BINOMIAL, LOGISTIC, NEGBINOM, GAMMA, TWEEDIE };
+enum class AugmentModel : uint8_t { OLS, WLS, POISSON, BINOMIAL, LOGISTIC, NEGBINOM, GAMMA, TWEEDIE, RIDGE };
 
 static const char *AugmentAggName(AugmentModel model) {
     switch (model) {
@@ -66,6 +66,8 @@ static const char *AugmentAggName(AugmentModel model) {
         return "gamma_augment_agg";
     case AugmentModel::TWEEDIE:
         return "tweedie_augment_agg";
+    case AugmentModel::RIDGE:
+        return "ridge_augment_agg";
     }
     return "augment_agg";
 }
@@ -93,6 +95,9 @@ struct AugmentAggBindData : public FunctionData {
     double tolerance = 1e-8;
     double glm_lambda = 0.0;
     idx_t offset_column = 0; // 1-based index into x; 0 = none
+    // Ridge settings, with the defaults of ridge_fit_agg.
+    double alpha = 1.0;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         return make_uniq<AugmentAggBindData>(*this);
@@ -107,7 +112,8 @@ struct AugmentAggBindData : public FunctionData {
                poisson_link == other.poisson_link && binomial_link == other.binomial_link &&
                same_double(power, other.power) && same_double(theta, other.theta) &&
                max_iterations == other.max_iterations && same_double(tolerance, other.tolerance) &&
-               same_double(glm_lambda, other.glm_lambda) && offset_column == other.offset_column;
+               same_double(glm_lambda, other.glm_lambda) && offset_column == other.offset_column &&
+               same_double(alpha, other.alpha) && lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -268,10 +274,14 @@ static LogicalType GetAugmentAggResultType() {
     row.push_back(make_pair("weight", LogicalType::DOUBLE));
     row.push_back(make_pair("is_training", LogicalType::BOOLEAN));
     row.push_back(make_pair("n_params", LogicalType::INTEGER));
-    // Leave-one-out (PRESS) residual and prediction (#220); NULL for the GLMs
-    // and rows with leverage 1.
+    // Leave-one-out (PRESS) residual and prediction (#220, Ridge #235); NULL for
+    // the GLMs and rows with leverage 1.
     row.push_back(make_pair("loo_residual", LogicalType::DOUBLE));
     row.push_back(make_pair("loo_fitted", LogicalType::DOUBLE));
+    // One-step approximate leave-one-out prediction and residual of the GLMs
+    // (#235); NULL for the linear models.
+    row.push_back(make_pair("approx_loo_fitted", LogicalType::DOUBLE));
+    row.push_back(make_pair("approx_loo_residual", LogicalType::DOUBLE));
     return LogicalType::LIST(LogicalType::STRUCT(std::move(row)));
 }
 
@@ -520,7 +530,16 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         std::memset(&aug, 0, sizeof(aug));
         AnofoxError error;
         bool ok;
-        if (bind_data.model != AugmentModel::OLS && bind_data.model != AugmentModel::WLS) {
+        if (bind_data.model == AugmentModel::RIDGE) {
+            AnofoxRidgeOptions options {};
+            options.alpha = bind_data.alpha;
+            options.fit_intercept = bind_data.fit_intercept;
+            options.compute_inference = false;
+            options.confidence_level = 0.95;
+            options.solver = ConvertSolverType(bind_data.solver);
+            options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
+            ok = anofox_ridge_augment(y_array, x_arrays.data(), x_arrays.size(), options, &aug, &error);
+        } else if (bind_data.model != AugmentModel::OLS && bind_data.model != AugmentModel::WLS) {
             ok = RunGlmAugment(bind_data, state.n_features, y_array, x_arrays, &aug, &error);
         } else if (bind_data.weighted) {
             AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
@@ -572,6 +591,8 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         auto &n_params_vec = StructEntry(entries[10]);
         auto &loo_residual_vec = StructEntry(entries[11]);
         auto &loo_fitted_vec = StructEntry(entries[12]);
+        auto &approx_loo_fitted_vec = StructEntry(entries[13]);
+        auto &approx_loo_residual_vec = StructEntry(entries[14]);
 
         string resid_type(aug.resid_type, strnlen(aug.resid_type, ANOFOX_MODEL_NAME_LEN));
         auto n_params = static_cast<int32_t>(aug.n_params);
@@ -588,6 +609,8 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             WriteDouble(dffits_vec, c, aug.dffits[r]);
             WriteDouble(loo_residual_vec, c, aug.loo_residual[r]);
             WriteDouble(loo_fitted_vec, c, aug.loo_fitted[r]);
+            WriteDouble(approx_loo_fitted_vec, c, aug.approx_loo_fitted[r]);
+            WriteDouble(approx_loo_residual_vec, c, aug.approx_loo_residual[r]);
             WriteDouble(weight_vec, c, state.weight[r]);
             FlatDataMut<string_t>(resid_type_vec)[c] = StringVector::AddString(resid_type_vec, resid_type);
             FlatDataMut<bool>(training_vec)[c] = used;
@@ -609,11 +632,13 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
     result->weighted = model == AugmentModel::WLS;
     idx_t options_idx = result->weighted ? 3 : 2;
     if (arguments.size() > options_idx) {
-        bool linear = model == AugmentModel::OLS || model == AugmentModel::WLS;
+        bool linear = model == AugmentModel::OLS || model == AugmentModel::WLS || model == AugmentModel::RIDGE;
         // The keys of the matching <family>_fit_agg that change the fit; 'glm_lambda' and 'prior' are accepted
         // so that a penalized fit is rejected with upstream's error rather than as an unknown key.
         vector<string> allowed;
-        if (linear) {
+        if (model == AugmentModel::RIDGE) {
+            allowed = {"fit_intercept", "null_policy", "solver", "alpha", "lambda", "lambda_scaling"};
+        } else if (linear) {
             allowed = {"fit_intercept", "null_policy", "solver"};
         } else {
             allowed = {"fit_intercept", "max_iterations", "tolerance", "offset", "glm_lambda", "prior", "feature_names"};
@@ -663,6 +688,13 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
         }
         if (opts.offset_column.has_value()) {
             result->offset_column = opts.offset_column.value();
+        }
+        auto reg_strength = opts.GetRegularizationStrength();
+        if (reg_strength.has_value()) {
+            result->alpha = reg_strength.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
     SetReturnTypeOf(function, partial ? GetPartialResidualsAggResultType() : GetAugmentAggResultType());
@@ -740,6 +772,28 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
             {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE, LogicalType::ANY}));
         loader.RegisterFunction(std::move(info));
     }
+    // ridge_augment_agg(y, x [, options]) (#235)
+    {
+        AggregateFunctionSet set("ridge_augment_agg");
+        set.AddFunction(MakeAugmentAgg("ridge_augment_agg", {LogicalType::DOUBLE, list_double},
+                                       ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::RIDGE>)));
+        set.AddFunction(MakeAugmentAgg("ridge_augment_agg", {LogicalType::DOUBLE, list_double, LogicalType::ANY},
+                                       ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::RIDGE>)));
+        CreateAggregateFunctionInfo info(std::move(set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        const string desc = "Fits Ridge over a partition (rows with y and every feature present) and returns one "
+                            "STRUCT per row, in frame order, with fitted, residual, resid_type, leverage (diagonal of "
+                            "the ridge hat matrix, intercept unpenalised), loo_residual and loo_fitted (exact "
+                            "leave-one-out at the same penalty), weight, is_training and n_params; std_residual, "
+                            "stud_residual, cooks_d and dffits are NULL.";
+        info.descriptions.push_back(AugmentDescription(desc, "ridge_augment_agg(y, [x1, x2]) OVER (PARTITION BY g)",
+                                                       {"y", "x"}, {LogicalType::DOUBLE, list_double}));
+        info.descriptions.push_back(AugmentDescription(desc, "ridge_augment_agg(y, [x1, x2], {'alpha': 1.0}) OVER ()",
+                                                       {"y", "x", "options"},
+                                                       {LogicalType::DOUBLE, list_double, LogicalType::ANY}));
+        loader.RegisterFunction(std::move(info));
+    }
+
     // <family>_augment_agg(y, x [, options]) for the six GLMs
     struct GlmAugmentAgg {
         AugmentModel model;
@@ -785,8 +839,9 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
         const string desc = "Fits " + string(glm.label) +
                             " over a partition (rows with y and every feature present) and returns one STRUCT per "
                             "row, in frame order, with fitted (response scale), residual (deviance), resid_type, "
-                            "std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training and n_params "
-                            "(broom augment). Penalized fits (glm_lambda > 0 or a prior) are rejected.";
+                            "std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params "
+                            "(broom augment) and approx_loo_fitted / approx_loo_residual (one-step approximate "
+                            "leave-one-out). Penalized fits (glm_lambda > 0 or a prior) are rejected.";
         info.descriptions.push_back(AugmentDescription(desc, name + "(y, [x1, x2]) OVER (PARTITION BY g)",
                                                        {"y", "x"}, {LogicalType::DOUBLE, list_double}));
         info.descriptions.push_back(AugmentDescription(desc,

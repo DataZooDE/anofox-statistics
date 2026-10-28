@@ -44,7 +44,7 @@ void AppendModelSummaryFields(child_list_t<LogicalType> &children);
 //! df_residual DOUBLE. Appended after the shared tail.
 void AppendCovarianceFields(child_list_t<LogicalType> &children);
 
-//! The leave-one-out tail of OLS / WLS fits (#220): press, press_rmse and
+//! The leave-one-out tail of OLS / WLS (#220) and Ridge (#235) fits: press, press_rmse and
 //! loo_r_squared DOUBLE, NULL when a row has leverage 1. Appended last.
 void AppendLooFields(child_list_t<LogicalType> &children);
 

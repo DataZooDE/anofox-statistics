@@ -41,7 +41,7 @@ struct ModelOutputModel {
 	//! Extra option defaults of <prefix>_tidy_by, merged under the user's options
 	//! (Theil-Sen #222: a smaller bootstrap than the aggregate's default).
 	const char *tidy_defaults = nullptr;
-	//! The fit has the opt-in leave-one-out statistics (#220): <prefix>_glance_by
+	//! The fit has the opt-in leave-one-out statistics (#220, Ridge #235): <prefix>_glance_by
 	//! turns compute_loo on, so press / press_rmse / loo_r_squared are reported.
 	bool loo = false;
 	//! Order-dependent models that predate `ordered` (#206): the macros take an optional named
@@ -56,7 +56,7 @@ struct ModelOutputModel {
 const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"ols", "an OLS regression", nullptr, true, false, false, false, nullptr, true},
     {"wls", "a weighted least squares regression", "weight_col", true, false, false, false, nullptr, true},
-    {"ridge", "a Ridge regression", nullptr, true},
+    {"ridge", "a Ridge regression", nullptr, true, false, false, false, nullptr, true},
     {"elasticnet", "an Elastic Net regression", nullptr, false},
     {"huber", "a Huber M-estimator regression", nullptr, true},
     {"ransac", "a RANSAC regression", nullptr, true},

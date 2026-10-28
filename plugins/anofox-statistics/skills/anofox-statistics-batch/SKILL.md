@@ -13,7 +13,7 @@ description: >
   bayesian_ridge_fit_predict_by, ard_fit_predict_by,
   passive_aggressive_fit_predict_by, lm_dynamic_fit_predict_by) with split :=
   and order_by :=, the per-group long-table macros <model>_tidy_by and
-  <model>_glance_by (25 models), ols/wls/GLM _augment_by,
+  <model>_glance_by (25 models), ols/wls/ridge/GLM _augment_by,
   <model>_partial_residuals_by, <model>_prediction_by (23 models),
   <model>_effects_by (marginal effects), <model>_rolling_tidy_by (rolling
   coefficients), ridge/elasticnet/lars_path_by, ridge/elasticnet_cv_by,
@@ -125,8 +125,8 @@ When you want a **report table** per group instead of predictions, use the outpu
 | Macro | Signature | Main columns (besides group, `id`, `model_id`, `model_name`) |
 |---|---|---|
 | `<model>_tidy_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …, names := […]])` | `term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (one row per term, intercept first) |
-| `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic; OLS / WLS add `press`, `press_rmse`, `loo_r_squared`) |
-| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS) |
+| `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic; OLS / WLS / Ridge add `press`, `press_rmse`, `loo_r_squared`) |
+| `ols_augment_by`, `ridge_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS / Ridge; + `approx_loo_fitted, approx_loo_residual` for GLMs; Ridge: NULL `std_residual` / `stud_residual` / `cooks_d` / `dffits`) |
 | `glmm_tidy_by` | `(source, group_col, y_col, x_cols, re_group [, options := …, names := […], re_names := […]])` | the tidy columns + `effect` (`'fixed'` / `'ran_pars'` / `'ran_vals'`), `re_group`, `re_level`, `df` (Satterthwaite for gaussian) |
 | `glmm_glance_by` | `(source, group_col, y_col, x_cols, re_group [, options := …])` | the glance columns (`n_groups`, `sigma`, `df_residual`, `icc`, `var_group`, …) |
 | `glmm_augment_by` | `(source, group_col, y_col, x_cols, re_group [, options := …, order_by := …])` | the augment columns + `fitted_population`, `pearson_residual` |
@@ -141,7 +141,7 @@ When you want a **report table** per group instead of predictions, use the outpu
 
 Model coverage:
 - `_tidy_by` / `_glance_by` (26): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls` (sequential: pass `order_by := t` by name, else the row order is undefined), `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`); `glmm_tidy_by` / `glmm_glance_by` take the random-effects factor `re_group` after `x_cols` (one mixed model per `group_col`, the outer group). Not `isotonic`
-- `_augment_by`: `ols`, `wls`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `glmm` (+`re_group`). `_partial_residuals_by`: the same without `glmm`.
+- `_augment_by`: `ols`, `wls`, `ridge`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `glmm` (+`re_group`). `_partial_residuals_by`: the same without `glmm`.
 - `_prediction_by` (23): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
 - `_effects_by` (9): `ols`, `wls`, `ridge` and the six GLMs (models whose `predict` has standard errors); GLM bands on the response scale.
 - `_rolling_tidy_by` (6): `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `poisson`. Windows shorter than `min_obs` (default `window_size`: full windows only) are skipped; `window_end` keeps the type of `order_col`.

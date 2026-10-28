@@ -426,6 +426,8 @@ typedef struct {
 	AnofoxSolverType solver;
 	/** Lambda scaling convention (Raw or Glmnet) */
 	AnofoxLambdaScaling lambda_scaling;
+	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#235). Zero-initialise the struct. */
+	bool compute_loo;
 } AnofoxRidgeOptions;
 
 /**
@@ -2846,7 +2848,7 @@ void anofox_free_glmm_augment_result(AnofoxGlmmAugmentResult *result);
  * ============================================================================ */
 
 /**
- * Per-row diagnostics of an OLS/WLS/GLM fit (layout of AugmentResultFFI in
+ * Per-row diagnostics of an OLS/WLS/Ridge/GLM fit (layout of AugmentResultFFI in
  * crates/anofox-stats-ffi/src/types.rs). Every array has len entries, one per
  * input row in input order; NaN marks a value that does not apply (rows not
  * used in the fit only have fitted). Released by anofox_free_augment_result.
@@ -2861,6 +2863,8 @@ typedef struct {
 	double *dffits;
 	double *loo_residual; /* leave-one-out (PRESS) residual, #220 */
 	double *loo_fitted;
+	double *approx_loo_fitted; /* one-step approximate leave-one-out (GLMs), #235 */
+	double *approx_loo_residual;
 	bool *used;
 	size_t len;
 	size_t n_params;
@@ -2873,6 +2877,14 @@ typedef struct {
  */
 bool anofox_ols_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxOlsOptions options,
                         AnofoxAugmentResult *out_result, AnofoxError *out_error);
+
+/**
+ * Fit Ridge on the usable rows (finite y and features) and return fitted,
+ * residual, the ridge leverage and the exact leave-one-out residual / fitted
+ * value for every input row (#235); the other diagnostics are NaN.
+ */
+bool anofox_ridge_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxRidgeOptions options,
+                          AnofoxAugmentResult *out_result, AnofoxError *out_error);
 
 /**
  * Fit WLS on the usable rows (finite y and features, positive weight) and
