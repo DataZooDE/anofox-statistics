@@ -25,6 +25,14 @@ Breaking changes are called out explicitly.
   (`test/sql/issues/issue_271.test`). METHODOLOGY documents this and the cost of the
   ordering.
 
+### Added
+
+- **Benchmarks: DuckDB v1.5.6 vs v2.0 (#269).** New workloads: `_by` macros on Parquet,
+  tests per VARCHAR segment, and a drift monitor over Hive-partitioned Parquet. A new
+  `scripts/bench_compare.py` reports median timings for several DuckDB CLIs, and the results
+  are in `docs/PERFORMANCE.md`. Main finding: `*_fit_predict_by` runs 2× faster on 2.0 (DuckDB's
+  window operator), while the aggregate-bound workloads are within ±15%.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added
