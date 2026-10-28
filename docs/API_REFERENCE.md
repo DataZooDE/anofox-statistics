@@ -1374,6 +1374,7 @@ hypotheses) defaults to the number of non-NULL p-values and may not be smaller.
 | `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | every source row, in source order, with `p_adjusted` (one family per group) |
 | `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in input order (use `ORDER BY` inside the call); constant `method`/`n` |
 | `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in list order |
+| `p_adjust` | `(p DOUBLE [, method VARCHAR [, n BIGINT]]) OVER (...)` | `DOUBLE`, the row's adjusted p-value within its window frame (the partition without `ORDER BY`); window-only, **DuckDB 2.0+** |
 
 ```sql
 CREATE OR REPLACE TABLE results AS SELECT * FROM (VALUES
@@ -1383,10 +1384,11 @@ SELECT endpoint, p_adjust_agg(p_value, 'holm' ORDER BY test) FROM results GROUP 
 SELECT p_adjust_list([0.01, 0.02, 0.04], 'BY');
 ```
 
-A `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible in DuckDB
-1.x (a window aggregate cannot tell which row of a whole-partition frame it
-computes); `p_adjust_by` gives the row-aligned result. For inline use, Bonferroni,
-Holm and BH can also be written with plain window functions; see
+On DuckDB 2.0, `p_adjust(p_value, 'BH') OVER (PARTITION BY endpoint)` gives the
+row-aligned result inline (#224). It is not registered on DuckDB 1.5, whose window
+aggregates cannot tell which row of a whole-partition frame they compute; there
+`p_adjust_by` gives the row-aligned result, and Bonferroni, Holm and BH can also be
+written with plain window functions; see
 [Multiple Testing](api/statistics/hypothesis.md#row-aligned-with-plain-window-functions).
 
 ## Classifier Evaluation

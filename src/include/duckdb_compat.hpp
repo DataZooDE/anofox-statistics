@@ -380,6 +380,39 @@ inline void MarkFallible(ScalarFunction &function) {
 	}
 }
 
+//===--------------------------------------------------------------------===//
+// Window-only aggregates
+//===--------------------------------------------------------------------===//
+
+namespace compat_detail {
+template <class T, class = void>
+struct HasWindowBatchCallback : std::false_type {};
+template <class T>
+struct HasWindowBatchCallback<T, decltype(std::declval<T &>().SetWindowBatchCallback(nullptr), void())>
+    : std::true_type {};
+template <class T, class FN>
+auto SetWindowBatchCallback(T &x, FN fn, int) -> decltype(x.SetWindowBatchCallback(fn), void()) {
+	x.SetWindowBatchCallback(fn);
+}
+template <class T, class FN>
+void SetWindowBatchCallback(T &, FN, long) {
+}
+} // namespace compat_detail
+
+//! Whether window aggregates get the batched callback (aggregate_window_batch_t,
+//! DuckDB 2.0 on), which is told the partition row of every output row. Only then can
+//! a window aggregate return a different value per row of a shared frame.
+constexpr bool kHasWindowBatchCallback = compat_detail::HasWindowBatchCallback<AggregateFunction>::value;
+
+//! Install a batched window callback of the signature
+//! void(AggregateInputData &, const WindowPartitionInput &, const_data_ptr_t g_state,
+//!      data_ptr_t l_state, const SubFrames *subframes_per_row, idx_t count, Vector &result, idx_t row_idx);
+//! a no-op without kHasWindowBatchCallback.
+template <class FN>
+void SetWindowBatchCallbackOf(AggregateFunction &function, FN callback) {
+	compat_detail::SetWindowBatchCallback(function, callback, 0);
+}
+
 } // namespace duckdb
 
 //! Wrap our callbacks for an AggregateFunction / ScalarFunction registration.

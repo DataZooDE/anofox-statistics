@@ -12,7 +12,8 @@ description: >
   Wilcoxon signed-rank, Brunner-Munzel, permutation t-test), pairwise post-hoc
   tests (pairwise_t_test_agg, tukey_hsd_agg, dunn_test_agg and their _by
   macros, p_adjust holm / BH / bonferroni), multiple-testing correction of any
-  p-values (p_adjust_by, p_adjust_agg, p_adjust_list; R p.adjust), correlation
+  p-values (p_adjust_by, p_adjust_agg, p_adjust_list, p_adjust window function on
+  DuckDB 2.0; R p.adjust), correlation
   (Pearson, Spearman, Kendall, distance correlation, ICC), categorical /
   contingency tests (chi-squared, chi-squared GOF, G-test, Fisher's exact,
   McNemar), effect sizes (Cramér's V, phi, contingency coefficient, Cohen's
@@ -168,8 +169,9 @@ The aggregates return `LIST<STRUCT(group1, group2, estimate, statistic, p_value,
 | `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row (source order) with `p_adjusted`; one family per group. The row-aligned form |
 | `p_adjust_agg(p[, method[, n]] ORDER BY …)` | `DOUBLE[]` per group, in input order; `method`/`n` constant |
 | `p_adjust_list(p_list[, method[, n]])` | `DOUBLE[]` for a list of p-values |
+| `p_adjust(p[, method[, n]]) OVER (PARTITION BY g)` | **DuckDB 2.0+ only.** The row's adjusted p-value inline; the family is the window frame, so leave `ORDER BY` out of `OVER` |
 
-R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. There is no `p_adjust(...) OVER (...)` window function (DuckDB 1.x window aggregates can't produce per-row values over a whole partition); use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
+R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. `p_adjust(...) OVER (...)` exists on DuckDB 2.0 only (check `SELECT version()`); on 1.5 window aggregates can't produce per-row values over a whole partition, so use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
 
 ### Residual autocorrelation and heteroskedasticity
 | Function | Test |
