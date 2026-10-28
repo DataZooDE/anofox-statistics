@@ -15,6 +15,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -304,6 +305,9 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
 
         // Prepare FFI data
         // Note: Detailed min_obs validation including zero-variance column handling is done in Rust

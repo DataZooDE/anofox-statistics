@@ -15,6 +15,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -290,6 +291,8 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         }
 
         // Note: Additional validation (zero-variance columns, etc.) is performed in Rust
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        SortRowsCanonically(state.y_values, state.x_columns);
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();
         y_array.validity = nullptr;

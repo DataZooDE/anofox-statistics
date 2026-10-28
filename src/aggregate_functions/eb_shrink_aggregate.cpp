@@ -11,6 +11,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -159,6 +160,10 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 			continue;
 		}
 
+		// Canonical row order: bitwise-identical results whatever the thread count
+		// (#226). The per-group list keeps the input order (eb_shrink_by aligns it
+		// with ROW_NUMBER()), so the results are put back through `order`.
+		const auto order = CanonicalRows().Key(state.estimates).Key(state.standard_errors).Sort();
 		AnofoxDataArray est_array {state.estimates.data(), nullptr, state.estimates.size()};
 		AnofoxDataArray se_array {state.standard_errors.data(), nullptr, state.standard_errors.size()};
 
@@ -196,12 +201,14 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 		auto c_sse = FlatDataMut<double>(StructEntry(child_entries[3]));
 		auto c_w = FlatDataMut<double>(StructEntry(child_entries[4]));
 
+		const bool restore = order.size() == res.len;
 		for (idx_t j = 0; j < res.len; j++) {
-			c_est[child_offset + j] = res.estimate[j];
-			c_se[child_offset + j] = res.se[j];
-			c_shr[child_offset + j] = res.shrunken[j];
-			c_sse[child_offset + j] = res.shrunken_se[j];
-			c_w[child_offset + j] = res.weight[j];
+			const idx_t out = child_offset + (restore ? order[j] : j);
+			c_est[out] = res.estimate[j];
+			c_se[out] = res.se[j];
+			c_shr[out] = res.shrunken[j];
+			c_sse[out] = res.shrunken_se[j];
+			c_w[out] = res.weight[j];
 		}
 		ListVector::SetListSize(list_vec, child_offset + res.len);
 		list_data[row].offset = child_offset;

@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -288,6 +289,9 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Key(state.x_train).Key(state.y_train).Sort();
 
         // Prepare FFI data for fitting
         AnofoxDataArray x_array;

@@ -137,10 +137,14 @@ brown_forsythe_agg(value DOUBLE, group ANY) -> STRUCT
 
 ## Reproducibility
 
-The group tests return bitwise-identical results for the same rows, whatever the
-thread count, the row order or the order in which the group labels first appear:
-each finalizer sorts the samples (and the k-sample tests order the groups by label)
-before computing. The Monte Carlo tests (`permutation_t_test_agg`,
+The tests return bitwise-identical results for the same rows, whatever the thread
+count, the row order or the order in which the group labels first appear: each
+finalizer sorts the samples (the paired tests sort the pairs, and the k-sample tests
+and `log_rank_test_agg` order the groups by label) before computing. This covers the
+one-sample, paired, two-sample, k-sample and post-hoc tests; the time-series tests
+(`durbin_watson_agg`, `ljung_box_agg`, `diebold_mariano_agg`, ...) depend on the row
+order and need an `ORDER BY` inside the aggregate. See
+[Methodology](../../METHODOLOGY.md#reproducibility-across-threads). The Monte Carlo tests (`permutation_t_test_agg`,
 `energy_distance_agg`, `mmd_agg`, and `distance_cor_agg` in
 [Correlation](correlation.md)) seed their permutation draw with 42 unless you pass
 `'seed'`, so repeated calls return the same p-value. Pass a different seed to draw a

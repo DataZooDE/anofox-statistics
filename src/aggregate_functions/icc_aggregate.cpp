@@ -187,17 +187,23 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             continue;
         }
 
-        // Build data matrix from subject/rater pairs
+        // Build data matrix from subject/rater pairs. Subjects and raters are
+        // numbered in sorted id order, not first-seen order, so the matrix (and
+        // the result) does not depend on the order the rows arrived in (#226).
         std::map<int64_t, size_t> subj_map, rater_map;
         for (auto s : state.subject_ids) {
-            if (subj_map.find(s) == subj_map.end()) {
-                subj_map[s] = subj_map.size();
-            }
+            subj_map[s] = 0;
         }
         for (auto r : state.rater_ids) {
-            if (rater_map.find(r) == rater_map.end()) {
-                rater_map[r] = rater_map.size();
-            }
+            rater_map[r] = 0;
+        }
+        size_t next_index = 0;
+        for (auto &entry : subj_map) {
+            entry.second = next_index++;
+        }
+        next_index = 0;
+        for (auto &entry : rater_map) {
+            entry.second = next_index++;
         }
 
         size_t n_subjects = subj_map.size();

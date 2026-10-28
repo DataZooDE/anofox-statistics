@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/canonical_order.hpp"
 #include "../include/min_obs_guard.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
@@ -294,6 +295,9 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Keys(state.x_columns).Key(state.y_values).Sort();
 
         // Prepare FFI data
         AnofoxDataArray y_array;

@@ -18,6 +18,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -276,6 +277,8 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 			continue;
 		}
 
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		CanonicalRows().Keys(state.x_columns).Key(state.time_values).Key(state.event_values).Sort();
 		AnofoxDataArray time_array {state.time_values.data(), nullptr, state.time_values.size()};
 		AnofoxDataArray event_array {state.event_values.data(), nullptr, state.event_values.size()};
 		vector<AnofoxDataArray> x_arrays;

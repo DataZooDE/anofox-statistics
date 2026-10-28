@@ -30,6 +30,7 @@
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
 #include "list_input.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -457,6 +458,11 @@ static void HeteroFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		if (!state.initialized || state.residuals.empty() || (state.n_features == 0 && !(dw && bind.fit_intercept))) {
 			FlatVector::SetNull(result, row, true);
 			continue;
+		}
+		if (!dw) {
+			// Breusch-Pagan and White do not depend on the row order (Durbin-Watson
+			// does): sort for bitwise-identical results whatever the thread count (#226).
+			CanonicalRows().Keys(state.x_columns).Key(state.residuals).Sort();
 		}
 		AnofoxDataArray resid;
 		resid.data = state.residuals.data();

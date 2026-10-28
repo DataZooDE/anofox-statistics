@@ -15,6 +15,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -284,6 +285,9 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        SortRowsCanonically(state.y_values, state.x_columns);
 
         // Prepare FFI data
         // Note: Detailed min_obs validation including zero-variance column handling is done in Rust

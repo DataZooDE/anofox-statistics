@@ -12,6 +12,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -211,6 +212,8 @@ static void ClassifierFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			continue;
 		}
 
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		CanonicalRows().Key(state.scores).Key(state.labels).Sort();
 		AnofoxDataArray scores {state.scores.data(), nullptr, static_cast<size_t>(state.scores.size())};
 		AnofoxDataArray labels {state.labels.data(), nullptr, static_cast<size_t>(state.labels.size())};
 		AnofoxError error;

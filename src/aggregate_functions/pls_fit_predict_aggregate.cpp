@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -290,6 +291,9 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        SortRowsCanonically(state.y_train, state.x_train);
 
         // Prepare FFI data for fitting
         AnofoxDataArray y_array;

@@ -195,9 +195,10 @@ df = (s₁²/n₁ + s₂²/n₂)² / ( (s₁²/n₁)²/(n₁ − 1) + (s₂²/n�
 ```
 
 Pass `{'kind': 'student'}` (or `{'var_equal': true}`) for the pooled-variance
-Student t-test, which has `n₁ + n₂ − 2` degrees of freedom. Pass
-`{'paired': true}` for a paired test. The `method` field of the result names the
-variant that was used.
+Student t-test, which has `n₁ + n₂ − 2` degrees of freedom. `t_test_agg` has no
+pairing information and rejects `{'paired': true}`; for paired data use
+`wilcoxon_signed_rank_agg(x, y)` or `tost_paired_agg(x, y)`. The `method` field of
+the result names the variant that was used.
 
 ```sql
 SELECT (t_test_agg(v, g)).method AS default_method,
@@ -207,3 +208,48 @@ FROM (VALUES (1.0, 0), (2.0, 0), (3.5, 0), (4.0, 0),
 ```
 
 The same Welch default applies to `tost_t_test_agg`.
+
+## Reproducibility across threads
+
+DuckDB aggregates in parallel: each thread collects a partial state from the rows it
+scans, and the partial states are combined in whatever order the threads finish.
+Floating-point addition is not associative, so a sum over the same rows in a
+different order can differ in the last bits. To make results independent of that
+order, the aggregates sort their buffered rows into a canonical order (lexicographic
+on the full row, with a total order on doubles) before computing. The same rows
+therefore give bitwise-identical results whatever the thread count and whatever the
+row order:
+
+- the hypothesis tests: one-sample (`shapiro_wilk_agg`, `jarque_bera_agg`,
+  `dagostino_k2_agg`), paired (`wilcoxon_signed_rank_agg`, `tost_paired_agg`),
+  two-sample, k-sample and post-hoc, the Monte Carlo tests (seeded, default 42),
+  `chisq_gof_agg`, `kaplan_meier_agg`, `log_rank_test_agg` (groups ordered by label),
+  `breusch_pagan_agg` and `white_test_agg`;
+- the correlations: `pearson_agg`, `spearman_agg`, `kendall_agg`,
+  `tost_correlation_agg`, `distance_cor_agg`, `icc_agg` (subjects and raters ordered
+  by id), plus `lowess_agg` and the classifier metrics (`auc_agg`, `roc_agg`, ...);
+- the regression fits `*_fit_agg` (OLS, WLS, ridge, elastic net, LARS, BLS/NNLS,
+  Huber, RANSAC, Theil-Sen, quantile, PLS, isotonic, ALM, Bayesian ridge / ARD, the
+  GLMs, AFT, `glmm_fit_agg` with groups ordered by label), `ols_anova_agg`, `vif_agg`,
+  `eb_shrink_agg`, the path / CV aggregates, `*_fit_predict_agg` (the fit uses the
+  sorted training rows; every row keeps its own prediction) and the
+  `*_fit_predict` window functions.
+
+The sort costs `O(n log n)` per group; for `ols_fit_agg` on 1M rows it is a small
+fraction of the fit.
+
+The canonical order is what the statistic sees, so it can differ in the last bits
+from the result of an earlier release, or from the same data fed to R in file order.
+
+The following aggregates depend on the row order by design, so they compute in the
+order the rows arrive: pass `ORDER BY` inside the aggregate (for example
+`rls_fit_agg(y, x ORDER BY t)`) to make them reproducible with more than one thread.
+They are `rls_fit_agg` / `rls_fit_predict_agg` / `rls_fit_predict`,
+`passive_aggressive_fit_agg` and its predict forms, `lm_dynamic_fit_agg` /
+`lm_dynamic_fit_predict_agg`, `aid_agg` / `aid_anomaly_agg`, `acf_agg`, `pacf_agg`,
+`ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `diebold_mariano_agg` and
+`clark_west_agg`. The per-row aggregates `*_augment_agg`, `*_partial_residuals_agg`,
+`glmm_augment_agg`, `residuals_diagnostics_agg` and `p_adjust_agg` return one value per
+input row in input order; give them an `ORDER BY` (as the `*_by` macros do) for a
+fixed result.
+

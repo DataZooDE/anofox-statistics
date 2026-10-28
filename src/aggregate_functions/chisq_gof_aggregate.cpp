@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -149,6 +150,9 @@ static void ChisqGofAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
             continue;
         }
 
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        vector<double> observed_key(state.observed.begin(), state.observed.end());
+        CanonicalRows().Key(observed_key).Key(state.expected).Carry(state.observed).Sort();
         AnofoxChiSquareResult chisq_result;
         AnofoxError error;
 

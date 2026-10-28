@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
 #include "aggregate_finalize_guard.hpp"
+#include "../include/canonical_order.hpp"
 
 namespace duckdb {
 
@@ -348,6 +349,8 @@ static void WlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         }
 
         // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
+        // Canonical row order: bitwise-identical results whatever the thread count (#226).
+        CanonicalRows().Keys(state.x_train).Key(state.y_train).Key(state.weights_train).Sort();
         AnofoxDataArray y_array;
         y_array.data = state.y_train.data();
         y_array.validity = nullptr;
