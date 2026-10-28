@@ -66,7 +66,7 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE tags['anofox.output'] = 'test' AND tags['anofox.contract'] = anofox_contract_version()
 ----
-47
+57
 
 # Every test aggregate carries all thirteen unified fields with the contract types.
 statement ok
@@ -117,7 +117,17 @@ SELECT 'durbin_watson_agg', typeof(durbin_watson_agg(v ORDER BY i)) FROM tt UNIO
 SELECT 'breusch_pagan_agg', typeof(breusch_pagan_agg(v, [x, y])) FROM tt UNION ALL
 SELECT 'white_test_agg', typeof(white_test_agg(v, [x, y])) FROM tt UNION ALL
 SELECT 'log_rank_test_agg', typeof(log_rank_test_agg(x + 2, b1, g2)) FROM tt UNION ALL
-SELECT 'ols_anova_agg', typeof(ols_anova_agg(v, [x], [x, y])) FROM tt;
+SELECT 'ols_anova_agg', typeof(ols_anova_agg(v, [x], [x, y])) FROM tt UNION ALL
+SELECT 'ks_test_agg', typeof(ks_test_agg(v, g2)) FROM tt UNION ALL
+SELECT 'ad_test_agg', typeof(ad_test_agg(v, g3)) FROM tt UNION ALL
+SELECT 'cvm_test_agg', typeof(cvm_test_agg(v, g2)) FROM tt UNION ALL
+SELECT 'epps_singleton_agg', typeof(epps_singleton_agg(v, g2)) FROM tt UNION ALL
+SELECT 'wasserstein_agg', typeof(wasserstein_agg(v, g2)) FROM tt UNION ALL
+SELECT 'psi_agg', typeof(psi_agg(v, g2)) FROM tt UNION ALL
+SELECT 'kl_divergence_agg', typeof(kl_divergence_agg(c1::VARCHAR, g2)) FROM tt UNION ALL
+SELECT 'jensen_shannon_agg', typeof(jensen_shannon_agg(v, g2)) FROM tt UNION ALL
+SELECT 'hellinger_agg', typeof(hellinger_agg(v, g2)) FROM tt UNION ALL
+SELECT 'tvd_agg', typeof(tvd_agg(c1, g2)) FROM tt;
 
 query I
 SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field IN [
@@ -130,4 +140,4 @@ SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field
 query I
 SELECT count(*) FROM types
 ----
-40
+50

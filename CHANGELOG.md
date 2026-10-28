@@ -10,6 +10,34 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Data-drift tests (#245-#255): evidently's drift statistics as aggregates.** They come
+  from upstream anofox-statistics 0.5.0 and are validated against R
+  (`validation/generators/make_reference_drift.R`, `test/sql/reference/drift_reference.test`).
+  All take `(value, group [, options])`. The group is BIGINT or VARCHAR. The reference
+  sample is the smaller label unless the new `reference` option names it.
+  - `ks_test_agg` (#245): two-sample Kolmogorov-Smirnov test as R `ks.test`. The p-value
+    is exact (also with ties) when n1·n2 < 10000, otherwise R's limiting distribution.
+    Options: `alternative`, `exact`.
+  - `ad_test_agg` (#246): k-sample Anderson-Darling test as `kSamples::ad.test`, for k ≥ 2.
+    Its asymptotic p-value is not capped like scipy's. Option: `midrank`.
+  - `cvm_test_agg` (#247): two-sample Cramér-von Mises test. The p-value is exact when
+    max(n1, n2) ≤ 20, otherwise asymptotic. Option: `method`.
+  - `epps_singleton_agg` (#248): Epps-Singleton test as scipy. Option: `t`.
+  - `wasserstein_agg` (#249): 1-D Wasserstein-p distance, plus evidently's
+    `distance_normed` (W₁ / population SD of the reference) and an optional seeded
+    permutation p-value.
+  - `psi_agg` (#250), `kl_divergence_agg` (#251), `jensen_shannon_agg` (#252) and
+    `hellinger_agg` (#253): binned divergences for numeric or VARCHAR values. Binning is
+    evidently's `auto` rule (Sturges bins when the reference has more than 20 distinct
+    values, otherwise one bin per value), `sturges`, `quantile` (reference quantiles,
+    `n_bins`) or `categorical`. Each returns a `drift` flag for `value ≥ threshold`
+    (default 0.1). KL and JS also take a logarithm `base`.
+  - `tvd_agg` (#254): total variation distance between category distributions, with a
+    seeded permutation p-value (1000 permutations, seed 42).
+- Dependency: anofox-statistics 0.4.11 → 0.5.0.
+
 ### Changed
 
 - **Supported DuckDB versions are now v1.5.6 and v2.0.** CI no longer builds,

@@ -1,0 +1,230 @@
+# name: test/sql/reference/drift_reference.test
+# description: Data-drift aggregates (#245-#255) vs R reference values
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_drift.R (R 4.x; kSamples,
+# transport, philentropy, goftest, MASS), cross-checked by the issues against scipy /
+# evidently. Group 0 is the reference sample, group 1 the current sample.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE drift AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c FROM range(50) r(i)
+UNION ALL
+SELECT 1 AS grp, 2*sin(0.53*i) + 0.5 AS v, ((i*3) % 5)::INTEGER AS c FROM range(40) r(i);
+
+# Third group for the k-sample Anderson-Darling test.
+statement ok
+CREATE TABLE drift3 AS SELECT grp, v FROM drift
+UNION ALL SELECT 2, 2*sin(0.29*i) - 0.3 FROM range(30) r(i);
+
+# The first 8 reference and 7 current rows (exact Cramer-von Mises).
+statement ok
+CREATE TABLE drift_small AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v FROM range(8) r(i)
+UNION ALL SELECT 1, 2*sin(0.53*i) + 0.5 FROM range(7) r(i);
+
+# ---------------------------------------------------------------------------
+# ks_test_agg (#245). R: ks.test(x, y [, exact = FALSE | alternative = ...])
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT abs(r.statistic - 0.275) < 1e-12, abs(r.p_value - 0.0574636491581379) < 1e-9, r.exact,
+       r.n1, r.n2, r.n, r.alternative, r.method
+FROM (SELECT ks_test_agg(v, grp) r FROM drift);
+----
+true	true	true	50	40	90	two_sided	Exact two-sample Kolmogorov-Smirnov test
+
+query II
+SELECT abs(r.p_value - 0.0693904727346845) < 1e-9, r.exact
+FROM (SELECT ks_test_agg(v, grp, {'exact': false}) r FROM drift);
+----
+true	false
+
+query IIII
+SELECT abs(l.statistic) < 1e-12, abs(l.p_value - 1) < 1e-12,
+       abs(g.statistic - 0.275) < 1e-12, abs(g.p_value - 0.0287321873100181) < 1e-9
+FROM (SELECT ks_test_agg(v, grp, {'alternative': 'less'}) l, ks_test_agg(v, grp, {'alternative': 'greater'}) g FROM drift);
+----
+true	true	true	true
+
+# Ties (values rounded to one decimal). R: ks.test(round(x, 1), round(y, 1))
+query II
+SELECT abs(r.statistic - 0.25) < 1e-12, abs(r.p_value - 0.0857588324079527) < 1e-9
+FROM (SELECT ks_test_agg(round(v, 1), grp) r FROM drift);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# ad_test_agg (#246). R: kSamples::ad.test(list(...), method = "asymptotic")
+# (unrounded statistics from kSamples' C routine adkTestStat0, p-values from ad.pval).
+# ---------------------------------------------------------------------------
+query IIIIII
+SELECT abs(r.statistic - 3.61044012836017) < 1e-9, abs(r.ad - 3.6925219430794) < 1e-9, abs(r.p_value - 0.0116262613735956) < 1e-8,
+       r.k, r.n, r.method
+FROM (SELECT ad_test_agg(v, grp) r FROM drift);
+----
+true	true	true	2	90	k-sample Anderson-Darling test
+
+query III
+SELECT abs(r.statistic - 3.52653061328026) < 1e-9, abs(r.ad - 3.62994558048828) < 1e-9, abs(r.p_value - 0.0124625443446273) < 1e-8
+FROM (SELECT ad_test_agg(v, grp, {'midrank': false}) r FROM drift);
+----
+true	true	true
+
+query III
+SELECT abs(r.statistic - 3.05596705493313) < 1e-9, abs(r.p_value - 0.0150937207784423) < 1e-8, r.k
+FROM (SELECT ad_test_agg(v, grp) r FROM drift3);
+----
+true	true	3
+
+# ---------------------------------------------------------------------------
+# cvm_test_agg (#247). R: formula + goftest::pCvM; exact by full enumeration.
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 0.472259259259259) < 1e-9, abs(r.p_value - 0.0468933196396164) < 1e-9, r.exact, r.method
+FROM (SELECT cvm_test_agg(v, grp) r FROM drift);
+----
+true	true	false	Asymptotic two-sample Cramer-von Mises test
+
+query III
+SELECT abs(r.statistic - 0.129365079365079) < 1e-9, abs(r.p_value - 0.513908313908314) < 1e-9, r.exact
+FROM (SELECT cvm_test_agg(v, grp) r FROM drift_small);
+----
+true	true	true
+
+query I
+SELECT (SELECT cvm_test_agg(v, grp, {'method': 'asymptotic'}).exact FROM drift_small);
+----
+false
+
+# ---------------------------------------------------------------------------
+# epps_singleton_agg (#248). R: es2() in the generator (scipy epps_singleton_2samp)
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 19.2520530418234) < 1e-9, abs(r.p_value - 0.000701198042169629) < 1e-12, r.df, r.df1
+FROM (SELECT epps_singleton_agg(v, grp) r FROM drift);
+----
+true	true	4	4.0
+
+# max(n1, n2) < 25: small-sample correction.
+query II
+SELECT abs(r.statistic - 4.57264799783064) < 1e-9, abs(r.p_value - 0.33402000774573) < 1e-9
+FROM (SELECT epps_singleton_agg(v, grp) r FROM (SELECT 0 AS grp, 2*sin(0.37*i) AS v FROM range(20) r(i) UNION ALL SELECT 1, 2*sin(0.53*i) + 0.5 FROM range(15) r(i)));
+----
+true	true
+
+query II
+SELECT abs(r.statistic - 22.8632059925688) < 1e-9, r.df
+FROM (SELECT epps_singleton_agg(v, grp, {'t': [0.5, 1, 1.5]}) r FROM drift);
+----
+true	6
+
+# ---------------------------------------------------------------------------
+# wasserstein_agg (#249). R: transport::wasserstein1d; normed by the population SD
+# of the reference.
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT abs(r.distance - 0.625792792352181) < 1e-10, abs(r.distance_normed - 0.439402854950154) < 1e-10,
+       r.p_value IS NULL, r.statistic = r.distance, r.effect_size = r.distance_normed
+FROM (SELECT wasserstein_agg(v, grp) r FROM drift);
+----
+true	true	true	true	true
+
+query II
+SELECT abs(r.distance - 0.636546114292603) < 1e-10, r.distance_normed IS NULL
+FROM (SELECT wasserstein_agg(v, grp, {'p': 2}) r FROM drift);
+----
+true	true
+
+query I
+SELECT abs((SELECT wasserstein_agg(v, grp, {'reference': 1}).distance_normed FROM drift) - 0.44272069945915) < 1e-10;
+----
+true
+
+query II
+SELECT r.p_value > 0 AND r.p_value < 0.05, r.p_value = (SELECT wasserstein_agg(v, grp, {'n_permutations': 999}).p_value FROM drift)
+FROM (SELECT wasserstein_agg(v, grp, {'n_permutations': 999}) r FROM drift);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# psi_agg (#250). R: sum((P - Q) * log(P / Q)) on zero-filled bin proportions
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT abs(r.psi - 0.570692693083632) < 1e-10, r.n_bins, r.drift, r.statistic = r.psi, r.method
+FROM (SELECT psi_agg(v, grp) r FROM drift);
+----
+true	8	true	true	Population Stability Index
+
+query II
+SELECT abs(r.psi - 1.56548983794208) < 1e-10, r.n_bins
+FROM (SELECT psi_agg(c, grp) r FROM drift);
+----
+true	5
+
+# VARCHAR categories give the same value.
+query II
+SELECT abs(r.psi - 1.56548983794208) < 1e-10, r.n_bins
+FROM (SELECT psi_agg('cat_' || c, grp) r FROM drift);
+----
+true	5
+
+# Reference deciles, open outer edges. R: quantile(x, 0:10/10) breaks
+query II
+SELECT abs(r.psi - 1.65936948859582) < 1e-10, r.n_bins
+FROM (SELECT psi_agg(v, grp, {'binning': 'quantile', 'n_bins': 10}) r FROM drift);
+----
+true	10
+
+query I
+SELECT psi_agg(v, grp, {'threshold': 0.6}).drift FROM drift;
+----
+false
+
+# ---------------------------------------------------------------------------
+# kl_divergence_agg (#251). R: philentropy::KL on renormalized zero-filled proportions
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(n.kl - 0.264782319603019) < 1e-10, abs(c.kl - 0.223061363402066) < 1e-10,
+       abs(c2.kl - 0.321809522794091) < 1e-10
+FROM (SELECT kl_divergence_agg(v, grp) n, kl_divergence_agg(c, grp) c, kl_divergence_agg(c, grp, {'base': 2}) c2 FROM drift);
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# jensen_shannon_agg (#252). R: sqrt(philentropy::JSD(rbind(p, q), unit = "log"))
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(n.distance - 0.257847900615388) < 1e-10, abs(n.divergence - 0.0664855398517632) < 1e-10,
+       abs(c.distance - 0.273970122169581) < 1e-10, abs(c2.distance - 0.329071653075846) < 1e-10
+FROM (SELECT jensen_shannon_agg(v, grp) n, jensen_shannon_agg(c, grp) c, jensen_shannon_agg(c, grp, {'base': 2}) c2 FROM drift);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# hellinger_agg (#253). evidently's numeric rule: Sturges bins from the distinct pooled values,
+# also for few distinct values; category codes need binning 'categorical' (or VARCHAR).
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(n.distance - 0.262287362722968) < 1e-10, abs(c.distance - 0.325194993744079) < 1e-10,
+       abs(s.distance - 0.325194993744079) < 1e-10, n.drift
+FROM (SELECT hellinger_agg(v, grp) n, hellinger_agg(c, grp, {'binning': 'categorical'}) c,
+             hellinger_agg(c::VARCHAR, grp) s FROM drift);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# tvd_agg (#254). Statistic: 0.5 * sum(|p - q|). The permutation p-value (seed 42,
+# 1000 permutations) is within Monte Carlo error of R's 0.28894 (B = 100000).
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT abs(r.statistic - 0.2) < 1e-12, abs(r.p_value - 0.28894) < 0.06, r.n_categories, r.n1, r.n2
+FROM (SELECT tvd_agg(c, grp) r FROM drift);
+----
+true	true	5	50	40
+
+query I
+SELECT (SELECT tvd_agg(c, grp).p_value FROM drift) = (SELECT tvd_agg('x' || c, grp).p_value FROM drift);
+----
+true

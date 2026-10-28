@@ -2,6 +2,7 @@
 //!
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
+mod drift_ffi;
 mod inference_ffi;
 mod models_ffi;
 mod types;

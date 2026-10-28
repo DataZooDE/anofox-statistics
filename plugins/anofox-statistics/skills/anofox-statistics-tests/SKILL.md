@@ -17,7 +17,8 @@ description: >
   contingency tests (chi-squared, chi-squared GOF, G-test, Fisher's exact,
   McNemar), effect sizes (Cramér's V, phi, contingency coefficient, Cohen's
   kappa), proportion tests, TOST equivalence tests, distribution comparison
-  (energy distance, MMD), forecast-evaluation tests (Diebold-Mariano,
+  (energy distance, MMD), data-drift tests (KS, Anderson-Darling, Cramér-von
+  Mises, Epps-Singleton, Wasserstein, PSI, KL, Jensen-Shannon, Hellinger, TVD), forecast-evaluation tests (Diebold-Mariano,
   Clark-West), residual autocorrelation and heteroskedasticity tests
   (Ljung-Box, Box-Pierce, Durbin-Watson with p-value, Breusch-Pagan, White),
   survival tests (Kaplan-Meier, log-rank), causal mediation analysis
@@ -132,6 +133,18 @@ user-invocable: false
 |---|---|
 | `energy_distance_agg` | Energy distance; `n_permutations` (1000), `seed` (default 42) |
 | `mmd_agg` | Maximum mean discrepancy; `n_permutations` (1000), `seed` (default 42) |
+
+### Data drift (evidently's stattests)
+`(value, group [, options])`; the reference is the smaller group label unless `reference` names it.
+| Function | Measure |
+|---|---|
+| `ks_test_agg` | Two-sample KS (R `ks.test`): exact p when n1·n2 < 10000, else limiting distribution; `alternative`, `exact` |
+| `ad_test_agg` | k-sample Anderson-Darling (kSamples, asymptotic p, not capped like scipy); `midrank` (true) |
+| `cvm_test_agg` | Two-sample Cramér-von Mises; exact when max(n1, n2) ≤ 20; `method` |
+| `epps_singleton_agg` | Epps-Singleton ECF test (works for discrete data); `t` ([0.4, 0.8]) |
+| `wasserstein_agg` | `distance` W_p and evidently's `distance_normed` = W₁ / population SD of the reference; `n_permutations` (0) |
+| `psi_agg` / `kl_divergence_agg` / `jensen_shannon_agg` / `hellinger_agg` | Binned divergences (DOUBLE or VARCHAR values); `binning` auto (evidently: Sturges if > 20 distinct reference values, else per value) / sturges / quantile (`n_bins`) / categorical; `drift` = value ≥ `threshold` (0.1); KL is asymmetric (reference = p); JS `distance` is √divergence |
+| `tvd_agg` | Total variation distance of categories + permutation p (1000, seed 42); weaker than `chisq_test_agg` |
 
 ### Forecast evaluation
 | Function | Test |

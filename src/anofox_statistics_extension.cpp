@@ -151,6 +151,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterBrunnerMunzelAggregateFunction(loader);
     RegisterDAgostinoK2AggregateFunction(loader);
     RegisterEnergyDistanceAggregateFunction(loader);
+    RegisterDriftAggregateFunctions(loader);
     RegisterMmdAggregateFunction(loader);
     RegisterTostTTestAggregateFunction(loader);
 

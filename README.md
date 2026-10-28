@@ -156,6 +156,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | Post-hoc (pairwise) | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg` and the `_by` macros `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`; `p_adjust` holm / hochberg / hommel / bonferroni / BH / BY / none | [hypothesis](docs/api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
 | Equivalence | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
 | Distribution | `energy_distance_agg`, `mmd_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
+| Data drift (evidently) | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [hypothesis](docs/api/statistics/hypothesis.md#data-drift) |
 | Forecast | `diebold_mariano_agg`, `clark_west_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` (with the regressors `x`, the `lmtest::dwtest` p-value) | [timeseries](docs/api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [timeseries](docs/api/diagnostics/timeseries.md) |
