@@ -37,8 +37,35 @@ Breaking changes are called out explicitly.
   - `tvd_agg` (#254): total variation distance between category distributions, with a
     seeded permutation p-value (1000 permutations, seed 42).
 - Dependency: anofox-statistics 0.4.11 → 0.5.0.
+- **Exact leave-one-out diagnostics for Ridge, approximate leave-one-out for the GLMs (#235).**
+  Computed upstream in anofox-regression 0.5.37 (`FittedRidge::loo`,
+  `Augment::approx_loo_fitted` / `approx_loo_residual`); the extension maps fields.
+  - Ridge: `ridge_glance_by` adds `press`, `press_rmse` and `loo_r_squared` (on by default,
+    as for OLS); `ridge_fit_agg` / `ridge_fit` take `compute_loo` (default false: one SVD of
+    the design) and fill the same STRUCT fields (so `glance()` has them). The leverage is the
+    diagonal of the ridge hat matrix `X(XᵀX + λI)⁻¹Xᵀ` with the intercept unpenalised, and
+    `press = Σ (residual / (1 − leverage))²` is exactly the error of the fits without each
+    row at the same λ (with `'lambda_scaling': 'glmnet'`, `alpha · n` of the full fit held
+    fixed). Over an `alpha` grid this is exact leave-one-out cross-validation.
+  - New `ridge_augment_by` / `ridge_augment_agg`: the contract `obs` columns for Ridge, with
+    the ridge `leverage` and exact `loo_residual` / `loo_fitted`; `std_residual`,
+    `stud_residual`, `cooks_d` and `dffits` are NULL (no ridge definition in R). Options:
+    `alpha` / `lambda`, `lambda_scaling`, `fit_intercept`, `null_policy`, `solver`.
+  - GLMs: `poisson_augment_by`, `binomial_augment_by`, `logistic_augment_by`,
+    `negbinom_augment_by`, `gamma_augment_by` and `tweedie_augment_by` (and their
+    `_augment_agg`) add `approx_loo_fitted` / `approx_loo_residual`: the one-step (Pregibon)
+    approximation of the leave-one-out prediction on the response scale,
+    `linkinv(eta − h z / (1 − h))`, R's `influence(fit)$coefficients` applied to the row.
+    Named `approx_*` because it is not the refit; there is no GLM PRESS.
+  - Validation: `test/sql/macros/test_ridge_loo.test` checks every ridge LOO value against an
+    explicit refit without the row (in SQL, to 1e-9) and R's explicitly built hat matrix, and
+    the GLM approximation against R 4.6.1 `influence()`.
 
 ### Changed
+
+- The augment STRUCT of `<model>_augment_agg` has two more fields (`approx_loo_fitted`,
+  `approx_loo_residual`; NULL for OLS / WLS / Ridge), and the GLM `_augment_by` macros two
+  more `obs` columns.
 
 - **Supported DuckDB versions are now v1.5.6 and v2.0.** CI no longer builds,
   smoke-tests or deploys the v1.4.5 LTS line or the older v1.5.4 / v1.5.5 patch lines,

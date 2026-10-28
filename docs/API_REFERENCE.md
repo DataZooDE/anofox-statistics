@@ -313,6 +313,7 @@ ridge_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 |-----|------|---------|-------------|
 | alpha (alias `lambda`) | DOUBLE | 1.0 | L2 penalty strength (>= 0) |
 | lambda_scaling | VARCHAR | 'raw' | `'raw'` or `'glmnet'` (see [lambda_scaling](#lambda_scaling)) |
+| compute_loo | BOOLEAN | false | Exact leave-one-out `press`, `press_rmse`, `loo_r_squared` from the ridge hat matrix (one SVD; see [model_tools](api/regression/model_tools.md#ridge)) |
 
 ```sql
 SELECT ridge_fit(
@@ -1803,8 +1804,10 @@ with the integration contract's `obs` columns appended (tagged
 | `weight` | DOUBLE | prior weight (`weight_col` for WLS, 1 for OLS) |
 | `is_training` | BOOLEAN | the row was used to fit |
 | `n_params` | INTEGER | estimated coefficients, intercept included |
-| `loo_residual` | DOUBLE | leave-one-out (PRESS) residual `residual / (1 - leverage)`, `y` minus the prediction of the fit without the row (R `rstandard(fit, type = "predictive")` for OLS); OLS / WLS only, NULL where `leverage = 1` |
-| `loo_fitted` | DOUBLE | `y - loo_residual`, the leave-one-out prediction; OLS / WLS only |
+| `loo_residual` | DOUBLE | leave-one-out (PRESS) residual `residual / (1 - leverage)`, `y` minus the prediction of the fit without the row (R `rstandard(fit, type = "predictive")` for OLS); OLS / WLS / Ridge only, NULL where `leverage = 1` |
+| `loo_fitted` | DOUBLE | `y - loo_residual`, the leave-one-out prediction; OLS / WLS / Ridge only |
+| `approx_loo_fitted` | DOUBLE | GLMs only: one-step (Pregibon) approximation of the leave-one-out fitted mean, `linkinv(eta - h z / (1 - h))` with `z` the working residual (R `influence(fit)$coefficients` applied to the row); an approximation, not the refit |
+| `approx_loo_residual` | DOUBLE | GLMs only: `y - approx_loo_fitted` |
 
 Training rows have `y_col` NOT NULL, every feature present, `split` omitted or
 `'train'` / `'training'` in any case (a NULL split value is not a training row) and, for WLS, a positive weight. Other rows get the prediction as
@@ -1824,6 +1827,16 @@ A row with leverage 1 (e.g. the only observation of a dummy level) has NULL
 leave-one-out columns and makes the group's `press` metrics NULL. See
 [model_tools](api/regression/model_tools.md#leave-one-out-diagnostics).
 
+**Ridge (#235).** `ridge_augment_by(source, group_col, y_col, x_cols [, options,
+split, order_by])` returns the same `obs` columns with `leverage` the diagonal of
+the ridge hat matrix `X(XᵀX + λI)⁻¹Xᵀ` (intercept unpenalised) and the exact
+leave-one-out `loo_residual` / `loo_fitted` at the same λ; `std_residual`,
+`stud_residual`, `cooks_d` and `dffits` are NULL. Options: `alpha` / `lambda`,
+`lambda_scaling`, `fit_intercept`, `null_policy`, `solver`. `ridge_glance_by`
+reports `press`, `press_rmse`, `loo_r_squared`, and `ridge_fit_agg` / `ridge_fit`
+take `compute_loo`. With `'lambda_scaling': 'glmnet'` the penalty `alpha · n` of
+the full fit is held fixed. See [model_tools](api/regression/model_tools.md#ridge).
+
 **GLMs.** `poisson_augment_by`, `binomial_augment_by`, `logistic_augment_by`,
 `negbinom_augment_by`, `gamma_augment_by` and `tweedie_augment_by` (same
 arguments as `ols_augment_by`; window aggregates `<family>_augment_agg(y, x [, options])`)
@@ -1835,7 +1848,10 @@ return the same columns for the matching GLM:
   (R `rstandard(fit, type = "deviance")`), `stud_residual` is R `rstudent`;
 - `leverage` is the hat value of the IRLS-weighted design, `weight` is 1;
 - the dispersion `phi` is 1 for Poisson, binomial, logistic and Negative Binomial
-  (as `MASS::glm.nb`), and the Pearson estimate for Gamma and Tweedie.
+  (as `MASS::glm.nb`), and the Pearson estimate for Gamma and Tweedie;
+- instead of the exact `loo_residual` / `loo_fitted` they have `approx_loo_fitted`
+  and `approx_loo_residual`, the one-step approximate leave-one-out prediction
+  (#235; see [model_tools](api/regression/model_tools.md#approximate-leave-one-out-for-the-glms)).
 
 Options are those of the matching `<family>_fit_agg` that change the fit:
 `fit_intercept`, `max_iterations`, `tolerance`, `offset` (1-based index of the

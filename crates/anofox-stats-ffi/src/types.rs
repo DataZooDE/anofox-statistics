@@ -593,15 +593,15 @@ mod layout_tests {
         use std::mem::{offset_of, size_of};
         assert_eq!(
             offset_of!(AugmentResultFFI, len),
-            10 * size_of::<*mut f64>()
+            12 * size_of::<*mut f64>()
         );
         assert_eq!(
             offset_of!(AugmentResultFFI, resid_type),
-            10 * size_of::<*mut f64>() + 2 * size_of::<usize>()
+            12 * size_of::<*mut f64>() + 2 * size_of::<usize>()
         );
         assert_eq!(
             size_of::<AugmentResultFFI>(),
-            10 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
+            12 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
         );
     }
 
@@ -1042,6 +1042,8 @@ pub struct RidgeOptionsFFI {
     pub solver: SolverTypeFFI,
     /// Lambda scaling convention
     pub lambda_scaling: LambdaScalingFFI,
+    /// Compute the leave-one-out statistics in the summary (#235)
+    pub compute_loo: bool,
 }
 
 impl Default for RidgeOptionsFFI {
@@ -1053,6 +1055,7 @@ impl Default for RidgeOptionsFFI {
             confidence_level: 0.95,
             solver: SolverTypeFFI::Qr,
             lambda_scaling: LambdaScalingFFI::Raw,
+            compute_loo: false,
         }
     }
 }
@@ -3242,6 +3245,10 @@ pub struct AugmentResultFFI {
     /// rows with leverage 1.
     pub loo_residual: *mut f64,
     pub loo_fitted: *mut f64,
+    /// One-step approximate leave-one-out prediction and residual of a GLM
+    /// (#235); NaN for the linear models and rows with leverage 1.
+    pub approx_loo_fitted: *mut f64,
+    pub approx_loo_residual: *mut f64,
     /// Whether the row was used to fit the model.
     pub used: *mut bool,
     pub len: usize,
@@ -3263,6 +3270,8 @@ impl Default for AugmentResultFFI {
             dffits: std::ptr::null_mut(),
             loo_residual: std::ptr::null_mut(),
             loo_fitted: std::ptr::null_mut(),
+            approx_loo_fitted: std::ptr::null_mut(),
+            approx_loo_residual: std::ptr::null_mut(),
             used: std::ptr::null_mut(),
             len: 0,
             n_params: 0,

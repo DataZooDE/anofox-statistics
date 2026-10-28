@@ -19,12 +19,12 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
-        augment_poisson, augment_tweedie, augment_wls, compute_aid, compute_aid_anomalies,
-        eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_gamma, fit_glmm,
-        fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
-        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
-        fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, predict, AftDistribution,
-        AftOptions, EbShrinkOptions, GlmmDdf, GlmmFamily, GlmmOptions, GlmmResult,
+        augment_poisson, augment_ridge, augment_tweedie, augment_wls, compute_aid,
+        compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
+        fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic,
+        fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac,
+        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, predict,
+        AftDistribution, AftOptions, EbShrinkOptions, GlmmDdf, GlmmFamily, GlmmOptions, GlmmResult,
         NestedFTestOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
@@ -1046,6 +1046,7 @@ pub unsafe extern "C" fn anofox_ridge_fit(
             confidence_level: options.confidence_level,
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
+            compute_loo: options.compute_loo,
         };
 
         // Call the core function with panic catching for regress-rs issues
@@ -9212,6 +9213,8 @@ unsafe fn write_augment_result(
         dffits: alloc_f64(&r.dffits),
         loo_residual: alloc_f64(&r.loo_residual),
         loo_fitted: alloc_f64(&r.loo_fitted),
+        approx_loo_fitted: alloc_f64(&r.approx_loo_fitted),
+        approx_loo_residual: alloc_f64(&r.approx_loo_residual),
         used: used_ptr,
         len: n,
         n_params: r.n_params,
@@ -9227,6 +9230,8 @@ unsafe fn write_augment_result(
             || res.dffits.is_null()
             || res.loo_residual.is_null()
             || res.loo_fitted.is_null()
+            || res.approx_loo_fitted.is_null()
+            || res.approx_loo_residual.is_null()
             || res.used.is_null());
     if !complete {
         anofox_free_augment_result(&mut res);
@@ -9319,6 +9324,49 @@ pub unsafe extern "C" fn anofox_ols_augment(
         };
         augment_entry("OLS augment", out_result, out_error, || {
             augment_ols(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit Ridge on the usable rows (finite y and features) and return per-row
+/// fitted values, residuals, the ridge leverage and the exact leave-one-out
+/// residual / prediction for every input row (#235, upstream
+/// `FittedRidge::loo`); the other diagnostics are NaN.
+///
+/// # Safety
+/// As [`anofox_ols_augment`].
+#[no_mangle]
+pub unsafe extern "C" fn anofox_ridge_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: RidgeOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+            }
+            return false;
+        }
+        let y_vec = y.to_vec();
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let opts = RidgeOptions {
+            alpha: options.alpha,
+            fit_intercept: options.fit_intercept,
+            compute_inference: false,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
+            compute_loo: false,
+        };
+        augment_entry("Ridge augment", out_result, out_error, || {
+            augment_ridge(&y_vec, &x_vecs, &opts)
         })
     })
 }
@@ -9589,6 +9637,8 @@ pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFF
             &mut (*result).dffits,
             &mut (*result).loo_residual,
             &mut (*result).loo_fitted,
+            &mut (*result).approx_loo_fitted,
+            &mut (*result).approx_loo_residual,
         ] {
             if !p.is_null() {
                 libc::free(*p as *mut libc::c_void);

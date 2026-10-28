@@ -35,6 +35,7 @@ static LogicalType GetRidgeResultType() {
     // without compute_inference.
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
+    AppendLooFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -47,6 +48,7 @@ struct RidgeFitBindData : public FunctionData {
     double confidence_level = 0.95;
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
+    bool compute_loo = false; // press, press_rmse, loo_r_squared (#235): one SVD of the design
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeFitBindData>();
@@ -56,6 +58,7 @@ struct RidgeFitBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
+        result->compute_loo = compute_loo;
         return std::move(result);
     }
 
@@ -63,7 +66,7 @@ struct RidgeFitBindData : public FunctionData {
         auto &other = other_p.Cast<RidgeFitBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                compute_inference == other.compute_inference && confidence_level == other.confidence_level &&
-               solver == other.solver && lambda_scaling == other.lambda_scaling;
+               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo;
     }
 };
 
@@ -76,7 +79,8 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarBindF
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling"});
+            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling",
+             "compute_loo"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -96,6 +100,9 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarBindF
         }
         if (opts.lambda_scaling.has_value()) {
             result->lambda_scaling = opts.lambda_scaling.value();
+        }
+        if (opts.compute_loo.has_value()) {
+            result->compute_loo = opts.compute_loo.value();
         }
     }
 
@@ -181,13 +188,14 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         }
 
         // Set options
-        AnofoxRidgeOptions options;
+        AnofoxRidgeOptions options {};
         options.alpha = bind_data.alpha;
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
         options.solver = ConvertSolverType(bind_data.solver);
         options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
+        options.compute_loo = bind_data.compute_loo;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;
@@ -278,7 +286,7 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits a Ridge regression model with L2 regularization and optional MAP of settings (fit_intercept, compute_inference, confidence_level, alpha, solver).";
+        d2.description     = "Fits a Ridge regression model with L2 regularization and optional MAP of settings (fit_intercept, compute_inference, confidence_level, alpha, solver, lambda_scaling, compute_loo).";
         d2.examples        = {"ridge_fit(y, x, {'alpha': 1.0, 'compute_inference': true})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "options"};

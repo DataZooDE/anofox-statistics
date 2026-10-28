@@ -38,7 +38,7 @@ pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
 pub use augment::{
     augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
-    augment_poisson, augment_tweedie, augment_wls, partial_residuals_binomial,
+    augment_poisson, augment_ridge, augment_tweedie, augment_wls, partial_residuals_binomial,
     partial_residuals_gamma, partial_residuals_logistic, partial_residuals_negbinomial,
     partial_residuals_ols, partial_residuals_poisson, partial_residuals_tweedie,
     partial_residuals_wls, AugmentResult, PartialResidualsResult,
