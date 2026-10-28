@@ -19,6 +19,11 @@ Breaking changes are called out explicitly.
   `EXECUTE`. Before, `PREPARE ... {'threshold': ?}` failed with "options must be a constant".
   Options from SQL variables (`getvariable('x')`, `$x` on DuckDB 2.0) already worked and are
   now documented (API_CONVENTIONS §2, batch skill).
+- **Benchmarks: DuckDB v1.5.6 vs v2.0 (#269).** New workloads: `_by` macros on Parquet,
+  tests per VARCHAR segment, and a drift monitor over Hive-partitioned Parquet. A new
+  `scripts/bench_compare.py` reports median timings for several DuckDB CLIs, and the results
+  are in `docs/PERFORMANCE.md`. Main finding: `*_fit_predict_by` runs 2× faster on 2.0 (DuckDB's
+  window operator), while the aggregate-bound workloads are within ±15%.
 
 ## [0.14.0] - 2026-10-28
 
