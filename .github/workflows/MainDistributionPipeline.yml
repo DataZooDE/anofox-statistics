@@ -6,7 +6,12 @@ on:
   push:
     branches: [main]
     tags: ['**']
+  # PR fast lane (#243): pull requests build and test linux_amd64 only (both DuckDB lines,
+  # plus the Windows MSVC suite, which is a required check); the full platform matrix runs
+  # on main, tags, workflow_dispatch and PRs labelled `full-ci` (dependency bumps,
+  # CMake/compat changes, release PRs). Adding the label re-runs the pipeline.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
 # OIDC token needed for AWS credentials in the deploy job.
@@ -38,7 +43,7 @@ jobs:
       #     Not fixable here: vcpkg comes from extension-ci-tools.
       #   * windows_amd64 — DuckDB's vendored third_party/fmt is flaky on MSVC
       #     (see the deploy job comment below).
-      exclude_archs: "windows_amd64;windows_amd64_mingw"
+      exclude_archs: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'windows_amd64;windows_amd64_mingw' || 'linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads' }}
 
   duckdb-stable-smoke-test:
     name: Smoke test (v1.5.6)
@@ -47,7 +52,7 @@ jobs:
     with:
       duckdb_version: v1.5.6
       extension_name: anofox_statistics
-      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+      exclude_archs: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'windows_amd64;windows_amd64_mingw' || 'linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads' }}
 
   duckdb-stable-deploy:
     name: Deploy extension binaries (v1.5.6)
@@ -78,7 +83,7 @@ jobs:
     # artifact the build job already produced and runs test/wasm/run.mjs against
     # it. Gating (no continue-on-error) per milestone requirement TEST-02.
     needs: duckdb-stable-build
-    if: ${{ !cancelled() && needs.duckdb-stable-build.result == 'success' }}
+    if: ${{ !cancelled() && needs.duckdb-stable-build.result == 'success' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -197,7 +202,7 @@ jobs:
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
-      exclude_archs: "windows_amd64;windows_amd64_mingw"
+      exclude_archs: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'windows_amd64;windows_amd64_mingw' || 'linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads' }}
 
   duckdb-200-smoke-test:
     name: Smoke test (v2.0.0)
@@ -206,7 +211,7 @@ jobs:
     with:
       duckdb_version: v2.0.0
       extension_name: anofox_statistics
-      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+      exclude_archs: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'windows_amd64;windows_amd64_mingw' || 'linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads' }}
 
   duckdb-200-deploy:
     name: Deploy extension binaries (v2.0.0)

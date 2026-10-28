@@ -38,6 +38,10 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **CI: PR fast lane (#243).** Pull requests now build and test linux_amd64 only, on both
+  DuckDB lines, plus the required Windows MSVC suite. The full platform matrix (macOS,
+  arm64, musl, WASM and the WASM runtime test) runs on main, on tags, on
+  `workflow_dispatch` and on PRs labelled `full-ci`. Adding the label re-runs the pipeline.
 - The augment STRUCT of `<model>_augment_agg` has two more fields (`approx_loo_fitted`,
   `approx_loo_residual`; NULL for OLS / WLS / Ridge), and the GLM `_augment_by` macros two
   more `obs` columns.
