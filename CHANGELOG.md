@@ -12,6 +12,9 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- **Advanced guide on DuckDB 2.0:** the cross-validation pattern used `random()` in a window
+  `ORDER BY`, which DuckDB 2.0 rejects. It now assigns folds with `hash()` (reproducible).
+  All 54 documentation files now validate on 2.0 as well as v1.5.6.
 - **`aid_by` takes `order_by := <time column>` (#271).** AID reads each series in order:
   leading zeros mark a new product, trailing zeros an obsolete one. `aid_by` called
   `aid_agg` without an `ORDER BY`, so the new / obsolete / stockout flags depended on the
@@ -24,9 +27,24 @@ Breaking changes are called out explicitly.
   and `p_adjust_agg` are bitwise identical for 1 and 8 threads and shuffled input
   (`test/sql/issues/issue_271.test`). METHODOLOGY documents this and the cost of the
   ordering.
+- **Empty `{}` and NULL options mean "no options" everywhere (#276).** On DuckDB 2.0,
+  `options := {}` parses, and every aggregate, scalar, window function and table macro gives
+  the same result for `{}` as for no options (checked for all of them). The list-input scalar
+  fits (`ols_fit`, `wls_fit`, `ridge_fit`, `rls_fit`, `ransac_fit`, `theil_sen_fit`,
+  `huber_fit`, `elasticnet_fit`) used to return NULL when the options argument was NULL. They
+  now treat it as no options, like the aggregates and macros already did. A NULL `y`, `X` or
+  weights row still gives a NULL result.
 
 ### Added
 
+- **Hierarchical fits and drift alerts: tests and recipes (#267, #275).** Every fit and test
+  aggregate under `GROUP BY GROUPING SETS / ROLLUP / CUBE` gives, per level, bitwise the same
+  result as a separate `GROUP BY` at that level, on DuckDB v1.5.6 and 2.0 (all aggregate
+  overloads checked; regression test `issue_267.test`). New guide patterns: "Fits and tests at
+  every level in one query", and "Drift alerts with a trigger" (DuckDB 2.0, a statement-level
+  `AFTER INSERT` trigger running `psi_agg`; test `issue_275.test`). DuckDB 2.0 does not yet
+  build coarser levels from finer states for these aggregates: that needs compact,
+  fixed-size states (#266).
 - **Options from prepared-statement parameters (#274).** Options and the other constant
   arguments (time-series `lag`, `p_adjust` method / `n`, classifier-curve and survival
   constants, `predict` options) may now be `?` / `$1` / `$name` parameters. Bind throws
@@ -46,16 +64,6 @@ Breaking changes are called out explicitly.
   Works on DuckDB v1.5.6 and 2.0. On 2.0 the macros that merge defaults into the options
   (`*_tidy_by`, `*_glance_by`, `*_prediction_by`, effects, `glmm_*_by`) need a STRUCT or a
   `MAP(VARCHAR, VARIANT)`, not a top-level VARIANT.
-
-### Fixed
-
-- **Empty `{}` and NULL options mean "no options" everywhere (#276).** On DuckDB 2.0,
-  `options := {}` parses, and every aggregate, scalar, window function and table macro gives
-  the same result for `{}` as for no options (checked for all of them). The list-input scalar
-  fits (`ols_fit`, `wls_fit`, `ridge_fit`, `rls_fit`, `ransac_fit`, `theil_sen_fit`,
-  `huber_fit`, `elasticnet_fit`) used to return NULL when the options argument was NULL. They
-  now treat it as no options, like the aggregates and macros already did. A NULL `y`, `X` or
-  weights row still gives a NULL result.
 
 ### Performance
 

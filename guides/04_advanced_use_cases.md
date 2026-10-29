@@ -359,6 +359,29 @@ JOIN territory_summary t ON s.territory = t.territory
 ORDER BY s.traffic_coef DESC;
 ```
 
+### Pattern: Fits and Tests at Every Level in One Query
+
+`GROUP BY ROLLUP`, `CUBE` or `GROUPING SETS` fit one model per region and product, per
+region, and overall in a single query. `GROUPING()` tells the levels apart. Each level's
+result is identical to a separate `GROUP BY` at that level (bitwise, on DuckDB v1.5.6 and 2.0).
+
+```sql
+SELECT
+    CASE GROUPING(region, product) WHEN 0 THEN 'region x product' WHEN 1 THEN 'region' ELSE 'overall' END AS level,
+    region, product,
+    round((ols_fit_agg(sales, [price])).coefficients[1], 3) AS price_effect,
+    round((t_test_agg(sales, promo)).p_value, 4) AS promo_p
+FROM (SELECT i % 3 AS region, i % 2 AS product, (i % 4 < 2)::INT AS promo, 10 + (i % 7) * 0.5 AS price,
+             100 - 2.0 * (10 + (i % 7) * 0.5) + (i % 4 < 2)::INT * 3 + sin(i) * 4 AS sales
+      FROM range(3000) r(i))
+GROUP BY ROLLUP (region, product)
+ORDER BY GROUPING(region, product), region, product;
+```
+
+Each level is still computed from the rows. DuckDB 2.0 builds coarser levels from finer
+levels' states only for aggregates with compact, fixed-size states, which the fit and test
+aggregates do not have yet (#266).
+
 ---
 
 ## Cohort Analysis
@@ -651,6 +674,41 @@ FROM current_performance c
 JOIN baseline_performance b ON c.category = b.category;
 ```
 
+### Pattern: Drift Alerts with a Trigger (DuckDB 2.0)
+
+DuckDB 2.0 has triggers, so the database can check for drift itself whenever data arrives.
+This trigger compares the latest 200 events with a reference sample after every `INSERT`
+statement and records an alert when the PSI exceeds 0.25:
+
+```sql skip
+-- DuckDB 2.0 only (triggers do not exist on v1.5.6)
+CREATE TABLE events(ts TIMESTAMP, v DOUBLE);
+CREATE TABLE alerts(alert_ts TIMESTAMP, psi DOUBLE, n BIGINT);
+CREATE TABLE ref AS SELECT sin(i * 0.37) AS v FROM range(500) t(i);
+
+CREATE TRIGGER drift_check AFTER INSERT ON events FOR EACH STATEMENT
+    INSERT INTO alerts
+    SELECT max_ts, psi, n FROM (
+        SELECT (psi_agg(v, src)).psi AS psi, count(*) FILTER (WHERE src = 1) AS n, max(ts) AS max_ts
+        FROM (SELECT v, 0 AS src, NULL::TIMESTAMP AS ts FROM ref
+              UNION ALL
+              SELECT v, 1, ts FROM (SELECT v, ts FROM events ORDER BY ts DESC LIMIT 200)))
+    WHERE n >= 200 AND psi > 0.25;
+
+INSERT INTO events SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) SECOND, sin(i * 0.37) FROM range(300) t(i);
+-- no alert
+INSERT INTO events SELECT TIMESTAMP '2026-01-02' + INTERVAL (i) SECOND, sin(i * 0.37) + 1.5 FROM range(300) t(i);
+SELECT * FROM alerts;  -- one row, psi ≈ 8.8
+```
+
+Use `FOR EACH STATEMENT`. A `FOR EACH ROW` trigger fires once per inserted row, and each firing
+sees the table after the whole statement. A 300-row `INSERT` would then write 300 identical
+alerts and run the aggregate 300 times. Any drift aggregate (`ks_test_agg`, `wasserstein_agg`,
+`jensen_shannon_agg`, ...) works the same way.
+
+On DuckDB v1.5.6, run the same `INSERT INTO alerts SELECT ...` as a scheduled query (cron or
+an orchestrator) instead of a trigger.
+
 ### Pattern: Large-Scale Parallel Processing
 
 Partition data for parallel regression.
@@ -711,7 +769,8 @@ WHERE category = 'A';
 ```sql
 -- Cross-validation pattern (using training_data from above)
 WITH folds AS (
-    SELECT *, NTILE(5) OVER (ORDER BY random()) as fold FROM training_data
+    -- hash() gives a reproducible pseudo-random fold (DuckDB 2.0 rejects random() in a window ORDER BY)
+    SELECT *, hash(x1, x2, y) % 5 as fold FROM training_data
 ),
 -- For each held-out fold, fit on all other folds
 cv_results AS (

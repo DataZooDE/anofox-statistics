@@ -1,0 +1,101 @@
+# name: test/sql/issues/issue_267.test
+# description: #267 fits and tests under GROUPING SETS / ROLLUP / CUBE equal separate GROUP BY queries
+# group: [issues]
+#
+# DuckDB 2.0 computes the coarser grouping levels by combining the finer levels' states
+# (cascading aggregation), so this checks Combine under cascading. On v1.5.6 every level
+# is aggregated from the rows; the results must be identical on both lines.
+
+require anofox_statistics
+
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE d AS SELECT i, i % 3 AS region, i % 2 AS product, CASE WHEN i % 4 < 2 THEN 'a' ELSE 'b' END AS grp,
+    ((i * 7) % 5 < 2)::INT::DOUBLE AS yb, i * 0.00015 + sin(i * 7.3) * 3 + 10 AS y,
+    i * 0.00001 + cos(i) * 2 AS x1, abs(sin(i * 1.7)) + 0.5 AS x2, 1.0 + (i % 4) * 0.1 AS w
+FROM range(1, 200001) t(i);
+
+# One row per (level, region, product) and per statistic, as VARCHAR so whole structs compare.
+statement ok
+CREATE MACRO stats() AS TABLE
+SELECT region, product, GROUPING(region, product) AS lvl,
+    ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR AS ols,
+    wls_fit_agg(y, [x1, x2], w)::VARCHAR AS wls,
+    ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})::VARCHAR AS ridge,
+    logistic_fit_agg(yb, [x1, x2])::VARCHAR AS logit,
+    poisson_fit_agg(round(y), [x1])::VARCHAR AS pois,
+    huber_fit_agg(y, [x1, x2])::VARCHAR AS huber,
+    t_test_agg(y, grp)::VARCHAR AS tt,
+    mann_whitney_u_agg(y, grp)::VARCHAR AS mw,
+    pearson_agg(y, x1)::VARCHAR AS pr,
+    spearman_agg(y, x1)::VARCHAR AS sp,
+    jarque_bera_agg(x2)::VARCHAR AS sw,
+    psi_agg(y, grp)::VARCHAR AS psi,
+    ks_test_agg(y, grp)::VARCHAR AS ks
+FROM d GROUP BY GROUPING SETS ((region, product), (region), (product), ());
+
+statement ok
+CREATE TABLE gs AS FROM stats();
+
+statement ok
+CREATE TABLE sep AS
+SELECT region, product, 0 AS lvl, ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR AS ols,
+    wls_fit_agg(y, [x1, x2], w)::VARCHAR AS wls, ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})::VARCHAR AS ridge,
+    logistic_fit_agg(yb, [x1, x2])::VARCHAR AS logit, poisson_fit_agg(round(y), [x1])::VARCHAR AS pois,
+    huber_fit_agg(y, [x1, x2])::VARCHAR AS huber, t_test_agg(y, grp)::VARCHAR AS tt,
+    mann_whitney_u_agg(y, grp)::VARCHAR AS mw, pearson_agg(y, x1)::VARCHAR AS pr, spearman_agg(y, x1)::VARCHAR AS sp,
+    jarque_bera_agg(x2)::VARCHAR AS sw, psi_agg(y, grp)::VARCHAR AS psi, ks_test_agg(y, grp)::VARCHAR AS ks
+FROM d GROUP BY region, product
+UNION ALL
+SELECT region, NULL, 1, ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR,
+    wls_fit_agg(y, [x1, x2], w)::VARCHAR, ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})::VARCHAR,
+    logistic_fit_agg(yb, [x1, x2])::VARCHAR, poisson_fit_agg(round(y), [x1])::VARCHAR,
+    huber_fit_agg(y, [x1, x2])::VARCHAR, t_test_agg(y, grp)::VARCHAR,
+    mann_whitney_u_agg(y, grp)::VARCHAR, pearson_agg(y, x1)::VARCHAR, spearman_agg(y, x1)::VARCHAR,
+    jarque_bera_agg(x2)::VARCHAR, psi_agg(y, grp)::VARCHAR, ks_test_agg(y, grp)::VARCHAR
+FROM d GROUP BY region
+UNION ALL
+SELECT NULL, product, 2, ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR,
+    wls_fit_agg(y, [x1, x2], w)::VARCHAR, ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})::VARCHAR,
+    logistic_fit_agg(yb, [x1, x2])::VARCHAR, poisson_fit_agg(round(y), [x1])::VARCHAR,
+    huber_fit_agg(y, [x1, x2])::VARCHAR, t_test_agg(y, grp)::VARCHAR,
+    mann_whitney_u_agg(y, grp)::VARCHAR, pearson_agg(y, x1)::VARCHAR, spearman_agg(y, x1)::VARCHAR,
+    jarque_bera_agg(x2)::VARCHAR, psi_agg(y, grp)::VARCHAR, ks_test_agg(y, grp)::VARCHAR
+FROM d GROUP BY product
+UNION ALL
+SELECT NULL, NULL, 3, ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR,
+    wls_fit_agg(y, [x1, x2], w)::VARCHAR, ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})::VARCHAR,
+    logistic_fit_agg(yb, [x1, x2])::VARCHAR, poisson_fit_agg(round(y), [x1])::VARCHAR,
+    huber_fit_agg(y, [x1, x2])::VARCHAR, t_test_agg(y, grp)::VARCHAR,
+    mann_whitney_u_agg(y, grp)::VARCHAR, pearson_agg(y, x1)::VARCHAR, spearman_agg(y, x1)::VARCHAR,
+    jarque_bera_agg(x2)::VARCHAR, psi_agg(y, grp)::VARCHAR, ks_test_agg(y, grp)::VARCHAR
+FROM d;
+
+# 6 + 3 + 2 + 1 groups, every statistic bitwise identical.
+query II
+SELECT count(*), count(*) FILTER (WHERE gs.ols IS DISTINCT FROM sep.ols OR gs.wls IS DISTINCT FROM sep.wls
+    OR gs.ridge IS DISTINCT FROM sep.ridge OR gs.logit IS DISTINCT FROM sep.logit OR gs.pois IS DISTINCT FROM sep.pois
+    OR gs.huber IS DISTINCT FROM sep.huber OR gs.tt IS DISTINCT FROM sep.tt OR gs.mw IS DISTINCT FROM sep.mw
+    OR gs.pr IS DISTINCT FROM sep.pr OR gs.sp IS DISTINCT FROM sep.sp OR gs.sw IS DISTINCT FROM sep.sw
+    OR gs.psi IS DISTINCT FROM sep.psi OR gs.ks IS DISTINCT FROM sep.ks)
+FROM gs FULL JOIN sep ON gs.lvl = sep.lvl AND gs.region IS NOT DISTINCT FROM sep.region
+    AND gs.product IS NOT DISTINCT FROM sep.product;
+----
+12	0
+
+# ROLLUP and CUBE are shorthands for grouping sets: same per-level results.
+query I
+SELECT count(*) FROM (SELECT region, product, ols_fit_agg(y, [x1, x2], {'compute_inference': true})::VARCHAR AS ols FROM d GROUP BY ROLLUP (region, product)) r
+JOIN sep ON r.region IS NOT DISTINCT FROM sep.region AND r.product IS NOT DISTINCT FROM sep.product AND sep.lvl IN (0, 1, 3)
+WHERE r.ols = sep.ols;
+----
+10
+
+query I
+SELECT count(*) FROM (SELECT region, product, t_test_agg(y, grp)::VARCHAR AS tt FROM d GROUP BY CUBE (region, product)) c
+JOIN sep ON c.region IS NOT DISTINCT FROM sep.region AND c.product IS NOT DISTINCT FROM sep.product
+WHERE c.tt = sep.tt;
+----
+12
