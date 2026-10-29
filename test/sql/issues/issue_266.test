@@ -1,0 +1,121 @@
+# name: test/sql/issues/issue_266.test
+# description: #266 compact mergeable least-squares states: ls_state_agg, ls_state_combine_agg, ls_state_info, *_fit_from_state
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+SET threads = 8;
+
+# x1 has a large offset, so a merge that formed raw cross-products would lose precision.
+statement ok
+CREATE TABLE d AS SELECT i, i % 7 AS day, sin(i * 0.37) * 3 + 1e3 AS x1, cos(i * 1.3) AS x2, 1.0 + (i % 4) * 0.25 AS w,
+    2 + 0.5 * (sin(i * 0.37) * 3 + 1e3) - 1.5 * cos(i * 1.3) + sin(i * 7.1) * 0.3 AS y
+FROM range(200000) t(i);
+
+statement ok
+CREATE TABLE states AS SELECT day, ls_state_agg(y, [x1, x2]) AS s, ls_state_agg(y, [x1, x2], w) AS sw FROM d GROUP BY day;
+
+statement ok
+CREATE MACRO rel(a, b) AS abs(a - b) / greatest(abs(b), 1e-300);
+
+# A state is O(p^2) bytes, whatever the number of rows.
+query IIII
+SELECT octet_length(s), (ls_state_info(s)).n_features, (ls_state_info(s)).weighted, (ls_state_info(sw)).weighted
+FROM states WHERE day = 0;
+----
+144	2	false	true
+
+query I
+SELECT sum((ls_state_info(s)).n_observations) FROM states;
+----
+200000
+
+# Fits from the combined states equal the direct fits on the rows (to 1e-10 relative).
+statement ok
+CREATE TABLE direct AS SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS ols,
+    wls_fit_agg(y, [x1, x2], w, {'compute_inference': true}) AS wls,
+    ridge_fit_agg(y, [x1, x2], {'alpha': 2.0}) AS ridge FROM d;
+
+statement ok
+CREATE TABLE from_state AS SELECT ols_fit_from_state(ls_state_combine_agg(s), {'compute_inference': true}) AS ols,
+    wls_fit_from_state(ls_state_combine_agg(sw), {'compute_inference': true}) AS wls,
+    ridge_fit_from_state(ls_state_combine_agg(s), {'alpha': 2.0}) AS ridge FROM states;
+
+query IIIIIIII
+SELECT rel(f.ols.coefficients[1], d.ols.coefficients[1]) < 1e-10, rel(f.ols.intercept, d.ols.intercept) < 1e-10,
+    rel(f.ols.std_errors[2], d.ols.std_errors[2]) < 1e-10, rel(f.ols.r_squared, d.ols.r_squared) < 1e-12,
+    f.ols.n_observations = d.ols.n_observations, rel(f.wls.coefficients[2], d.wls.coefficients[2]) < 1e-10,
+    rel(f.wls.p_values[2], d.wls.p_values[2]) < 1e-8, rel(f.ridge.coefficients[1], d.ridge.coefficients[1]) < 1e-10
+FROM from_state f, direct d;
+----
+true	true	true	true	true	true	true	true
+
+# The coefficient covariance comes along, so predict() gives intervals from a stored state.
+query II
+SELECT len(f.ols.vcov) = len(d.ols.vcov),
+    rel((predict(f.ols, [1000.5, 0.2], {'interval': 'prediction'})).yhat_upper,
+        (predict(d.ols, [1000.5, 0.2], {'interval': 'prediction'})).yhat_upper) < 1e-10
+FROM from_state f, direct d;
+----
+true	true
+
+# Determinism (#226): the bytes depend neither on the row order nor on the order of the states.
+query II
+SELECT (SELECT ls_state_agg(y, [x1, x2]) FROM d) = (SELECT ls_state_agg(y, [x1, x2]) FROM (SELECT * FROM d ORDER BY random())),
+    (SELECT ls_state_combine_agg(s) FROM states) = (SELECT ls_state_combine_agg(s) FROM (SELECT * FROM states ORDER BY random()));
+----
+true	true
+
+# Incremental: append a day's state to the stored combination and refit, without the old rows.
+query I
+SELECT rel((ols_fit_from_state(ls_state_combine_agg(s))).coefficients[1],
+           (SELECT (ols_fit_agg(y, [x1, x2])).coefficients[1] FROM d WHERE day <= 3)) < 1e-10
+FROM (SELECT ls_state_combine_agg(s) AS s FROM states WHERE day <= 2
+      UNION ALL SELECT s FROM states WHERE day = 3);
+----
+true
+
+# One state serves any alpha.
+query II
+SELECT rel((ridge_fit_from_state(s, {'alpha': 0.0})).coefficients[1], (ols_fit_from_state(s)).coefficients[1]) < 1e-10,
+    abs((ridge_fit_from_state(s, {'alpha': 1.0})).coefficients[2]) > abs((ridge_fit_from_state(s, {'alpha': 100.0})).coefficients[2])
+FROM (SELECT ls_state_combine_agg(s) AS s FROM states);
+----
+true	true
+
+# NULL handling: rows with a NULL value are skipped; a NULL state gives NULL; NULL options = no options.
+query III
+SELECT (ls_state_info(ls_state_agg(y, [x1, CASE WHEN i % 10 = 0 THEN NULL ELSE x2 END]))).n_observations,
+    ols_fit_from_state(NULL::BLOB) IS NULL,
+    (ols_fit_from_state(ls_state_agg(y, [x1, x2]), NULL)).r_squared = (ols_fit_from_state(ls_state_agg(y, [x1, x2]))).r_squared
+FROM d;
+----
+180000	true	true
+
+query I
+SELECT ls_state_agg(y, [x1]) IS NULL FROM d WHERE false;
+----
+true
+
+# Row-level outputs need the rows: a clear error, not an approximation.
+statement error
+SELECT ols_fit_from_state(ls_state_combine_agg(s), {'hc_type': 'hc1', 'compute_inference': true}) FROM states;
+----
+hc_type needs the rows
+
+statement error
+SELECT ols_fit_from_state(ls_state_combine_agg(s), {'compute_loo': true}) FROM states;
+----
+compute_loo needs the rows
+
+# States with different feature counts do not merge; bytes that are not a state are rejected.
+statement error
+SELECT ls_state_combine_agg(s) FROM (SELECT ls_state_agg(y, [x1]) AS s FROM d UNION ALL SELECT ls_state_agg(y, [x1, x2]) FROM d);
+----
+features
+
+statement error
+SELECT ols_fit_from_state('\x00\x01\x02'::BLOB);
+----
+Invalid

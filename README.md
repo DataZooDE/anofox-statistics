@@ -58,6 +58,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | RANSAC | `ransac_fit`, `ransac_fit_agg` | Robust consensus regression (reports `n_inliers` and `n_trials`) | [ransac](docs/api/regression/ransac.md) |
 | Theil-Sen | `theil_sen_fit`, `theil_sen_fit_agg` | Robust nonparametric regression via spatial median over subsamples | [theil_sen](docs/api/regression/theil_sen.md) |
 | BLS / NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded / non-negative least squares | [bls](docs/api/regression/bls.md) |
+| LS states | `ls_state_agg`, `ls_state_combine_agg`, `ols_fit_from_state`, `wls_fit_from_state`, `ridge_fit_from_state` | Compact mergeable least-squares states: store per partition, combine, fit without the rows | [ls_state](docs/api/regression/ls_state.md) |
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial Least Squares | [pls](docs/api/regression/pls.md) |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression | [isotonic](docs/api/regression/isotonic.md) |
 | Passive-Aggressive | `passive_aggressive_fit_agg`, `passive_aggressive_fit_predict` (window), `passive_aggressive_fit_predict_agg` | Online (streaming) regression, PA-I / PA-II, updated row by row in `ORDER BY` order (scikit-learn `PassiveAggressiveRegressor`) | [online_dynamic](docs/api/regression/online_dynamic.md) |
