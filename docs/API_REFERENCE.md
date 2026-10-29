@@ -101,6 +101,7 @@ error rather than being silently ignored. Option values must be constants.
 | Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
 | Nested-model F test (OLS) | - | `ols_anova_agg` | - | - | `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | Per-term ANOVA table (OLS) | - | `ols_anova_table_agg` | - | - | `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
+| Least-squares state (store, combine, fit later) | `ols_fit_from_state`, `wls_fit_from_state`, `ridge_fit_from_state`, `ls_state_info` | `ls_state_agg`, `ls_state_combine_agg` | - | - | - | [LS states](api/regression/ls_state.md) |
 
 Overview pages: [window functions](api/regression/fit_predict_window.md),
 [fit-predict aggregates](api/regression/fit_predict_agg.md),
@@ -2274,7 +2275,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 
 ## Detailed Documentation
 
-- **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [Bayesian Ridge / ARD](api/regression/bayesian.md) | [Passive-Aggressive / lmDynamic / LOWESS](api/regression/online_dynamic.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
+- **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [Bayesian Ridge / ARD](api/regression/bayesian.md) | [Passive-Aggressive / lmDynamic / LOWESS](api/regression/online_dynamic.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md) | [LS states](api/regression/ls_state.md)
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
 - **Survival:** [AFT](api/survival/aft.md)

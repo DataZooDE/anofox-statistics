@@ -224,6 +224,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterExtraFitAggregateFunctions(loader);
     RegisterBayesianAggregateFunctions(loader);
     RegisterPassiveAggressiveFunctions(loader);
+    RegisterLsStateFunctions(loader);
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
     RegisterPathAggregateFunctions(loader);
