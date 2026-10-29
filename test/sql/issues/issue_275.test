@@ -1,5 +1,5 @@
 # name: test/sql/issues/issue_275.test
-# description: #275 drift-alert recipe: a statement-level AFTER INSERT trigger that runs psi_agg (DuckDB 2.0)
+# description: #275 trigger recipes (DuckDB 2.0): drift alerts with psi_agg; a model kept current with ls_state_agg
 # group: [issues]
 #
 # Triggers exist on DuckDB 2.0 only. CREATE TRIGGER is a `statement maybe` that may fail
@@ -61,3 +61,45 @@ query I
 FROM v2_or($$SELECT count(*) FROM alerts$$, $$SELECT 2$$);
 ----
 2
+
+# ---------------------------------------------------------------------------
+# A model that stays current: each INSERT folds the new rows' state into model_state.
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE sales(ts TIMESTAMP, price DOUBLE, units DOUBLE);
+
+statement ok
+CREATE TABLE model_state(state BLOB);
+
+statement ok
+INSERT INTO model_state VALUES (NULL);
+
+statement maybe
+CREATE TRIGGER refit AFTER INSERT ON sales REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT
+    UPDATE model_state SET state = (
+        SELECT ls_state_combine_agg(s) FROM (SELECT state AS s FROM model_state
+                                             UNION ALL SELECT ls_state_agg(units, [price]) FROM new_rows));
+----
+syntax error at or near "TRIGGER"
+
+statement ok
+INSERT INTO sales SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) MINUTE, 10 + sin(i), 100 - 3 * (10 + sin(i)) + cos(i * 7)
+FROM range(1000) t(i);
+
+statement ok
+INSERT INTO sales SELECT TIMESTAMP '2026-01-02' + INTERVAL (i) MINUTE, 10 + cos(i), 100 - 3 * (10 + cos(i)) + sin(i * 5)
+FROM range(500) t(i);
+
+statement ok
+INSERT INTO sales VALUES (TIMESTAMP '2026-01-03', 11.0, 67.2);
+
+# The trigger-maintained model equals the fit on all rows (2.0); on 1.5 the fallback states the same.
+query II
+FROM v2_or($$
+    SELECT (ls_state_info(m.state)).n_observations,
+        abs((ols_fit_from_state(m.state)).coefficients[1] - (SELECT (ols_fit_agg(units, [price])).coefficients[1] FROM sales)) < 1e-10
+    FROM model_state m
+$$, $$SELECT 1501, true$$);
+----
+1501	true

@@ -45,6 +45,11 @@ Breaking changes are called out explicitly.
   additive and optional in contract version 1. It is derived from each macro's own final
   `ORDER BY` (`AddRowOrder` in `src/contract.cpp`); `*_tidy_by` now orders terms explicitly by
   their position.
+- **A model that stays current, with a trigger (#275, DuckDB 2.0).** Guide pattern: a
+  statement-level `AFTER INSERT ... REFERENCING NEW TABLE` trigger folds each insert's rows into
+  a stored least-squares state (`ls_state_agg` + `ls_state_combine_agg`), so
+  `ols_fit_from_state(state)` always equals the fit on all rows without rescanning them
+  (tested in `issue_275.test`).
 - **Least-squares states: store, combine, fit later (#266).** `ls_state_agg(y, x[, weight])`
   returns a compact BLOB state of a group's rows (counts, weighted means, centred co-moments:
   `O(p²)` bytes, 144 for two features), `ls_state_combine_agg(state)` merges stored states,
