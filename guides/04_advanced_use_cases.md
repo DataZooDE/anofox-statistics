@@ -709,6 +709,40 @@ alerts and run the aggregate 300 times. Any drift aggregate (`ks_test_agg`, `was
 On DuckDB v1.5.6, run the same `INSERT INTO alerts SELECT ...` as a scheduled query (cron or
 an orchestrator) instead of a trigger.
 
+### Pattern: A Model That Stays Current (DuckDB 2.0)
+
+A [least-squares state](../docs/api/regression/ls_state.md) summarizes rows in a few hundred
+bytes, and states merge. A statement-level trigger with a transition table (`REFERENCING NEW
+TABLE`) folds each insert's rows into a one-row model table, so the fit is always up to date
+without rescanning the history:
+
+```sql skip
+-- DuckDB 2.0 only (triggers do not exist on v1.5.6)
+CREATE TABLE sales(ts TIMESTAMP, price DOUBLE, units DOUBLE);
+CREATE TABLE model_state(state BLOB);
+INSERT INTO model_state VALUES (NULL);
+
+CREATE TRIGGER refit AFTER INSERT ON sales REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT
+    UPDATE model_state SET state = (
+        SELECT ls_state_combine_agg(s) FROM (SELECT state AS s FROM model_state
+                                             UNION ALL SELECT ls_state_agg(units, [price]) FROM new_rows));
+
+INSERT INTO sales SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) MINUTE, 10 + sin(i),
+                         100 - 3 * (10 + sin(i)) + cos(i * 7) FROM range(1000) t(i);
+INSERT INTO sales VALUES (TIMESTAMP '2026-01-02', 11.0, 67.2);
+
+-- The current model; equals ols_fit_agg(units, [price]) over all of sales.
+SELECT ols_fit_from_state(state, {'compute_inference': true}) AS model FROM model_state;
+```
+
+The trigger reads only the inserted rows (`new_rows`) and the stored state. Use
+`ridge_fit_from_state` or `wls_fit_from_state` (with `ls_state_agg(y, x, weight)`) the same way.
+Deletes and updates are not reflected: a state can only grow. Rebuild it from the table
+after them.
+
+On DuckDB v1.5.6, run the `UPDATE model_state ...` from a scheduler, with `new_rows`
+replaced by a query for the rows since the last run.
+
 ### Pattern: Large-Scale Parallel Processing
 
 Partition data for parallel regression.
