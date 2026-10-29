@@ -22,6 +22,7 @@ y_high	DOUBLE
 threshold	DOUBLE
 weight	DOUBLE
 n_censor	BIGINT
+row_order	BIGINT
 
 # The three macros share one shape, so their curves UNION into one plot input.
 query I
@@ -71,6 +72,7 @@ y_high	DOUBLE
 threshold	DOUBLE
 weight	DOUBLE
 n_censor	BIGINT
+row_order	BIGINT
 
 query III
 SELECT tags['anofox.output'], (SELECT count(*) FROM lowess_by('d', g, score, label::DOUBLE)), (SELECT bool_and(curve_type = 'lowess') FROM lowess_by('d', g, score, label::DOUBLE))

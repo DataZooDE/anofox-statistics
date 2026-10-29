@@ -29,6 +29,7 @@ conf_high	DOUBLE
 conf_level	DOUBLE
 index_name	VARCHAR
 index_value	DOUBLE
+row_order	BIGINT
 
 # Every tidy_by has exactly the same columns
 query I

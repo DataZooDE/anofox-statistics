@@ -173,6 +173,7 @@ adj_r_squared_reduced	DOUBLE
 adj_r_squared_full	DOUBLE
 delta_adj_r_squared	DOUBLE
 n_observations	BIGINT
+row_order	BIGINT
 
 query IIIIIIII
 SELECT g, id, model_id, method, abs(statistic - (SELECT (ols_anova_agg(y, [x1], [x1, x2, x3])).statistic FROM d2 WHERE d2.g = r.g)) < 1e-12,

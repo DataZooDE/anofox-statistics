@@ -37,6 +37,14 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **`row_order` on every contract producer (#242).** Every `*_by` table macro that emits a
+  contract schema (`terms`, `obs`, `prediction`, `curve`, `summary`, `test`) has a last column
+  `row_order BIGINT`: the row's 1-based position within its group, in the producer's display
+  order (coefficient order for terms, input order for augment, curve order, ...). Consumers can
+  keep that order under parallel execution with `list(t ORDER BY t.row_order)`. The column is
+  additive and optional in contract version 1. It is derived from each macro's own final
+  `ORDER BY` (`AddRowOrder` in `src/contract.cpp`); `*_tidy_by` now orders terms explicitly by
+  their position.
 - **Hierarchical fits and drift alerts: tests and recipes (#267, #275).** Every fit and test
   aggregate under `GROUP BY GROUPING SETS / ROLLUP / CUBE` gives, per level, bitwise the same
   result as a separate `GROUP BY` at that level, on DuckDB v1.5.6 and 2.0 (all aggregate

@@ -7,6 +7,7 @@
 // Both fit one model per group with <model>_fit_agg, so they accept the same
 // options. tidy_by computes inference by default where the model has it.
 
+#include "contract.hpp"
 #include "anofox_statistics_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/function/table_macro_function.hpp"
@@ -123,10 +124,11 @@ string TidySql(const ModelOutputModel &m) {
 	       "(_t).statistic AS statistic, (_t).p_value AS p_value, (_t).conf_low AS conf_low, "
 	       "(_t).conf_high AS conf_high, (_t).conf_level AS conf_level, (_t).index_name AS index_name, "
 	       "(_t).index_value AS index_value "
+	       "FROM (SELECT group_col, id, model_id, model_name, unnest(_ts) AS _t, unnest(range(len(_ts))) AS _i "
 	       "FROM (SELECT group_col, " +
-	       ModelIds(m.prefix) + ", unnest(tidy(_m, names)) AS _t FROM (SELECT group_col, " + TidyFitCall(m) +
-	       " AS _m FROM query_table(source::VARCHAR) GROUP BY group_col)) "
-	       "ORDER BY group_col";
+	       ModelIds(m.prefix) + ", tidy(_m, names) AS _ts FROM (SELECT group_col, " + TidyFitCall(m) +
+	       " AS _m FROM query_table(source::VARCHAR) GROUP BY group_col))) "
+	       "ORDER BY group_col, _i";
 }
 
 // Rolling coefficients (#177): <model>_fit_agg over a trailing window of
@@ -210,7 +212,7 @@ unique_ptr<CreateMacroInfo> CreateTableMacro(const string &name, const vector<st
                                              const string &description, const string &example,
                                              const vector<string> &categories = {"regression", "table-macro"}) {
 	auto parser = MakeParser();
-	parser.ParseQuery(sql);
+	parser.ParseQuery(IsContractMacroProducer(name) ? AddRowOrder(name, sql) : sql);
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 		throw InternalException("Expected a single select statement for table macro %s", name);
 	}

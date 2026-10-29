@@ -34,6 +34,7 @@ effect	VARCHAR
 re_group	VARCHAR
 re_level	VARCHAR
 df	DOUBLE
+row_order	BIGINT
 
 # Per region: 2 fixed rows, sd__(Intercept) + residual SD, 6 BLUPs
 query IIII
@@ -125,6 +126,7 @@ model_name	VARCHAR
 model_type	VARCHAR
 metric	VARCHAR
 value	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT metric, value FROM glmm_glance_by('p', region, y, [x], store)
@@ -177,6 +179,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 fitted_population	DOUBLE
 pearson_residual	DOUBLE
+row_order	BIGINT
 
 # One row per source row; residual = y - fitted; gaussian Pearson = response residual
 query IIII

@@ -94,6 +94,104 @@ static const struct {
 };
 // clang-format on
 
+bool IsContractMacroProducer(const string &name) {
+	for (idx_t i = 0; CONTRACT_PRODUCERS[i].name != nullptr; i++) {
+		if (StringUtil::CIEquals(CONTRACT_PRODUCERS[i].name, name)) {
+			return StringUtil::EndsWith(name, "_by");
+		}
+	}
+	return false;
+}
+
+namespace {
+
+//! Positions of `keyword` (upper case, a whole word) at parenthesis depth 0 and outside quotes.
+vector<idx_t> TopLevelKeyword(const string &sql, const string &keyword) {
+	vector<idx_t> found;
+	int depth = 0;
+	char quote = 0;
+	for (idx_t i = 0; i < sql.size(); i++) {
+		char c = sql[i];
+		if (quote) {
+			if (c == quote) {
+				quote = 0;
+			}
+			continue;
+		}
+		if (c == '\'' || c == '"') {
+			quote = c;
+		} else if (c == '(') {
+			depth++;
+		} else if (c == ')') {
+			depth--;
+		} else if (depth == 0 && i + keyword.size() <= sql.size() &&
+		           StringUtil::CIEquals(sql.substr(i, keyword.size()), keyword) &&
+		           (i == 0 || !StringUtil::CharacterIsAlphaNumeric(sql[i - 1])) &&
+		           (i + keyword.size() == sql.size() ||
+		            !(StringUtil::CharacterIsAlphaNumeric(sql[i + keyword.size()]) || sql[i + keyword.size()] == '_'))) {
+			found.push_back(i);
+		}
+	}
+	return found;
+}
+
+//! Split `list` at the commas of parenthesis depth 0.
+vector<string> SplitTopLevel(const string &list) {
+	vector<string> parts;
+	int depth = 0;
+	idx_t start = 0;
+	for (idx_t i = 0; i < list.size(); i++) {
+		if (list[i] == '(') {
+			depth++;
+		} else if (list[i] == ')') {
+			depth--;
+		} else if (list[i] == ',' && depth == 0) {
+			parts.push_back(list.substr(start, i - start));
+			start = i + 1;
+		}
+	}
+	parts.push_back(list.substr(start));
+	for (auto &p : parts) {
+		StringUtil::Trim(p);
+	}
+	return parts;
+}
+
+} // namespace
+
+string AddRowOrder(const string &name, const string &sql_p) {
+	string sql = sql_p;
+	StringUtil::RTrim(sql);
+	if (!sql.empty() && sql.back() == ';') {
+		sql.pop_back();
+	}
+	auto selects = TopLevelKeyword(sql, "SELECT");
+	auto orders = TopLevelKeyword(sql, "ORDER BY");
+	if (selects.size() != 1 || orders.empty()) {
+		throw InternalException("row_order: %s needs one top-level SELECT and a final ORDER BY", name);
+	}
+	auto keys = SplitTopLevel(sql.substr(orders.back() + 8));
+	if (keys.size() < 2) {
+		throw InternalException("row_order: the ORDER BY of %s has no key within the group", name);
+	}
+	string within;
+	for (idx_t k = 1; k < keys.size(); k++) {
+		within += (k > 1 ? ", " : "") + keys[k];
+	}
+	idx_t from = DConstants::INVALID_INDEX;
+	for (auto pos : TopLevelKeyword(sql, "FROM")) {
+		if (pos > selects[0]) {
+			from = pos;
+			break;
+		}
+	}
+	if (from == DConstants::INVALID_INDEX) {
+		throw InternalException("row_order: no top-level FROM in %s", name);
+	}
+	string column = ", row_number() OVER (PARTITION BY " + keys[0] + " ORDER BY " + within + ") AS row_order ";
+	return sql.substr(0, from) + column + sql.substr(from);
+}
+
 static SchemaCatalogEntry &SystemMainSchema(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
 	return Catalog::GetSystemCatalog(db).GetSchema(CatalogTransaction::GetSystemTransaction(db), DEFAULT_SCHEMA);

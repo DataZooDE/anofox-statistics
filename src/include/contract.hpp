@@ -24,4 +24,14 @@ void RegisterContractVersionFunction(ExtensionLoader &loader);
 // contract producer with anofox.contract and anofox.output (its schema).
 void ApplyContractTags(ExtensionLoader &loader, const case_insensitive_set_t &preexisting);
 
+// True for the table-macro contract producers (the *_by macros of CONTRACT_PRODUCERS).
+bool IsContractMacroProducer(const string &name);
+
+// row_order (#242): adds `row_order BIGINT`, the 1-based position of a row within its
+// group in the producer's display order, as the last column of a producer macro's SQL.
+// The order is the macro's own final ORDER BY: its first key is the group, the others
+// order the rows within it (window clauses may reference select-list aliases). Throws
+// InternalException if the SQL is not one SELECT with a final ORDER BY of at least two keys.
+string AddRowOrder(const string &name, const string &sql);
+
 } // namespace duckdb

@@ -2007,6 +2007,26 @@ WHERE tags['anofox.contract'] IS NOT NULL
 ORDER BY function_name;
 ```
 
+**Row order (`row_order`, #242).** Every contract producer table macro (`*_by`)
+ends with a `row_order BIGINT` column: the 1-based position of the row within its
+group, in the order the producer means it to be shown. For example, terms come in
+coefficient order (`(Intercept)` first), CV and curve points in curve order, augment
+rows in input order (or `order_by`), and post-hoc pairs in factor-level order. Rows of
+one group always have exactly the values 1..n. Under parallel execution the scan
+order is not stable, so consumers that collect rows should order by it, e.g.
+`list(t ORDER BY t.row_order)`. The column is optional in contract version 1: other
+producers may not have it, so consumers should fall back to their own order when it
+is missing.
+
+```sql
+CREATE OR REPLACE TABLE fits AS
+SELECT i % 3 AS g, sin(i) * 2 + i * 0.01 AS y, cos(i) AS x1, sin(0.3 * i) AS x2 FROM range(300) r(i);
+
+SELECT g, list(term ORDER BY row_order) AS terms_in_order
+FROM ols_tidy_by('fits', g, y, [x1, x2])
+GROUP BY g ORDER BY g;
+```
+
 ---
 
 ## Common Options

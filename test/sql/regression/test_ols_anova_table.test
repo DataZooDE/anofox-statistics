@@ -254,6 +254,7 @@ mean_sq	DOUBLE
 residual_sum_sq	DOUBLE
 residual_mean_sq	DOUBLE
 n_observations	BIGINT
+row_order	BIGINT
 
 query IIIIII
 SELECT big, id, model_id, term, method, n_observations FROM ols_anova_table_by('mt', big, mpg, [wt, hp]);

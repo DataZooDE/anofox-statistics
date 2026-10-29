@@ -26,6 +26,7 @@ yhat_lower	DOUBLE
 yhat_upper	DOUBLE
 level	DOUBLE
 split	VARCHAR
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_effects_by('d', g, y, [x1, x2]))
@@ -44,6 +45,7 @@ level	DOUBLE
 split	VARCHAR
 se_fit	DOUBLE
 focal_name	VARCHAR
+row_order	BIGINT
 
 statement ok
 CREATE TABLE ref AS SELECT
