@@ -1,0 +1,63 @@
+# name: test/sql/issues/issue_275.test
+# description: #275 drift-alert recipe: a statement-level AFTER INSERT trigger that runs psi_agg (DuckDB 2.0)
+# group: [issues]
+#
+# Triggers exist on DuckDB 2.0 only. CREATE TRIGGER is a `statement maybe` that may fail
+# with the 1.5 parser error; the INSERTs run on both lines, and every check of the
+# alerts table goes through v2_or(sql, fallback), whose fallback is the 2.0 result.
+
+require anofox_statistics
+
+statement ok
+CREATE MACRO v2_or(sql, fallback) AS TABLE
+    SELECT * FROM query(CASE WHEN version() >= 'v2' THEN sql ELSE fallback END);
+
+statement ok
+CREATE TABLE events(ts TIMESTAMP, v DOUBLE);
+
+statement ok
+CREATE TABLE alerts(alert_ts TIMESTAMP, psi DOUBLE, n BIGINT);
+
+statement ok
+CREATE TABLE ref AS SELECT sin(i * 0.37) AS v FROM range(500) t(i);
+
+# After each INSERT statement: PSI of the latest 200 events against the reference.
+statement maybe
+CREATE TRIGGER drift_check AFTER INSERT ON events FOR EACH STATEMENT
+    INSERT INTO alerts
+    SELECT max_ts, psi, n FROM (
+        SELECT (psi_agg(v, src)).psi AS psi, count(*) FILTER (WHERE src = 1) AS n, max(ts) AS max_ts
+        FROM (SELECT v, 0 AS src, NULL::TIMESTAMP AS ts FROM ref
+              UNION ALL
+              SELECT v, 1, ts FROM (SELECT v, ts FROM events ORDER BY ts DESC LIMIT 200)))
+    WHERE n >= 200 AND psi > 0.25;
+----
+syntax error at or near "TRIGGER"
+
+# Same distribution as the reference: no alert.
+statement ok
+INSERT INTO events SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) SECOND, sin(i * 0.37) FROM range(300) t(i);
+
+query I
+FROM v2_or($$SELECT count(*) FROM alerts$$, $$SELECT 0$$);
+----
+0
+
+# Shifted by 1.5: exactly one alert for the statement (not one per inserted row).
+statement ok
+INSERT INTO events SELECT TIMESTAMP '2026-01-02' + INTERVAL (i) SECOND, sin(i * 0.37) + 1.5 FROM range(300) t(i);
+
+query III
+FROM v2_or($$SELECT count(*), max(alert_ts) = TIMESTAMP '2026-01-02 00:04:59', bool_and(psi > 0.25) FROM alerts$$,
+           $$SELECT 1, true, true$$);
+----
+1	true	true
+
+# A single-row insert re-evaluates the window: still shifted, so a second alert.
+statement ok
+INSERT INTO events VALUES (TIMESTAMP '2026-01-03', 1.6);
+
+query I
+FROM v2_or($$SELECT count(*) FROM alerts$$, $$SELECT 2$$);
+----
+2
