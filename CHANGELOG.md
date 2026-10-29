@@ -37,6 +37,17 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Least-squares states: store, combine, fit later (#266).** `ls_state_agg(y, x[, weight])`
+  returns a compact BLOB state of a group's rows (counts, weighted means, centred co-moments:
+  `O(p²)` bytes, 144 for two features), `ls_state_combine_agg(state)` merges stored states,
+  and `ols_fit_from_state` / `wls_fit_from_state` / `ridge_fit_from_state` fit from a state
+  without the rows. They return the same STRUCT as the direct `*_fit_agg`, including the
+  `vcov` that `predict` needs, up to floating-point summation order. Ridge applies its penalty
+  at fit time, so one state serves any `alpha`. `ls_state_info(state)` describes a state.
+  The bytes do not depend on the row order or the thread count (canonical row order, merge
+  in byte order, #226). Row-level options (`hc_type`, `compute_loo`) raise an error. Uses
+  anofox-regression 0.5.38 (`SufficientStats`, upstream sipemu/anofox-regression#122).
+  Docs: `docs/api/regression/ls_state.md`.
 - **Hierarchical fits and drift alerts: tests and recipes (#267, #275).** Every fit and test
   aggregate under `GROUP BY GROUPING SETS / ROLLUP / CUBE` gives, per level, bitwise the same
   result as a separate `GROUP BY` at that level, on DuckDB v1.5.6 and 2.0 (all aggregate

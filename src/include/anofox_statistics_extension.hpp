@@ -61,6 +61,7 @@ void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader);
 void RegisterBayesianAggregateFunctions(ExtensionLoader &loader);
 // Passive-Aggressive (aggregates and window), lmDynamic and lowess_agg (#63)
 void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader);
+void RegisterLsStateFunctions(ExtensionLoader &loader);
 void RegisterLmDynamicFunctions(ExtensionLoader &loader);
 void RegisterLowessFunction(ExtensionLoader &loader);
 void RegisterPathAggregateFunctions(ExtensionLoader &loader);

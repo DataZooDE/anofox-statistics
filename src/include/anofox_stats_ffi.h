@@ -844,6 +844,46 @@ bool anofox_predict_with_interval_matrix_batch(const double *coefficients, size_
                                                double *out_lower, double *out_upper, AnofoxError *out_error);
 
 /* ============================================================================
+ * Compact least-squares states (#266)
+ * ============================================================================
+ * A state is the versioned byte encoding of upstream's SufficientStats (counts,
+ * weighted means, centred co-moments). Byte buffers are malloc'ed by the library
+ * and freed with anofox_free_bytes. Rows are added in a canonical order and states
+ * are merged in the order of their bytes, so the bytes are deterministic.
+ */
+
+/** State of the rows (x: x_count feature columns; weights.data NULL = unweighted). */
+bool anofox_ls_state_from_rows(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                               uint8_t **out_bytes, size_t *out_len, AnofoxError *out_error);
+
+/** Merge n_states states (states[i] has lens[i] bytes). */
+bool anofox_ls_state_merge(const uint8_t *const *states, const size_t *lens, size_t n_states, uint8_t **out_bytes,
+                           size_t *out_len, AnofoxError *out_error);
+
+/** Row count (incl. zero-weight rows), feature count and weighting of a state. */
+bool anofox_ls_state_info(const uint8_t *bytes, size_t len, size_t *out_n_observations, size_t *out_n_features,
+                          bool *out_weighted, AnofoxError *out_error);
+
+/**
+ * Fits from a state; outputs as anofox_ols_fit / anofox_wls_fit / anofox_ridge_fit. With inference,
+ * out_vcov receives the dim x dim coefficient covariance (intercept first; free with
+ * anofox_free_interval_matrix), else NULL and 0. out_inference, out_vcov and out_dim may be NULL.
+ * hc_type and compute_loo need the rows and are rejected.
+ */
+bool anofox_ols_fit_from_state(const uint8_t *bytes, size_t len, AnofoxOlsOptions options,
+                               AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                               double **out_vcov, size_t *out_dim, AnofoxError *out_error);
+bool anofox_wls_fit_from_state(const uint8_t *bytes, size_t len, AnofoxWlsOptions options,
+                               AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                               double **out_vcov, size_t *out_dim, AnofoxError *out_error);
+bool anofox_ridge_fit_from_state(const uint8_t *bytes, size_t len, AnofoxRidgeOptions options,
+                                 AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                                 double **out_vcov, size_t *out_dim, AnofoxError *out_error);
+
+/** Free a buffer returned by the anofox_ls_state_* functions. */
+void anofox_free_bytes(uint8_t *bytes);
+
+/* ============================================================================
  * GLM (Generalized Linear Models) Functions
  * ============================================================================ */
 

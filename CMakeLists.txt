@@ -160,6 +160,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/extra_fit_aggregates.cpp
     src/aggregate_functions/bayesian_aggregate.cpp
     src/aggregate_functions/passive_aggressive_aggregate.cpp
+    src/aggregate_functions/ls_state_aggregate.cpp
     src/aggregate_functions/lm_dynamic_aggregate.cpp
     src/aggregate_functions/lowess_aggregate.cpp
     src/aggregate_functions/path_aggregates.cpp

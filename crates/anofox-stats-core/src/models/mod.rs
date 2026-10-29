@@ -16,6 +16,7 @@ mod isotonic;
 mod lars;
 mod lm_dynamic;
 mod lowess;
+mod ls_state;
 mod mediation;
 mod ols;
 mod ols_anova;
@@ -67,6 +68,10 @@ pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
+pub use ls_state::{
+    fit_ols_from_state, fit_ridge_from_state, fit_wls_from_state, ls_state_from_rows,
+    ls_state_info, ls_state_merge, LsStateInfo, StateFit,
+};
 pub use mediation::{
     mediate, BootCi, MediationEffect, MediationMethod, MediationOptions, MediationResult,
 };
