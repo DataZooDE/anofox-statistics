@@ -636,7 +636,7 @@ If you use this extension in research, please cite:
   author  = {{DataZoo GmbH}},
   year    = {2026},
   url     = {https://github.com/DataZooDE/anofox-statistics},
-  version = {0.14.0}
+  version = {0.15.0}
 }
 ```
 

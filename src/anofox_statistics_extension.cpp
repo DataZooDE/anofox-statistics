@@ -13,7 +13,7 @@
 #ifdef EXT_VERSION_ANOFOX_STATISTICS
 #define ANOFOX_STATISTICS_BANNER_VERSION EXT_VERSION_ANOFOX_STATISTICS
 #else
-#define ANOFOX_STATISTICS_BANNER_VERSION "0.14.0"
+#define ANOFOX_STATISTICS_BANNER_VERSION "0.15.0"
 #endif
 
 // Deliberately outside namespace duckdb: the banner library is DuckDB-agnostic
@@ -75,7 +75,7 @@ void LoadInternal(ExtensionLoader &loader) {
 #ifdef EXT_VERSION_ANOFOX_STATISTICS
     version = EXT_VERSION_ANOFOX_STATISTICS;
 #else
-    version = "0.14.0";
+    version = "0.15.0";
 #endif
     telemetry.SetProduct("anofox_statistics", version, "oss");
     telemetry.AssociateGroup("deployment", PostHogTelemetry::GetDistinctId());
@@ -268,7 +268,7 @@ std::string AnofoxStatisticsExtension::Version() const {
 #ifdef EXT_VERSION_ANOFOX_STATISTICS
     return EXT_VERSION_ANOFOX_STATISTICS;
 #else
-    return "0.14.0";
+    return "0.15.0";
 #endif
 }
 
@@ -284,7 +284,7 @@ DUCKDB_EXTENSION_API const char *anofox_statistics_version() {
 #ifdef EXT_VERSION_ANOFOX_STATISTICS
     return EXT_VERSION_ANOFOX_STATISTICS;
 #else
-    return "0.14.0";
+    return "0.15.0";
 #endif
 }
 }

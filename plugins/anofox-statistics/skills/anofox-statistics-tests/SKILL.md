@@ -32,13 +32,13 @@ description: >
   tests. Use when running a significance test, comparing many groups,
   measuring association/effect size, evaluating a classifier, or comparing
   distributions or survival in SQL.
-version: 0.14.0
+version: 0.15.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.14.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 
