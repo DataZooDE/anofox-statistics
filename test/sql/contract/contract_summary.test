@@ -21,6 +21,7 @@ model_name	VARCHAR
 model_type	VARCHAR
 metric	VARCHAR
 value	DOUBLE
+row_order	BIGINT
 
 query I
 SELECT count(DISTINCT cols) FROM (

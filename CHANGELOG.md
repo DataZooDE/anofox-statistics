@@ -37,6 +37,14 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **`row_order` on every contract producer (#242).** Every `*_by` table macro that emits a
+  contract schema (`terms`, `obs`, `prediction`, `curve`, `summary`, `test`) has a last column
+  `row_order BIGINT`: the row's 1-based position within its group, in the producer's display
+  order (coefficient order for terms, input order for augment, curve order, ...). Consumers can
+  keep that order under parallel execution with `list(t ORDER BY t.row_order)`. The column is
+  additive and optional in contract version 1. It is derived from each macro's own final
+  `ORDER BY` (`AddRowOrder` in `src/contract.cpp`); `*_tidy_by` now orders terms explicitly by
+  their position.
 - **A model that stays current, with a trigger (#275, DuckDB 2.0).** Guide pattern: a
   statement-level `AFTER INSERT ... REFERENCING NEW TABLE` trigger folds each insert's rows into
   a stored least-squares state (`ls_state_agg` + `ls_state_combine_agg`), so

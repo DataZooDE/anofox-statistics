@@ -23,7 +23,7 @@ FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20);
 query I
 SELECT list(column_name) FROM (DESCRIBE SELECT * FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20));
 ----
-[g, id, model_id, model_name, window_end, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value, n_window]
+[g, id, model_id, model_name, window_end, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value, n_window, row_order]
 
 # Each window equals a direct fit on the same 20 rows (estimate and std_error)
 query I

@@ -62,6 +62,7 @@ n_nonzero	BIGINT
 is_min	BOOLEAN
 is_1se	BOOLEAN
 n_folds	BIGINT
+row_order	BIGINT
 
 query III
 SELECT DISTINCT curve_type, count(*), bool_and(x = "lambda") FROM elasticnet_cv_by('d', g, y, [x1, x2], options := {'n_lambda': 5, 'folds': 4})

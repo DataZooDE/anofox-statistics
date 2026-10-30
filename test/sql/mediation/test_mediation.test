@@ -41,6 +41,7 @@ index_value	DOUBLE
 method	VARCHAR
 n_obs	BIGINT
 n_sims	BIGINT
+row_order	BIGINT
 
 # Point estimates equal mediate's (d0, z0, tau.coef, n0) exactly
 query IIIIIIII

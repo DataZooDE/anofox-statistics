@@ -1,0 +1,66 @@
+# name: test/sql/issues/issue_242.test
+# description: #242 row_order: every contract producer macro ends with row_order BIGINT, 1..n per group in display order
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE d AS SELECT i, CASE WHEN i % 4 < 2 THEN 'a' ELSE 'b' END AS g, (i * 7) % 5 < 2 AS bb,
+    CASE WHEN i % 3 = 0 THEN 'c' WHEN i % 3 = 1 THEN 'e' ELSE 'f' END AS f,
+    i * 0.15 + sin(i * 7.3) * 3 + 10 AS y, cos(i) * 2 + i * 0.01 AS x1, abs(sin(i * 1.7)) + 0.5 AS x2
+FROM range(1, 401) t(i);
+
+# Exactly 1..n within every group, for one producer of each schema.
+statement ok
+CREATE MACRO ro_ok(t) AS TABLE SELECT bool_and(mn = 1 AND mx = c AND dc = c) AS ok FROM (
+    SELECT count(*) c, min(row_order) mn, max(row_order) mx, count(DISTINCT row_order) dc FROM query_table(t) GROUP BY g);
+
+statement ok
+CREATE TABLE terms AS FROM ols_tidy_by('d', g, y, [x1, x2]);
+
+statement ok
+CREATE TABLE summary AS FROM ols_glance_by('d', g, y, [x1, x2]);
+
+statement ok
+CREATE TABLE obs AS FROM ols_augment_by('d', g, y, [x1, x2]);
+
+statement ok
+CREATE TABLE pred AS FROM ols_prediction_by('d', g, x1, y, [x1, x2]);
+
+statement ok
+CREATE TABLE curve AS FROM roc_curve_by('d', g, bb, x2);
+
+statement ok
+CREATE TABLE test AS FROM tukey_hsd_by('d', g, y, f);
+
+foreach t terms summary obs pred curve test
+
+query I
+FROM ro_ok('${t}');
+----
+true
+
+endloop
+
+# The terms keep the coefficient order: (Intercept), x1, x2.
+query I
+SELECT list(term ORDER BY row_order) FROM terms WHERE g = 'a';
+----
+['(Intercept)', x1, x2]
+
+# augment: row_order is the input order within the group.
+query I
+SELECT bool_and(r = row_order) FROM (SELECT row_order, row_number() OVER (PARTITION BY g ORDER BY i) AS r FROM obs);
+----
+true
+
+# Every contract producer macro has row_order BIGINT as its last column (checked through the catalog of one call each above).
+query I
+SELECT count(*) FROM (SELECT table_name, last(column_name ORDER BY column_index) AS lc, last(data_type ORDER BY column_index) AS lt
+    FROM duckdb_columns() WHERE table_name IN ('terms', 'summary', 'obs', 'pred', 'curve', 'test') GROUP BY table_name)
+WHERE lc = 'row_order' AND lt = 'BIGINT';
+----
+6

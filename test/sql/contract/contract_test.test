@@ -30,6 +30,7 @@ effect_size	DOUBLE
 effect_name	VARCHAR
 alternative	VARCHAR
 p_adjust_method	VARCHAR
+row_order	BIGINT
 
 # The three post-hoc macros share one shape.
 query I

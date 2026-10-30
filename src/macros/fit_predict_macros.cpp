@@ -1,3 +1,4 @@
+#include "contract.hpp"
 #include "anofox_statistics_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/parser/parser.hpp"
@@ -602,7 +603,7 @@ FROM (
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ) sub
-ORDER BY group_col
+ORDER BY group_col, method
 )"},
 
     // ols_anova_table_by: per-term ANOVA table per group (issue #231), R's
@@ -1147,7 +1148,8 @@ static const char *const SPLIT_IS_TRAIN_SQL =
 static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTableMacro &macro_def) {
 	// Parse the SQL
 	auto parser = MakeParser();
-	parser.ParseQuery(StringUtil::Replace(macro_def.macro, "SPLIT_IS_TRAIN", SPLIT_IS_TRAIN_SQL));
+	auto sql = StringUtil::Replace(macro_def.macro, "SPLIT_IS_TRAIN", SPLIT_IS_TRAIN_SQL);
+	parser.ParseQuery(IsContractMacroProducer(macro_def.name) ? AddRowOrder(macro_def.name, sql) : sql);
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 		throw InternalException("Expected a single select statement in CreateFitPredictTableMacro");
 	}

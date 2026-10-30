@@ -35,6 +35,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 loo_residual	DOUBLE
 loo_fitted	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM wls_augment_by('d', g, y, [x1, x2], w))
@@ -60,6 +61,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 loo_residual	DOUBLE
 loo_fitted	DOUBLE
+row_order	BIGINT
 
 # Ridge (#235): the OLS columns
 query II
@@ -86,6 +88,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 loo_residual	DOUBLE
 loo_fitted	DOUBLE
+row_order	BIGINT
 
 # The GLM macros return the same obs columns (OLS / WLS add the leave-one-out loo_residual, loo_fitted, #220;
 # the GLMs the one-step approximate approx_loo_fitted, approx_loo_residual, #235)
@@ -120,6 +123,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM binomial_augment_by('dg', g, yb, [x1, x2]))
@@ -146,6 +150,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM logistic_augment_by('dg', g, yb, [x1, x2]))
@@ -172,6 +177,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM negbinom_augment_by('dg', g, yc, [x1, x2]))
@@ -198,6 +204,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM gamma_augment_by('dg', g, yp, [x1, x2]))
@@ -224,6 +231,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM tweedie_augment_by('dg', g, yp, [x1, x2], {'power': 1.5}))
@@ -250,6 +258,7 @@ is_training	BOOLEAN
 n_params	INTEGER
 approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
+row_order	BIGINT
 
 # All ten macros (incl. glmm_augment_by, #218, and ridge_augment_by, #235) are tagged as obs producers of contract version 1
 query III
