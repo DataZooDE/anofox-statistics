@@ -30,13 +30,15 @@ description: >
   := for rls_tidy_by. Use when the task is "fit one model per group" at scale,
   or "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
-version: 0.14.0
+version: 0.15.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.14.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0
+
+> **New in 0.15.0:** contract `*_by` outputs end with `row_order BIGINT` (display order per group). For incremental per-partition fits, store `ls_state_agg` states and refit with `*_fit_from_state(ls_state_combine_agg(state))`.
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
