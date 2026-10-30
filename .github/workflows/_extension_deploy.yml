@@ -30,6 +30,12 @@ on:
         required: false
         type: string
         default: ""
+      # ';' separated list of opt-in architectures to deploy (ci-tools v2.0 made osx_amd64 opt-in).
+      # Passed to the matrix script only when set: the v1.5 script has no --opt_in.
+      opt_in_archs:
+        required: false
+        type: string
+        default: ""
       # Whether to upload this deployment as the latest. This may overwrite a previous deployment.
       deploy_latest:
         required: false
@@ -86,8 +92,10 @@ jobs:
           git checkout FETCH_HEAD
 
       - id: parse-matrices
+        env:
+          OPT_IN: ${{ inputs.opt_in_archs }}
         run: |
-          python3 ${{ inputs.matrix_parse_script }} --input ./extension-ci-tools/config/distribution_matrix.json --deploy_matrix --output deploy_matrix.json --exclude "${{ inputs.exclude_archs }}" --reduced_ci_mode auto --pretty
+          python3 ${{ inputs.matrix_parse_script }} --input ./extension-ci-tools/config/distribution_matrix.json --deploy_matrix --output deploy_matrix.json --exclude "${{ inputs.exclude_archs }}" ${OPT_IN:+--opt_in "$OPT_IN"} --reduced_ci_mode auto --pretty
           deploy_matrix="`cat deploy_matrix.json`"
           echo deploy_matrix=$deploy_matrix >> $GITHUB_OUTPUT
           echo `cat $GITHUB_OUTPUT`
