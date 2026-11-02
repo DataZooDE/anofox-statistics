@@ -6,7 +6,6 @@
 
 use crate::errors::{StatsError, StatsResult};
 use anofox_regression::solvers::aft;
-use anofox_regression::ModelInfo;
 
 pub use aft::{AftDistribution, AftFitResult, AftInference, AftOptions, AftResult};
 
@@ -25,8 +24,14 @@ pub fn fit_aft(
 }
 
 /// Model-based survival `S(t | x)` at each of `times` for one covariate row of a
-/// fitted AFT model given by its pieces (as the model STRUCT carries them).
-/// Delegates to [`AftResult::survival_curve`] (R `psurvreg(..., lower.tail = FALSE)`).
+/// fitted AFT model given by its pieces (as the model STRUCT carries them), as R's
+/// `psurvreg(t, eta, sigma, dist, lower.tail = FALSE)` with `eta = intercept + x'beta`
+/// (NaN coefficients, i.e. aliased columns, are skipped).
+///
+/// `AftResult` is `#[non_exhaustive]` upstream and can't be rebuilt from stored
+/// pieces, so this mirrors `AftResult::survival_curve` on the public
+/// [`AftDistribution::log_survival`]: `S = 1` for `t <= 0`, `0` at `+Inf`, `NaN` for a
+/// `NaN` time, a row of the wrong length or an invalid scale.
 pub fn aft_survival_curve(
     coefficients: &[f64],
     intercept: Option<f64>,
@@ -35,26 +40,32 @@ pub fn aft_survival_curve(
     x_row: &[f64],
     times: &[f64],
 ) -> Vec<f64> {
-    let result = AftResult {
-        core: AftFitResult {
-            coefficients: coefficients.to_vec(),
-            intercept,
-            scale,
-            log_likelihood: f64::NAN,
-            null_log_likelihood: f64::NAN,
-            aic: f64::NAN,
-            bic: f64::NAN,
-            n_observations: 0,
-            n_events: 0,
-            n_censored: 0,
-            n_features: coefficients.len(),
-            iterations: 0,
-            converged: true,
-        },
-        inference: None,
-        model_info: ModelInfo::new("aft", Some(dist.as_str()), "log"),
+    let eta = if x_row.len() == coefficients.len() {
+        intercept.unwrap_or(0.0)
+            + coefficients
+                .iter()
+                .zip(x_row)
+                .filter(|(b, _)| !b.is_nan())
+                .map(|(b, x)| b * x)
+                .sum::<f64>()
+    } else {
+        f64::NAN
     };
-    result.survival_curve(x_row, times)
+    let valid = eta.is_finite() && scale.is_finite() && scale > 0.0;
+    times
+        .iter()
+        .map(|&t| {
+            if t.is_nan() || !valid {
+                f64::NAN
+            } else if t <= 0.0 {
+                1.0
+            } else if t == f64::INFINITY {
+                0.0
+            } else {
+                dist.log_survival((t.ln() - eta) / scale).exp()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

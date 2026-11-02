@@ -565,7 +565,7 @@ impl<'a> From<&'a PoissonOptions> for GlmSpec<'a> {
     fn from(o: &'a PoissonOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Poisson(o.link),
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -598,7 +598,7 @@ impl<'a> From<&'a BinomialOptions> for GlmSpec<'a> {
     fn from(o: &'a BinomialOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Binomial(o.link),
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -633,7 +633,7 @@ impl<'a> From<&'a LogisticOptions> for GlmSpec<'a> {
             family: PenalizedGlmFamily::Logistic {
                 threshold: o.threshold,
             },
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -666,7 +666,7 @@ impl<'a> From<&'a NegBinomialOptions> for GlmSpec<'a> {
     fn from(o: &'a NegBinomialOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::NegativeBinomial { theta: o.alpha },
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -699,7 +699,7 @@ impl<'a> From<&'a GammaOptions> for GlmSpec<'a> {
     fn from(o: &'a GammaOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Gamma,
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -728,7 +728,7 @@ impl<'a> From<&'a TweedieOptions> for GlmSpec<'a> {
     fn from(o: &'a TweedieOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Tweedie { power: o.power },
-            fit_intercept: o.fit_intercept,
+            fit_intercept: o.with_intercept,
             max_iterations: o.max_iterations,
             tolerance: o.tolerance,
             lambda: o.lambda,
@@ -858,10 +858,7 @@ mod tests {
     fn penalized_glm_augment_is_rejected() {
         let x = vec![vec![0.1, 0.4, 0.9, 1.3, 1.8, 2.2]];
         let y = vec![1.0, 1.0, 3.0, 2.0, 6.0, 5.0];
-        let o = PoissonOptions {
-            lambda: 1.0,
-            ..Default::default()
-        };
+        let o = PoissonOptions::default().lambda(1.0);
         assert!(augment_poisson(&y, &x, &o).is_err());
     }
 
@@ -902,10 +899,7 @@ mod tests {
             vec![0.0, 0.1, 0.0, 0.2, 0.1, 0.0, 0.3, 0.1],
         ];
         let y = vec![1.0, 1.0, 3.0, 2.0, 6.0, 5.0, 14.0, 11.0];
-        let o = PoissonOptions {
-            offset_column: Some(2),
-            ..Default::default()
-        };
+        let o = PoissonOptions::default().offset_column(Some(2));
         let r = partial_residuals_poisson(&y, &x, &o).unwrap();
         assert!(!r.has_added_variable);
         assert!(r.partial_residual[0].is_finite());

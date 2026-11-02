@@ -264,13 +264,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --ignore-rust-version --all-targets --all-features -- -D warnings
 
       - name: Build Rust library
-        run: cargo build --release
+        run: cargo build --ignore-rust-version --release
 
       - name: Run Rust tests
-        run: cargo test --all-features
+        run: cargo test --ignore-rust-version --all-features
 
       # Coverage report (non-blocking): an lcov + HTML report uploaded as an
       # artifact. Failures here never fail the job.
@@ -283,7 +283,7 @@ jobs:
       - name: Rust coverage (cargo llvm-cov)
         continue-on-error: true
         run: |
-          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+          cargo llvm-cov --ignore-rust-version --all-features --workspace --lcov --output-path lcov.info
           cargo llvm-cov report --html --output-dir coverage-html
           cargo llvm-cov report --summary-only | tee coverage-summary.txt
 

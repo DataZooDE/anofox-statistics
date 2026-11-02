@@ -86,6 +86,9 @@ FetchContent_MakeAvailable(Corrosion)
 corrosion_import_crate(
     MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/crates/anofox-stats-ffi/Cargo.toml"
     CRATES "anofox_stats_ffi"
+    # anofox-regression >= 0.8 declares rust-version 1.87 but builds on the 1.86
+    # pinned in rust-toolchain.toml (see there).
+    FLAGS --ignore-rust-version
 )
 
 # Set extension name here

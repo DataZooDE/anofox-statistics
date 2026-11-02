@@ -8,6 +8,10 @@
 # and that wasm-opt rejects those features ("Unknown option '--enable-bulk-memory-opt'"),
 # so the wasm builds fail. 1.86 is also the Rust that extension-ci-tools v1.4/v1.5 use for wasm.
 #
+# anofox-regression >= 0.8 (and basin 3.2) declare rust-version 1.87 but build on
+# 1.86, so every cargo call passes --ignore-rust-version (CMakeLists.txt FLAGS,
+# Makefile, CI). Drop those flags together with this file.
+#
 # Remove this file once the emsdk pinned by DuckDB's CI understands those features.
 [toolchain]
 channel = "1.86.0"

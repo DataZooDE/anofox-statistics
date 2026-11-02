@@ -56,10 +56,7 @@ mod tests {
             eb_shrink(&[1.0], &[1.0], &o),
             Err(StatsError::InsufficientData { rows: 1, cols: 2 })
         ));
-        let fixed = EbShrinkOptions {
-            tau_squared: Some(-1.0),
-            ..Default::default()
-        };
+        let fixed = EbShrinkOptions::default().tau_squared(Some(-1.0));
         assert!(matches!(
             eb_shrink(&[1.0, 2.0], &[1.0, 1.0], &fixed),
             Err(StatsError::InvalidValue { .. })

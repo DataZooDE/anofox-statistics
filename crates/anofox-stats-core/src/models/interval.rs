@@ -21,14 +21,6 @@ fn is_excluded(coef: f64) -> bool {
     coef.is_nan() || coef == 0.0
 }
 
-fn map_upstream_err(msg: &'static str) -> StatsError {
-    if msg.contains("singular") {
-        StatsError::SingularMatrix
-    } else {
-        StatsError::InvalidInput(msg.to_string())
-    }
-}
-
 /// Compute the variance-factor matrix `M` (row-major, `dim x dim`).
 ///
 /// * `x` – feature columns (same layout as the fit), all of equal length.
@@ -98,7 +90,7 @@ pub fn interval_matrix(
     let xm = Mat::from_fn(rows.len(), p, |i, j| x[j][rows[i]]);
     let wc = weights.map(|w| Col::from_fn(rows.len(), |i| w[rows[i]]));
     let m = compute_variance_factor(&xm, wc.as_ref(), fit_intercept, &excluded, ridge_lambda)
-        .map_err(map_upstream_err)?;
+        .map_err(StatsError::from)?;
 
     let dim = m.nrows();
     let mut out = vec![0.0; dim * dim];

@@ -53,6 +53,8 @@ pub fn check_binary_separation_diagnostic(
             anofox_regression::diagnostics::SeparationType::MonotonicResponse => {
                 SeparationType::MonotonicResponse
             }
+            // `#[non_exhaustive]` upstream; a newer kind is still a separation.
+            _ => SeparationType::Quasi,
         })
         .collect();
 
@@ -109,6 +111,8 @@ pub fn check_count_sparsity_diagnostic(
             anofox_regression::diagnostics::SeparationType::MonotonicResponse => {
                 SeparationType::MonotonicResponse
             }
+            // `#[non_exhaustive]` upstream; a newer kind is still a separation.
+            _ => SeparationType::Quasi,
         })
         .collect();
 

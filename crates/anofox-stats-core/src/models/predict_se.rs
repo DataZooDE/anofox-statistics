@@ -5,9 +5,10 @@
 //! intercept first). It is computed upstream: for OLS / WLS / Ridge it is
 //! `σ² · M` with the variance factor `M` of
 //! `anofox_regression::inference::compute_variance_factor` (the matrix the
-//! leverage-aware intervals use), for the GLMs it is the covariance of
-//! `GlmInferenceResult::vcov` scaled by the fit's `DispersionRule`, i.e. the
-//! covariance behind the reported standard errors.
+//! leverage-aware intervals use), for the GLMs it is `GlmInferenceResult::vcov`,
+//! which already carries the Pearson dispersion (Gamma, Tweedie, quasi-Poisson;
+//! anofox-regression >= 0.8), i.e. the covariance behind the reported standard
+//! errors.
 //!
 //! [`predict_se_linear`] evaluates `intervals_from_variance_factor` (R
 //! `predict.lm(se.fit = TRUE, interval = ...)`); [`predict_se_glm`] rebuilds a
@@ -15,12 +16,13 @@
 //! `predict.glm(se.fit = TRUE)`, intervals built on the link scale).
 
 use crate::errors::{StatsError, StatsResult};
-use anofox_regression::core::{BinomialLink, IntervalType, ModelInfo, PoissonLink, PredictionType};
+use anofox_regression::core::{BinomialLink, IntervalType, PoissonLink, PredictionType};
 use anofox_regression::inference::{intervals_from_variance_factor, PredictSeOptions};
 use anofox_regression::solvers::penalized_glm::{
-    DispersionRule, GlmFitResult, GlmInferenceResult, GlmResult, PenalizedGlmFamily,
+    fit_poisson, DispersionRule, GlmResult, PenalizedGlmFamily, PoissonOptions,
 };
 use faer::{Col, Mat};
+use std::sync::OnceLock;
 
 /// Which interval [`predict_se_linear`] / [`predict_se_glm`] compute.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,9 +69,6 @@ pub fn glm_vcov(fit: &GlmResult) -> Option<(Vec<f64>, usize)> {
     let vcov = inf.vcov.as_ref()?;
     let off = usize::from(fit.core.intercept.is_some());
     let dim = fit.core.coefficients.len() + off;
-    let scale = fit
-        .dispersion_rule
-        .covariance_scale(fit.core.dispersion.unwrap_or(1.0));
     let pos = |p: Option<usize>| match p {
         None => 0,
         Some(j) => j + off,
@@ -77,7 +76,7 @@ pub fn glm_vcov(fit: &GlmResult) -> Option<(Vec<f64>, usize)> {
     let mut out = vec![0.0; dim * dim];
     for (a, &pa) in inf.matrix_parameters.iter().enumerate() {
         for (b, &pb) in inf.matrix_parameters.iter().enumerate() {
-            out[pos(pa) * dim + pos(pb)] = scale * vcov[(a, b)];
+            out[pos(pa) * dim + pos(pb)] = vcov[(a, b)];
         }
     }
     Some((out, dim))
@@ -215,6 +214,26 @@ fn family_for_link(link: &str) -> StatsResult<PenalizedGlmFamily> {
     })
 }
 
+/// A `GlmResult` to carry a stored model into `GlmResult::predict_se`.
+///
+/// `GlmResult` is `#[non_exhaustive]` upstream (anofox-regression 0.9), so it can
+/// only come from a fit; its fields stay public. This fits a tiny Poisson model
+/// once and the caller overwrites every field `predict_se` reads (coefficients,
+/// intercept, covariance and its parameter order, family, dispersion, offset).
+/// Replace it with an upstream constructor once one exists.
+fn glm_result_template() -> StatsResult<GlmResult> {
+    static TEMPLATE: OnceLock<Result<GlmResult, String>> = OnceLock::new();
+    TEMPLATE
+        .get_or_init(|| {
+            let y = [1.0, 2.0, 2.0, 4.0, 3.0, 6.0];
+            let x = vec![vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]];
+            fit_poisson(&y, &x, &PoissonOptions::default().compute_inference(true))
+                .map_err(|e| e.to_string())
+        })
+        .clone()
+        .map_err(StatsError::NumericalFailure)
+}
+
 /// Prediction for a GLM from its covariance, as `GlmResult::predict_se`:
 /// the standard error on the link scale is `sqrt(x0' V x0)`, on the response
 /// scale the delta-method value; intervals are `eta ± z · se` on the link
@@ -257,48 +276,22 @@ pub fn predict_se_glm(
         vcov[pos(params[a]) * dim + pos(params[b])]
     });
     let family = family_for_link(link)?;
-    let n_features = coefficients.len();
-    let fit = GlmResult {
-        core: GlmFitResult {
-            coefficients: coefficients.to_vec(),
-            intercept: has_intercept.then_some(intercept),
-            null_deviance: f64::NAN,
-            residual_deviance: f64::NAN,
-            pseudo_r_squared: f64::NAN,
-            aic: f64::NAN,
-            n_observations: 0,
-            n_features,
-            iterations: 0,
-            converged: true,
-            dispersion: None,
-        },
-        inference: Some(GlmInferenceResult {
-            std_errors: Vec::new(),
-            z_values: Vec::new(),
-            p_values: Vec::new(),
-            ci_lower: Vec::new(),
-            ci_upper: Vec::new(),
-            confidence_level: level,
-            intercept_std_error: None,
-            intercept_z_value: None,
-            intercept_p_value: None,
-            intercept_ci_lower: None,
-            intercept_ci_upper: None,
-            vcov: Some(compact),
-            information: None,
-            matrix_parameters: params,
-        }),
-        log_likelihood: f64::NAN,
-        bic: f64::NAN,
-        fitted_values: Vec::new(),
-        valid_rows: Vec::new(),
-        model_info: ModelInfo::new("glm", None, "identity"),
-        family,
-        // `vcov` already carries the dispersion.
-        dispersion_rule: DispersionRule::Fixed,
-        offset_column: None,
-        penalized: false,
-    };
+    let mut fit = glm_result_template()?;
+    fit.core.coefficients = coefficients.to_vec();
+    fit.core.intercept = has_intercept.then_some(intercept);
+    fit.core.n_features = coefficients.len();
+    fit.core.dispersion = None;
+    let inference = fit
+        .inference
+        .as_mut()
+        .ok_or_else(|| StatsError::NumericalFailure("GLM template has no inference".into()))?;
+    inference.confidence_level = level;
+    inference.vcov = Some(compact);
+    inference.matrix_parameters = params;
+    fit.family = family;
+    // `vcov` already carries the dispersion.
+    fit.dispersion_rule = DispersionRule::Fixed;
+    fit.offset_column = None;
     let mut options = PredictSeOptions::new().level(level);
     options.scale = if response_scale {
         PredictionType::Response
