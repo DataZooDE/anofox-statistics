@@ -41,10 +41,7 @@ mod tests {
     #[test]
     fn delegates_mediation() {
         let (y, m, x) = data();
-        let o = MediationOptions {
-            n_sims: 50,
-            ..Default::default()
-        };
+        let o = MediationOptions::default().n_sims(50);
         let r = mediate(&y, &m, &x, &[], &o).unwrap();
         assert_eq!(r.n_obs, 20);
         assert!((r.acme.estimate + r.ade.estimate - r.total.estimate).abs() < 1e-12);
@@ -66,10 +63,7 @@ mod tests {
             mediate(&y, &m, &[1.0; 20], &[], &o),
             Err(StatsError::SingularMatrix)
         ));
-        let bad = MediationOptions {
-            conf_level: 1.5,
-            ..Default::default()
-        };
+        let bad = MediationOptions::default().conf_level(1.5);
         assert!(matches!(
             mediate(&y, &m, &x, &[], &bad),
             Err(StatsError::InvalidValue { .. })

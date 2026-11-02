@@ -117,7 +117,7 @@ pub fn fit_passive_aggressive(
         r_squared: result.r_squared,
         n_observations: rows.len(),
         n_features: x.len(),
-        epochs: fitted.n_iter(),
+        epochs: fitted.iterations(),
         summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }

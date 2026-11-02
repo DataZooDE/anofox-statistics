@@ -118,7 +118,7 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
     });
 
     let mut builder = LarsRegressor::builder()
-        .fit_intercept(options.fit_intercept)
+        .with_intercept(options.fit_intercept)
         .method(if options.method_lasso {
             LarsMethod::Lasso
         } else {

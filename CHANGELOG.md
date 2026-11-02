@@ -10,6 +10,17 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Changed
+
+- **anofox-regression 0.9.0** (from 0.5.38). The upstream 0.8 release brings results closer
+  to R and stricter input checks: the elastic-net solution, overdispersed Poisson SEs, the
+  IRLS defaults (5th–6th digit), BKW condition indices, P-splines, the `lm_dynamic` LOWESS span
+  and the D1 pooled p-values can differ from 0.15.0; infinite values are an error in every
+  estimator. The extension's own tests and reference values are unchanged.
+- **Build:** anofox-regression ≥ 0.8 declares Rust 1.87, but builds on the 1.86 pinned in
+  `rust-toolchain.toml` for the wasm targets, so cargo runs with `--ignore-rust-version`
+  (CMake, Makefile, CI). The unused `argmin` patch is removed (upstream switched to basin).
+
 ## [0.15.0] - 2026-10-30
 
 ### Fixed

@@ -44,11 +44,10 @@ pub fn fit_lowess(x: &[f64], y: &[f64], options: &LowessOptions) -> StatsResult<
     let fit = lowess(
         &xs,
         &ys,
-        &UpstreamOptions {
-            frac: options.frac,
-            iterations: options.iterations,
-            delta: options.delta,
-        },
+        &UpstreamOptions::default()
+            .frac(options.frac)
+            .iterations(options.iterations)
+            .delta(options.delta),
     )
     .map_err(StatsError::from)?;
     Ok(LowessResult {

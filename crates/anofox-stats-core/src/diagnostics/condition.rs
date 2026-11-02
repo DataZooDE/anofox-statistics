@@ -51,6 +51,8 @@ pub fn compute_condition_diagnostic(
         anofox_regression::diagnostics::ConditionSeverity::Moderate => ConditionSeverity::Moderate,
         anofox_regression::diagnostics::ConditionSeverity::High => ConditionSeverity::High,
         anofox_regression::diagnostics::ConditionSeverity::Severe => ConditionSeverity::Severe,
+        // `#[non_exhaustive]` upstream; an unknown, newer level is the worst one.
+        _ => ConditionSeverity::Severe,
     };
 
     Ok(ConditionDiagnosticResult {

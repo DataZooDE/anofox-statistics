@@ -334,17 +334,14 @@ impl CvSpec {
     }
 
     fn time_options(&self, n_splits: usize, test_size: usize) -> TimeSeriesSplitOptions {
-        TimeSeriesSplitOptions {
-            n_splits,
-            test_size: (test_size > 0).then_some(test_size),
-            gap: self.gap,
-            window: if self.max_train_size > 0 {
+        TimeSeriesSplitOptions::new(n_splits)
+            .test_size((test_size > 0).then_some(test_size))
+            .gap(self.gap)
+            .window(if self.max_train_size > 0 {
                 TrainWindow::Sliding(self.max_train_size)
             } else {
                 TrainWindow::Expanding
-            },
-            min_train_size: None,
-        }
+            })
     }
 }
 
@@ -583,17 +580,15 @@ pub fn nested_cv_reg_path(
     let data = prepare(y, x, opts.fit_intercept)?;
     let up = upstream_options(opts)?;
     let outer = strategy_splits(keys, &data, spec)?;
-    let nested = NestedCvOptions {
-        inner: inner_folds(keys, &data, spec)?,
-        rule: if spec.one_se {
+    let nested = NestedCvOptions::new(inner_folds(keys, &data, spec)?)
+        .rule(if spec.one_se {
             LambdaRule::OneSe
         } else {
             LambdaRule::Min
-        },
-        metric: spec.metric(),
-        n_lambda: opts.n_lambda,
-        lambda_min_ratio: (!opts.lambda_min_ratio.is_nan()).then_some(opts.lambda_min_ratio),
-    };
+        })
+        .metric(spec.metric())
+        .n_lambda(opts.n_lambda)
+        .lambda_min_ratio((!opts.lambda_min_ratio.is_nan()).then_some(opts.lambda_min_ratio));
     let lambdas = (!opts.lambdas.is_empty()).then_some(opts.lambdas.as_slice());
     let r = nested_cv_path(&data.x, &data.y, lambdas, &outer, &up, &nested)
         .map_err(StatsError::from)?;
@@ -616,7 +611,7 @@ pub fn nested_cv_reg_path(
 pub fn lars_path(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult<RegPathResult> {
     let data = prepare(y, x, options.fit_intercept)?;
     let mut builder = LarsRegressor::builder()
-        .fit_intercept(options.fit_intercept)
+        .with_intercept(options.fit_intercept)
         .method(if options.method_lasso {
             LarsMethod::Lasso
         } else {

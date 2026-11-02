@@ -1246,14 +1246,15 @@ pub unsafe fn priors_from_ffi(
     }
     std::slice::from_raw_parts(priors, priors_len)
         .iter()
-        .map(|p| PriorSpec {
-            kind: match p.kind {
-                PriorKindFFI::Flat => PriorKind::Flat,
-                PriorKindFFI::Normal => PriorKind::Normal,
-                PriorKindFFI::Laplace => PriorKind::Laplace,
-            },
-            loc: p.loc,
-            scale: p.scale,
+        .map(|p| {
+            PriorSpec::default()
+                .kind(match p.kind {
+                    PriorKindFFI::Flat => PriorKind::Flat,
+                    PriorKindFFI::Normal => PriorKind::Normal,
+                    PriorKindFFI::Laplace => PriorKind::Laplace,
+                })
+                .loc(p.loc)
+                .scale(p.scale)
         })
         .collect()
 }

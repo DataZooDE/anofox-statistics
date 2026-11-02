@@ -2644,26 +2644,26 @@ unsafe fn poisson_options_from_ffi(options: &PoissonOptionsFFI) -> PoissonOption
         PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
     };
 
-    PoissonOptions {
-        fit_intercept: options.fit_intercept,
-        link,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+    PoissonOptions::default()
+        .with_intercept(options.fit_intercept)
+        .link(link)
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
+        })
         // Dispersion fixed at 1, as R's glm(family = poisson) / summary.glm.
-        estimate_dispersion: false,
-    }
+        .estimate_dispersion(false)
 }
 
 /// Core options of a `binomial` fit from its FFI options (shared by the fit and
@@ -2675,120 +2675,120 @@ unsafe fn binomial_options_from_ffi(options: &BinomialOptionsFFI) -> BinomialOpt
         BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
     };
 
-    BinomialOptions {
-        fit_intercept: options.fit_intercept,
-        link,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+    BinomialOptions::default()
+        .with_intercept(options.fit_intercept)
+        .link(link)
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
-    }
+        })
 }
 
 /// Core options of a `negbinomial` fit from its FFI options (shared by the fit and
 /// augment entry points).
 unsafe fn negbinomial_options_from_ffi(options: &NegBinomialOptionsFFI) -> NegBinomialOptions {
-    NegBinomialOptions {
-        fit_intercept: options.fit_intercept,
+    NegBinomialOptions::default()
+        .with_intercept(options.fit_intercept)
         // NaN on the wire means "estimate theta from the data".
-        alpha: if options.alpha.is_nan() {
+        .alpha(if options.alpha.is_nan() {
             None
         } else {
             Some(options.alpha)
-        },
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+        })
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
-    }
+        })
 }
 
 /// Core options of a `tweedie` fit from its FFI options (shared by the fit and
 /// augment entry points).
 unsafe fn tweedie_options_from_ffi(options: &TweedieOptionsFFI) -> TweedieOptions {
-    TweedieOptions {
-        fit_intercept: options.fit_intercept,
-        power: options.power,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+    TweedieOptions::default()
+        .with_intercept(options.fit_intercept)
+        .power(options.power)
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
-    }
+        })
 }
 
 /// Core options of a `gamma` fit from its FFI options (shared by the fit and
 /// augment entry points).
 unsafe fn gamma_options_from_ffi(options: &GammaOptionsFFI) -> GammaOptions {
-    GammaOptions {
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+    GammaOptions::default()
+        .with_intercept(options.fit_intercept)
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
-    }
+        })
 }
 
 /// Core options of a `logistic` fit from its FFI options (shared by the fit and
 /// augment entry points).
 unsafe fn logistic_options_from_ffi(options: &LogisticOptionsFFI) -> LogisticOptions {
-    LogisticOptions {
-        fit_intercept: options.fit_intercept,
-        lambda: options.lambda,
-        threshold: options.threshold,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
+    LogisticOptions::default()
+        .with_intercept(options.fit_intercept)
+        .lambda(options.lambda)
+        .threshold(options.threshold)
+        .max_iterations(options.max_iterations)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .prior_opts(
+            GlmPriorOptions::default()
+                .priors(priors_from_ffi(options.priors, options.priors_len))
+                .vcov(vcov_from_ffi(options.vcov)),
+        )
+        .offset_column(if options.offset_column == 0 {
             None
         } else {
             Some(options.offset_column)
-        },
-    }
+        })
 }
 
 // =============================================================================
@@ -4604,13 +4604,12 @@ pub unsafe extern "C" fn anofox_aid(
         let y_vec = y.to_vec();
 
         // Convert options
-        let opts = AidOptions {
-            intermittent_threshold: options.intermittent_threshold,
-            outlier_method: match options.outlier_method {
+        let opts = AidOptions::default()
+            .intermittent_threshold(options.intermittent_threshold)
+            .outlier_method(match options.outlier_method {
                 OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
                 OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
-            },
-        };
+            });
 
         // Call the core function with panic catching
         let result =
@@ -4731,13 +4730,12 @@ pub unsafe extern "C" fn anofox_aid_anomaly(
         let y_vec = y.to_vec();
 
         // Convert options
-        let opts = AidOptions {
-            intermittent_threshold: options.intermittent_threshold,
-            outlier_method: match options.outlier_method {
+        let opts = AidOptions::default()
+            .intermittent_threshold(options.intermittent_threshold)
+            .outlier_method(match options.outlier_method {
                 OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
                 OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
-            },
-        };
+            });
 
         // Call the core function with panic catching
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -8578,16 +8576,15 @@ pub unsafe extern "C" fn anofox_aft_fit(
             AftDistributionFFI::Exponential => AftDistribution::Exponential,
         };
 
-        let opts = AftOptions {
-            dist,
-            fit_intercept: options.fit_intercept,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        };
+        let opts = AftOptions::default()
+            .dist(dist)
+            .with_intercept(options.fit_intercept)
+            .max_iterations(options.max_iterations)
+            .tolerance(options.tolerance)
+            .compute_inference(options.compute_inference)
+            .confidence_level(options.confidence_level)
+            .priors(priors_from_ffi(options.priors, options.priors_len))
+            .vcov(vcov_from_ffi(options.vcov));
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_aft(&time_vec, &x_vecs, &event_vec, &opts)
@@ -8782,17 +8779,16 @@ pub unsafe extern "C" fn anofox_eb_shrink(
         let est_vec = estimate.to_vec();
         let se_vec = se.to_vec();
 
-        let opts = EbShrinkOptions {
-            method: match options.method {
+        let opts = EbShrinkOptions::default()
+            .method(match options.method {
                 TauMethodFFI::DerSimonianLaird => TauMethod::DerSimonianLaird,
                 TauMethodFFI::None => TauMethod::None,
-            },
-            tau_squared: if options.tau_squared.is_nan() {
+            })
+            .tau_squared(if options.tau_squared.is_nan() {
                 None
             } else {
                 Some(options.tau_squared)
-            },
-        };
+            });
 
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             eb_shrink(&est_vec, &se_vec, &opts)
@@ -10520,22 +10516,21 @@ pub unsafe extern "C" fn anofox_mediation(
                 .map(|c| c.to_vec())
                 .collect()
         };
-        let opts = MediationOptions {
-            method: match options.method {
+        let opts = MediationOptions::default()
+            .method(match options.method {
                 MediationMethodFFI::Bootstrap => MediationMethod::Bootstrap,
                 MediationMethodFFI::Sobel => MediationMethod::Sobel,
                 MediationMethodFFI::QuasiBayesian => MediationMethod::QuasiBayesian,
-            },
-            boot_ci: match options.ci_type {
+            })
+            .boot_ci(match options.ci_type {
                 MediationCiFFI::Percentile => BootCi::Percentile,
                 MediationCiFFI::Bca => BootCi::Bca,
-            },
-            n_sims: options.n_sims as usize,
-            seed: options.seed,
-            conf_level: options.conf_level,
-            treat_value: options.treat_value,
-            control_value: options.control_value,
-        };
+            })
+            .n_sims(options.n_sims as usize)
+            .seed(options.seed)
+            .conf_level(options.conf_level)
+            .treat_value(options.treat_value)
+            .control_value(options.control_value);
         match mediate(&y.to_vec(), &m.to_vec(), &x.to_vec(), &covs, &opts) {
             Ok(r) => {
                 *out_result = MediationResultFFI {
@@ -10627,10 +10622,7 @@ pub unsafe extern "C" fn anofox_ols_anova(
                 .map(|arr| arr.to_vec())
                 .collect()
         };
-        let options = NestedFTestOptions {
-            with_intercept: fit_intercept,
-            ..Default::default()
-        };
+        let options = NestedFTestOptions::default().with_intercept(fit_intercept);
 
         match ols_anova(
             &y.to_vec(),
@@ -10750,11 +10742,9 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
             .iter()
             .map(|&t| t as usize)
             .collect();
-        let options = AnovaTableOptions {
-            anova_type,
-            with_intercept: fit_intercept,
-            ..Default::default()
-        };
+        let options = AnovaTableOptions::default()
+            .anova_type(anova_type)
+            .with_intercept(fit_intercept);
 
         match ols_anova_table(&y.to_vec(), &columns, &terms, n_terms, &options) {
             Ok(t) => {

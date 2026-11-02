@@ -95,6 +95,13 @@ impl From<anofox_regression::solvers::RegressionError> for StatsError {
                 "invalid weights: all weights must be non-negative".to_string(),
             ),
             R::NumericalError(msg) => classify_numerical_error(msg),
+            R::InvalidInput(msg) => StatsError::InvalidInput(msg),
+            R::InvalidParameter { name, reason } => {
+                StatsError::InvalidInput(format!("{name}: {reason}"))
+            }
+            // `RegressionError` is `#[non_exhaustive]`; a variant added upstream is
+            // surfaced as an error rather than silently degraded to NULL.
+            other => StatsError::RegressError(other.to_string()),
         }
     }
 }

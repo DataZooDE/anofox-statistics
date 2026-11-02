@@ -11,13 +11,13 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 .PHONY: rust_release rust_debug rust_test
 
 rust_release:
-	cargo build --release
+	cargo build --ignore-rust-version --release
 
 rust_debug:
-	cargo build
+	cargo build --ignore-rust-version
 
 rust_test:
-	cargo test
+	cargo test --ignore-rust-version
 
 # Clean everything including Rust
 clean_all:

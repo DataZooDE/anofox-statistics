@@ -29,6 +29,7 @@ use crate::errors::{StatsError, StatsResult};
 use crate::types::ModelSummary;
 use anofox_regression::core::HasModelInfo;
 pub use anofox_regression::solvers::GlmmDdf;
+use anofox_regression::solvers::IterativeFit;
 use anofox_regression::solvers::{FittedGlmm, GlmmInference, GlmmRegressor, GlmmRegressorBuilder};
 use faer::{Col, Mat};
 
@@ -404,9 +405,9 @@ pub fn fit_glmm(
 
     // Fixed effects: element 0 is the intercept when one is fitted.
     let (coefficients, intercept) = if options.fit_intercept {
-        (fit.slopes().to_vec(), fit.intercept())
+        (fit.slopes().iter().copied().collect(), fit.intercept())
     } else {
-        (fit.fixed_effects().to_vec(), None)
+        (fit.fixed_effects().iter().copied().collect(), None)
     };
 
     let inference = FixedInference::new(&fit, options, ddf)?;
@@ -596,9 +597,9 @@ pub fn fit_glmm_crossed(
         .map_err(StatsError::from)?;
 
     let (coefficients, intercept) = if options.fit_intercept {
-        (fit.slopes().to_vec(), fit.intercept())
+        (fit.slopes().iter().copied().collect(), fit.intercept())
     } else {
-        (fit.fixed_effects().to_vec(), None)
+        (fit.fixed_effects().iter().copied().collect(), None)
     };
 
     let inference = FixedInference::new(&fit, options, ddf)?;

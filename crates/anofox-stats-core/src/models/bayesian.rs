@@ -1,7 +1,7 @@
 //! Bayesian Ridge and ARD regression wrappers (#61).
 //!
-//! Both are `anofox_regression::solvers::{BayesianRidge, ArdRegression}`
-//! (scikit-learn's `BayesianRidge` / `ARDRegression`): empirical-Bayes linear
+//! Both are `anofox_regression::solvers::{BayesianRidgeRegressor, ArdRegressor}`
+//! (scikit-learn's `BayesianRidgeRegressor` / `ARDRegression`): empirical-Bayes linear
 //! models whose noise precision `alpha` and weight precision(s) `lambda` are
 //! estimated by evidence maximisation. Prediction intervals come from the
 //! posterior predictive distribution, coefficient intervals (#222) are the
@@ -11,7 +11,7 @@ use crate::errors::{StatsError, StatsResult};
 use crate::types::ModelSummary;
 use anofox_regression::core::{HasModelInfo, IntervalType};
 use anofox_regression::prelude::*;
-use anofox_regression::solvers::{ArdRegression, BayesianRidge};
+use anofox_regression::solvers::{ArdRegressor, BayesianRidgeRegressor};
 use faer::{Col, Mat};
 
 /// Options shared by Bayesian Ridge and ARD (scikit-learn's defaults).
@@ -167,8 +167,8 @@ fn design(y: &[f64], x: &[Vec<f64>]) -> StatsResult<(Col<f64>, Mat<f64>)> {
 fn fit(y: &Col<f64>, x: &Mat<f64>, options: &BayesianOptions, ard: bool) -> StatsResult<Fitted> {
     validate_options(options)?;
     if ard {
-        ArdRegression::builder()
-            .fit_intercept(options.fit_intercept)
+        ArdRegressor::builder()
+            .with_intercept(options.fit_intercept)
             .max_iter(options.max_iterations)
             .tolerance(options.tolerance)
             .alpha_1(options.alpha_1)
@@ -181,8 +181,8 @@ fn fit(y: &Col<f64>, x: &Mat<f64>, options: &BayesianOptions, ard: bool) -> Stat
             .map(Fitted::Ard)
             .map_err(StatsError::from)
     } else {
-        BayesianRidge::builder()
-            .fit_intercept(options.fit_intercept)
+        BayesianRidgeRegressor::builder()
+            .with_intercept(options.fit_intercept)
             .max_iter(options.max_iterations)
             .tolerance(options.tolerance)
             .alpha_1(options.alpha_1)
@@ -221,16 +221,16 @@ pub fn fit_bayesian(
             f.lambda(),
             Vec::new(),
             f.credible_intervals(level),
-            f.n_iter(),
+            f.iterations(),
             f.log_marginal_likelihood(),
             f.model_info(),
         ),
         Fitted::Ard(f) => (
             f.alpha(),
             f64::NAN,
-            f.lambdas().to_vec(),
+            f.lambdas().iter().copied().collect(),
             f.credible_intervals(level),
-            f.n_iter(),
+            f.iterations(),
             f64::NAN,
             f.model_info(),
         ),
