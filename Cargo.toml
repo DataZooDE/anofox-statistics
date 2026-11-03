@@ -13,8 +13,8 @@ authors = ["Simon M"]
 repository = "https://github.com/DataZooDE/anofox-statistics"
 
 [workspace.dependencies]
-anofox-regression = "0.9.0"
-anofox-tests = { package = "anofox-statistics", version = "0.6.0" }
+anofox-regression = "0.10.1"
+anofox-tests = { package = "anofox-statistics", version = "0.7.0" }
 # faer: disable default features (which include rayon) - DuckDB handles parallelization
 faer = { version = "0.23", default-features = false, features = ["std", "linalg"] }
 thiserror = "2.0"
