@@ -1971,4 +1971,41 @@ MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, 
 	    });
 }
 
+SpaMapOptions SpaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"n_bootstrap", {"n_boot", "bootstrap"}}, {"block_length", {"block_size"}}, KEY_SEED};
+	return ParseTestOptions<SpaMapOptions>(
+	    map_value, function_name, keys, [](SpaMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"alpha", {}},
+	                                          {"n_bootstrap", {"n_boot", "bootstrap"}},
+	                                          {"block_length", {"block_size"}},
+	                                          KEY_SEED,
+	                                          {"statistic", {}}};
+	return ParseTestOptions<McsMapOptions>(
+	    map_value, function_name, keys, [](McsMapOptions &result, const string &key, const Value &val) {
+		    if (key == "alpha") {
+			    result.alpha = ExtractDouble(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "statistic") {
+			    result.max_statistic = ExtractChoice(val, "statistic", {"range", "max"}) == "max";
+		    }
+	    });
+}
+
 } // namespace duckdb

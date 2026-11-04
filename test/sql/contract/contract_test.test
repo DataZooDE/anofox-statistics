@@ -67,7 +67,7 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE tags['anofox.output'] = 'test' AND tags['anofox.contract'] = anofox_contract_version()
 ----
-59
+61
 
 # Every test aggregate carries all thirteen unified fields with the contract types.
 statement ok
@@ -104,6 +104,8 @@ SELECT 'mcnemar_agg', typeof(mcnemar_agg(b1, b2)) FROM tt UNION ALL
 SELECT 'cohen_kappa_agg', typeof(cohen_kappa_agg(c1, c2)) FROM tt UNION ALL
 SELECT 'diebold_mariano_agg', typeof(diebold_mariano_agg(v, x, y)) FROM tt UNION ALL
 SELECT 'clark_west_agg', typeof(clark_west_agg(v, x, y)) FROM tt UNION ALL
+SELECT 'spa_test_agg', typeof(spa_test_agg(v, [x, y] ORDER BY i)) FROM tt UNION ALL
+SELECT 'mspe_adjusted_spa_agg', typeof(mspe_adjusted_spa_agg(v, [x, y] ORDER BY i)) FROM tt UNION ALL
 SELECT 'tost_t_test_agg', typeof(tost_t_test_agg(v, g2)) FROM tt UNION ALL
 SELECT 'tost_paired_agg', typeof(tost_paired_agg(x, y)) FROM tt UNION ALL
 SELECT 'tost_correlation_agg', typeof(tost_correlation_agg(x, y)) FROM tt UNION ALL
@@ -141,4 +143,4 @@ SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field
 query I
 SELECT count(*) FROM types
 ----
-50
+52

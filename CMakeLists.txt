@@ -232,6 +232,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/brown_forsythe_aggregate.cpp
     src/aggregate_functions/diebold_mariano_aggregate.cpp
     src/aggregate_functions/clark_west_aggregate.cpp
+    src/aggregate_functions/forecast_comparison_aggregates.cpp
     src/aggregate_functions/permutation_t_test_aggregate.cpp
     src/aggregate_functions/tost_paired_aggregate.cpp
     src/aggregate_functions/tost_correlation_aggregate.cpp

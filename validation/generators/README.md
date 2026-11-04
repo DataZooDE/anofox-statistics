@@ -116,3 +116,18 @@ empirical-Bayes shrinkage (`metafor`). It writes JSON to `test/data/issue107/`,
 which no test consumes. Its AFT and GLMM parts are superseded by
 `make_reference_regression.R`; the priors and shrinkage parts remain until
 they are ported to the generated-test format.
+
+## `make_reference_forecast_comparison.R`
+
+```bash
+Rscript validation/generators/make_reference_forecast_comparison.R
+```
+
+Writes `test/sql/reference/forecast_comparison_reference.test` for
+`spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg` (#295).
+No SPA package is installed, so the SPA / MSPE-adjusted statistics and best
+models are computed in base R with the upstream crate's formula, on the fixture
+data of anofox-statistics `R/generate_refs.R` (same seeds). The MCS superior set
+and elimination order come from the R package `MCS` (`MCSprocedure`), installed
+into a user library (`install.packages("MCS", lib = "~/R/userlib")`). Bootstrap
+p-values are only checked for their decision.

@@ -1447,3 +1447,109 @@ fn mediation_round_trip_and_errors() {
         assert_eq!(e.code, ErrorCode::InvalidInput);
     }
 }
+
+// ---------------------------------------------------------------------------
+// SPA / MSPE-adjusted SPA / MCS (#295)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spa_and_mcs_round_trip() {
+    use crate::forecast_ffi::*;
+    let bench: Vec<f64> = (0..40)
+        .map(|i| 2.0 + (i as f64 * 0.7).sin().abs())
+        .collect();
+    let better: Vec<f64> = bench.iter().map(|b| b - 1.0).collect();
+    let worse: Vec<f64> = bench.iter().map(|b| b + 1.0).collect();
+    let models = [arr(&better), arr(&worse)];
+    let opts = SpaOptionsFFI {
+        n_bootstrap: 99,
+        block_length: 0.0,
+        seed: 1,
+        has_seed: true,
+    };
+    let mut out = std::mem::MaybeUninit::<SpaResultFFI>::uninit();
+    let mut e = err();
+    unsafe {
+        assert!(anofox_spa_test(
+            0,
+            arr(&bench),
+            models.as_ptr(),
+            2,
+            opts,
+            out.as_mut_ptr(),
+            &mut e
+        ));
+        let r = out.assume_init();
+        assert_eq!(r.best_model, 0);
+        assert_eq!(r.n_models, 2);
+        assert!((r.block_length - 40f64.cbrt()).abs() < 1e-12);
+        // Invalid kind and empty model list are input errors.
+        assert!(!anofox_spa_test(
+            7,
+            arr(&bench),
+            models.as_ptr(),
+            2,
+            opts,
+            out.as_mut_ptr(),
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert!(!anofox_spa_test(
+            1,
+            arr(&bench),
+            ptr::null(),
+            0,
+            opts,
+            out.as_mut_ptr(),
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+
+    let mcs_opts = McsOptionsFFI {
+        alpha: 0.1,
+        n_bootstrap: 99,
+        block_length: 3.0,
+        seed: 1,
+        statistic: 0,
+        has_seed: true,
+    };
+    let mut included = [0u64; 2];
+    let mut steps = [McsStepFFI {
+        model: 0,
+        p_value: 0.0,
+        eliminated: false,
+    }; 2];
+    let mut res = std::mem::MaybeUninit::<McsResultFFI>::uninit();
+    unsafe {
+        assert!(anofox_model_confidence_set(
+            models.as_ptr(),
+            2,
+            mcs_opts,
+            included.as_mut_ptr(),
+            steps.as_mut_ptr(),
+            res.as_mut_ptr(),
+            &mut e
+        ));
+        let r = res.assume_init();
+        assert_eq!(r.n_included, 1);
+        assert_eq!(included[0], 0);
+        assert!(r.n_steps >= 1);
+        assert_eq!(steps[0].model, 1);
+        assert!(steps[0].eliminated);
+        let bad = McsOptionsFFI {
+            statistic: 5,
+            ..mcs_opts
+        };
+        assert!(!anofox_model_confidence_set(
+            models.as_ptr(),
+            2,
+            bad,
+            included.as_mut_ptr(),
+            steps.as_mut_ptr(),
+            res.as_mut_ptr(),
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+}

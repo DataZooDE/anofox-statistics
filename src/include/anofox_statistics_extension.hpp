@@ -128,6 +128,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader);
 void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader);
 void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader);
 void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
+void RegisterForecastComparisonAggregateFunctions(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
 void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader);

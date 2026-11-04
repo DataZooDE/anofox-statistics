@@ -152,6 +152,9 @@ user-invocable: false
 |---|---|
 | `diebold_mariano_agg` | Diebold-Mariano (equal predictive accuracy) |
 | `clark_west_agg` | Clark-West (nested-model forecast comparison) |
+| `spa_test_agg` | Hansen SPA: does any of K models (`model_losses DOUBLE[]`) beat the benchmark loss? (`ORDER BY t`) |
+| `mspe_adjusted_spa_agg` | MSPE-adjusted SPA on forecast errors, benchmark nested in the alternatives |
+| `model_confidence_set_agg` | Model Confidence Set of K loss series: surviving set + elimination order |
 
 ### Pairwise post-hoc (after an omnibus test)
 | Function | Test |

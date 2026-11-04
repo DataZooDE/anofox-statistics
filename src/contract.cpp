@@ -54,6 +54,7 @@ static const struct {
     {"one_way_anova_agg", "test"}, {"binom_test_agg", "test"}, {"brown_forsythe_agg", "test"},
     {"brunner_munzel_agg", "test"}, {"chisq_test_agg", "test"}, {"chisq_gof_agg", "test"},
     {"clark_west_agg", "test"}, {"cohen_kappa_agg", "test"}, {"dagostino_k2_agg", "test"},
+    {"spa_test_agg", "test"}, {"mspe_adjusted_spa_agg", "test"},
     {"diebold_mariano_agg", "test"}, {"distance_cor_agg", "test"}, {"energy_distance_agg", "test"},
     {"fisher_exact_agg", "test"}, {"g_test_agg", "test"}, {"icc_agg", "test"},
     {"jarque_bera_agg", "test"}, {"kendall_agg", "test"}, {"kruskal_wallis_agg", "test"},

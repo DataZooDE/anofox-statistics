@@ -3,14 +3,15 @@
 //! - Diebold-Mariano test
 //! - Clark-West test
 //! - Superior Predictive Ability (SPA) test
+//! - MSPE-adjusted SPA test
 //! - Model Confidence Set
 
-use super::{convert_error, TestResult};
+use super::{convert_error, TestResult, UnifiedTestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
     clark_west as lib_clark_west, diebold_mariano as lib_diebold_mariano,
-    model_confidence_set as lib_model_confidence_set, spa_test as lib_spa_test, Alternative,
-    LossFunction, MCSStatistic, VarEstimator,
+    model_confidence_set as lib_model_confidence_set, mspe_adjusted_spa as lib_mspe_adjusted_spa,
+    spa_test as lib_spa_test, Alternative, LossFunction, MCSStatistic, VarEstimator,
 };
 
 /// Loss functions for forecast comparison
@@ -200,12 +201,13 @@ pub fn clark_west(
     })
 }
 
-/// Options for SPA test
+/// Options for the SPA-type tests (`spa_test`, `mspe_adjusted_spa`)
 #[derive(Debug, Clone)]
 pub struct SpaTestOptions {
     /// Number of bootstrap samples
     pub n_bootstrap: usize,
-    /// Block length for stationary bootstrap (0 for automatic)
+    /// Expected block length of the stationary bootstrap; `<= 0` (or NaN) selects
+    /// the rule of thumb `T^(1/3)` documented upstream
     pub block_length: f64,
     /// Optional seed for reproducibility
     pub seed: Option<u64>,
@@ -221,23 +223,66 @@ impl Default for SpaTestOptions {
     }
 }
 
-/// SPA test result
+/// Result of an SPA-type test
 #[derive(Debug, Clone)]
 pub struct SpaResult {
-    /// Test statistic
+    /// Test statistic (maximum standardized performance against the benchmark)
     pub statistic: f64,
-    /// p-value (consistent)
+    /// Consistent p-value
     pub p_value_consistent: f64,
-    /// p-value (upper, more conservative)
+    /// Upper p-value
     pub p_value_upper: f64,
-    /// Index of best model (if any outperforms benchmark)
+    /// 0-based index of the best competing model
     pub best_model_idx: Option<usize>,
+    /// Number of bootstrap samples used
+    pub n_bootstrap: usize,
+    /// Block length used by the stationary bootstrap
+    pub block_length: f64,
+    /// Number of observations (time points)
+    pub n: usize,
+    /// Number of competing models
+    pub n_models: usize,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: UnifiedTestResult,
 }
 
-/// Superior Predictive Ability (SPA) test
+/// Resolve the stationary-bootstrap block length: a non-positive (or NaN) value
+/// selects the `T^(1/3)` rule of thumb named in the upstream documentation.
+pub fn resolve_block_length(block_length: f64, t: usize) -> f64 {
+    if block_length.is_nan() || block_length <= 0.0 {
+        (t as f64).cbrt()
+    } else {
+        block_length
+    }
+}
+
+fn check_spa_inputs(benchmark: &[f64], models: &[Vec<f64>], what: &str) -> StatsResult<()> {
+    if models.is_empty() {
+        return Err(StatsError::InvalidInput(format!(
+            "At least one {} required",
+            what
+        )));
+    }
+    for (i, model) in models.iter().enumerate() {
+        if model.len() != benchmark.len() {
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Model {} has different length than benchmark",
+                i
+            )));
+        }
+    }
+    if benchmark.len() < 3 {
+        return Err(StatsError::InsufficientDataMsg(
+            "SPA test requires at least 3 observations".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Superior Predictive Ability (SPA) test (Hansen, 2005)
 ///
-/// Tests whether a benchmark model is outperformed by any of the alternatives.
-/// Takes pre-computed losses for all models.
+/// Tests whether any competing model has a lower expected loss than the
+/// benchmark. Takes pre-computed losses for all models.
 ///
 /// # Arguments
 /// * `benchmark_losses` - Loss values from the benchmark model
@@ -248,26 +293,15 @@ pub fn spa_test(
     model_losses: &[Vec<f64>],
     options: &SpaTestOptions,
 ) -> StatsResult<SpaResult> {
-    if model_losses.is_empty() {
-        return Err(StatsError::InvalidInput(
-            "At least one alternative model required".into(),
-        ));
-    }
-
-    for (i, model) in model_losses.iter().enumerate() {
-        if model.len() != benchmark_losses.len() {
-            return Err(StatsError::DimensionMismatchMsg(format!(
-                "Model {} has different length than benchmark",
-                i
-            )));
-        }
-    }
+    check_spa_inputs(benchmark_losses, model_losses, "competing model")?;
+    let t = benchmark_losses.len();
+    let block_length = resolve_block_length(options.block_length, t);
 
     let result = lib_spa_test(
         benchmark_losses,
         model_losses,
         options.n_bootstrap,
-        options.block_length,
+        block_length,
         options.seed,
     )
     .map_err(convert_error)?;
@@ -277,6 +311,55 @@ pub fn spa_test(
         p_value_consistent: result.p_value_consistent,
         p_value_upper: result.p_value_upper,
         best_model_idx: result.best_model_idx,
+        n_bootstrap: result.n_bootstrap,
+        block_length,
+        n: t,
+        n_models: model_losses.len(),
+        unified: UnifiedTestResult::from(&result)
+            .with_alternative(Alternative::Greater)
+            .with_n(t),
+    })
+}
+
+/// MSPE-adjusted SPA test (Clark and McCracken, 2012)
+///
+/// SPA bootstrap on Clark-West adjusted loss differentials, for a benchmark
+/// nested in each alternative. Takes forecast errors, not losses.
+///
+/// # Arguments
+/// * `benchmark_errors` - Forecast errors of the benchmark (restricted) model
+/// * `model_errors` - Forecast errors of each alternative (unrestricted) model
+/// * `options` - Test options
+pub fn mspe_adjusted_spa(
+    benchmark_errors: &[f64],
+    model_errors: &[Vec<f64>],
+    options: &SpaTestOptions,
+) -> StatsResult<SpaResult> {
+    check_spa_inputs(benchmark_errors, model_errors, "alternative model")?;
+    let t = benchmark_errors.len();
+    let block_length = resolve_block_length(options.block_length, t);
+
+    let result = lib_mspe_adjusted_spa(
+        benchmark_errors,
+        model_errors,
+        options.n_bootstrap,
+        block_length,
+        options.seed,
+    )
+    .map_err(convert_error)?;
+
+    Ok(SpaResult {
+        statistic: result.statistic,
+        p_value_consistent: result.p_value_consistent,
+        p_value_upper: result.p_value_upper,
+        best_model_idx: result.best_model_idx,
+        n_bootstrap: result.n_bootstrap,
+        block_length,
+        n: t,
+        n_models: model_errors.len(),
+        unified: UnifiedTestResult::from(&result)
+            .with_alternative(Alternative::Greater)
+            .with_n(t),
     })
 }
 
@@ -307,7 +390,8 @@ pub struct McsOptions {
     pub n_bootstrap: usize,
     /// Test statistic type
     pub statistic: McsStatistic,
-    /// Block length for stationary bootstrap (0 for automatic)
+    /// Expected block length of the stationary bootstrap; `<= 0` (or NaN) selects
+    /// the rule of thumb `T^(1/3)` documented upstream
     pub block_length: f64,
     /// Optional seed for reproducibility
     pub seed: Option<u64>,
@@ -325,20 +409,39 @@ impl Default for McsOptions {
     }
 }
 
+/// One step of the MCS elimination sequence
+#[derive(Debug, Clone, Copy)]
+pub struct McsStep {
+    /// 0-based index of the model tested at this step
+    pub model_idx: usize,
+    /// p-value of the equal-predictive-ability test at this step
+    pub p_value: f64,
+    /// Whether the model was eliminated (`p_value < alpha`)
+    pub eliminated: bool,
+}
+
 /// MCS result
 #[derive(Debug, Clone)]
 pub struct McsResult {
-    /// Indices of models in the confidence set
+    /// 0-based indices of the models in the confidence set
     pub included_models: Vec<usize>,
-    /// Indices of eliminated models
+    /// 0-based indices of the eliminated models, in elimination order
     pub eliminated_models: Vec<usize>,
-    /// p-value for the MCS
+    /// p-value of the MCS (the p-value at which elimination stopped)
     pub mcs_p_value: f64,
-    /// Elimination sequence
-    pub elimination_sequence: Vec<usize>,
+    /// Elimination sequence with the p-value of each step
+    pub elimination_sequence: Vec<McsStep>,
+    /// Number of bootstrap samples used
+    pub n_bootstrap: usize,
+    /// Block length used by the stationary bootstrap
+    pub block_length: f64,
+    /// Number of observations (time points)
+    pub n: usize,
+    /// Number of models
+    pub n_models: usize,
 }
 
-/// Model Confidence Set
+/// Model Confidence Set (Hansen, Lunde and Nason, 2011)
 ///
 /// Identifies the set of best models at a given confidence level.
 /// Takes pre-computed losses for all models.
@@ -347,9 +450,9 @@ pub struct McsResult {
 /// * `losses` - Loss values for each model (each inner Vec is one model)
 /// * `options` - MCS options
 pub fn model_confidence_set(losses: &[Vec<f64>], options: &McsOptions) -> StatsResult<McsResult> {
-    if losses.len() < 2 {
+    if losses.is_empty() {
         return Err(StatsError::InvalidInput(
-            "MCS requires at least 2 models".into(),
+            "MCS requires at least 1 model".into(),
         ));
     }
 
@@ -362,13 +465,19 @@ pub fn model_confidence_set(losses: &[Vec<f64>], options: &McsOptions) -> StatsR
             )));
         }
     }
+    if t < 3 {
+        return Err(StatsError::InsufficientDataMsg(
+            "MCS requires at least 3 observations".into(),
+        ));
+    }
+    let block_length = resolve_block_length(options.block_length, t);
 
     let result = lib_model_confidence_set(
         losses,
         options.alpha,
         options.statistic.into(),
         options.n_bootstrap,
-        options.block_length,
+        block_length,
         options.seed,
     )
     .map_err(convert_error)?;
@@ -380,8 +489,16 @@ pub fn model_confidence_set(losses: &[Vec<f64>], options: &McsOptions) -> StatsR
         elimination_sequence: result
             .elimination_sequence
             .iter()
-            .map(|s| s.model_idx)
+            .map(|s| McsStep {
+                model_idx: s.model_idx,
+                p_value: s.p_value,
+                eliminated: s.eliminated,
+            })
             .collect(),
+        n_bootstrap: result.n_bootstrap,
+        block_length,
+        n: t,
+        n_models: losses.len(),
     })
 }
 
@@ -408,5 +525,91 @@ mod tests {
 
         let result = clark_west(&actual, &restricted, &unrestricted, 1).unwrap();
         assert!(result.p_value > 0.0 && result.p_value <= 1.0);
+    }
+
+    fn losses(mean: f64, amp: f64, phase: f64, n: usize) -> Vec<f64> {
+        (0..n)
+            .map(|i| mean + amp * ((i as f64) * 0.7 + phase).sin().abs())
+            .collect()
+    }
+
+    #[test]
+    fn test_resolve_block_length() {
+        assert!((resolve_block_length(0.0, 125) - 5.0).abs() < 1e-12);
+        assert!((resolve_block_length(f64::NAN, 8) - 2.0).abs() < 1e-12);
+        assert_eq!(resolve_block_length(3.0, 125), 3.0);
+    }
+
+    #[test]
+    fn test_spa_seeded_is_reproducible() {
+        let bench = losses(2.0, 0.5, 0.0, 80);
+        let models = vec![losses(1.0, 0.3, 1.0, 80), losses(2.2, 0.4, 2.0, 80)];
+        let opts = SpaTestOptions {
+            n_bootstrap: 199,
+            block_length: 4.0,
+            seed: Some(7),
+        };
+        let a = spa_test(&bench, &models, &opts).unwrap();
+        let b = spa_test(&bench, &models, &opts).unwrap();
+        assert_eq!(a.p_value_consistent, b.p_value_consistent);
+        assert_eq!(a.best_model_idx, Some(0));
+        assert_eq!(a.n_models, 2);
+        assert_eq!(a.n, 80);
+        assert!(a.p_value_consistent < 0.05);
+    }
+
+    #[test]
+    fn test_spa_errors() {
+        let bench = losses(2.0, 0.5, 0.0, 10);
+        assert!(matches!(
+            spa_test(&bench, &[], &SpaTestOptions::default()),
+            Err(StatsError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            spa_test(&bench, &[vec![1.0; 9]], &SpaTestOptions::default()),
+            Err(StatsError::DimensionMismatchMsg(_))
+        ));
+        assert!(matches!(
+            spa_test(&[1.0, 2.0], &[vec![1.0, 1.5]], &SpaTestOptions::default()),
+            Err(StatsError::InsufficientDataMsg(_))
+        ));
+    }
+
+    #[test]
+    fn test_mspe_adjusted_spa() {
+        let bench = losses(2.0, 0.2, 0.0, 60);
+        let models = vec![losses(0.5, 0.2, 1.0, 60)];
+        let opts = SpaTestOptions {
+            n_bootstrap: 199,
+            block_length: 3.0,
+            seed: Some(42),
+        };
+        let r = mspe_adjusted_spa(&bench, &models, &opts).unwrap();
+        assert!(r.p_value_consistent < 0.05);
+        assert_eq!(r.best_model_idx, Some(0));
+    }
+
+    #[test]
+    fn test_mcs() {
+        let l = vec![
+            losses(1.0, 0.3, 0.0, 100),
+            losses(5.0, 0.3, 1.0, 100),
+            losses(1.0, 0.3, 0.0, 100),
+        ];
+        let opts = McsOptions {
+            n_bootstrap: 199,
+            block_length: 3.0,
+            seed: Some(42),
+            ..McsOptions::default()
+        };
+        let r = model_confidence_set(&l, &opts).unwrap();
+        assert_eq!(r.eliminated_models, vec![1]);
+        assert_eq!(r.n_models, 3);
+        assert!(!r.elimination_sequence.is_empty());
+        assert!(r.elimination_sequence[0].eliminated);
+
+        let single = model_confidence_set(&l[..1], &opts).unwrap();
+        assert_eq!(single.included_models, vec![0]);
+        assert!(model_confidence_set(&[], &opts).is_err());
     }
 }

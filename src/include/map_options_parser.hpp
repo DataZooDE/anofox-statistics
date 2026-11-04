@@ -700,4 +700,28 @@ struct MediationMapOptions {
 	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+/**
+ * Options of the SPA-type tests (spa_test_agg, mspe_adjusted_spa_agg, #295)
+ */
+struct SpaMapOptions {
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+
+	static SpaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of model_confidence_set_agg (#295)
+ */
+struct McsMapOptions {
+	std::optional<double> alpha;
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+	std::optional<bool> max_statistic;  // 'statistic': 'range' (false) | 'max' (true)
+
+	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
 } // namespace duckdb
