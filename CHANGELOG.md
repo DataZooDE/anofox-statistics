@@ -12,7 +12,7 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
-- **anofox-regression 0.10.1 and anofox-statistics 0.7.0.** Both are additive upstream
+- **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).
   0.10.1 builds on Rust 1.86 again (0.10.0 used a Rust 1.87 library feature).
