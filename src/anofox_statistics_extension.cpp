@@ -174,6 +174,7 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Resampling tests
     RegisterPermutationTTestAggregateFunction(loader);
+    RegisterBootstrapMeanCiAggregateFunction(loader);
 
     // TOST equivalence test variants
     RegisterTostPairedAggregateFunction(loader);

@@ -134,7 +134,7 @@ fitted model struct).
 | Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
-| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg`, `bootstrap_mean_ci_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
@@ -1192,6 +1192,7 @@ FROM reg_data;
 | `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000), `seed` (42) | `statistic, p_value, n1, n2, method` |
+| `bootstrap_mean_ci_agg` | `(x DOUBLE [, options] [ORDER BY t])` | `method` ('iid' \| 'circular_block'), `n_bootstrap` (10000), `block_length`, `confidence_level` (0.95), `seed` (42) | `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap, block_length, method` |
 
 ```sql
 SELECT (mann_whitney_u_agg(y, grp2, {'alternative': 'greater'})).p_value AS mw_p,

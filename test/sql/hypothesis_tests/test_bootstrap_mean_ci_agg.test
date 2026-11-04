@@ -1,0 +1,211 @@
+# name: test/sql/hypothesis_tests/test_bootstrap_mean_ci_agg.test
+# description: bootstrap_mean_ci_agg (#294): result shape, options, seeding, ORDER BY, NULLs, edge cases
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE s AS
+SELECT i AS t, (i % 3)::INTEGER AS g, 10 + sin(i * 0.7) + 0.05 * i AS x
+FROM range(1, 61) r(i);
+
+# =============================================================================
+# Result shape
+# =============================================================================
+
+query IIIIIIIII
+SELECT r.estimate = (SELECT avg(x) FROM s) OR abs(r.estimate - (SELECT avg(x) FROM s)) < 1e-12,
+       r.std_error > 0, r.conf_low < r.estimate, r.conf_high > r.estimate, r.conf_level,
+       r.n, r.n_bootstrap, r.block_length IS NULL, r.method
+FROM (SELECT bootstrap_mean_ci_agg(x) AS r FROM s);
+----
+true	true	true	true	0.95	60	10000	true	iid
+
+query IIII
+SELECT r.conf_level, r.n_bootstrap, r.block_length, r.method
+FROM (SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 5, 'n_bootstrap': 500,
+                                       'confidence_level': 0.8} ORDER BY t) AS r FROM s);
+----
+0.8	500	5	circular_block
+
+# MAP options and the aliases n_boot / level / l / random_state
+query I
+SELECT bootstrap_mean_ci_agg(x, MAP {'method': 'circular_block', 'l': '4', 'n_boot': '300', 'level': '0.9',
+                                     'random_state': '3'} ORDER BY t)
+     = bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 4, 'n_bootstrap': 300,
+                                 'confidence_level': 0.9, 'seed': 3} ORDER BY t)
+FROM s;
+----
+true
+
+# A narrower level gives a narrower interval
+query I
+SELECT (a.conf_high - a.conf_low) < (b.conf_high - b.conf_low)
+FROM (SELECT bootstrap_mean_ci_agg(x, {'confidence_level': 0.8}) AS a,
+             bootstrap_mean_ci_agg(x, {'confidence_level': 0.99}) AS b FROM s);
+----
+true
+
+# =============================================================================
+# Seeding: the default seed (42) makes the result reproducible; another seed differs
+# =============================================================================
+
+query I
+SELECT count(DISTINCT r)
+FROM (SELECT rep, bootstrap_mean_ci_agg(x, {'n_bootstrap': 200}) AS r FROM s, range(20) q(rep) GROUP BY rep);
+----
+1
+
+query II
+SELECT bootstrap_mean_ci_agg(x, {'n_bootstrap': 200}) = bootstrap_mean_ci_agg(x, {'n_bootstrap': 200, 'seed': 42}),
+       bootstrap_mean_ci_agg(x, {'n_bootstrap': 200}) = bootstrap_mean_ci_agg(x, {'n_bootstrap': 200, 'seed': 7})
+FROM s;
+----
+true	false
+
+# =============================================================================
+# Row order: the IID result does not depend on it; the block bootstrap follows ORDER BY
+# =============================================================================
+
+query I
+SELECT bootstrap_mean_ci_agg(x ORDER BY t) = bootstrap_mean_ci_agg(x ORDER BY t DESC)
+   AND bootstrap_mean_ci_agg(x ORDER BY t) = bootstrap_mean_ci_agg(x)
+FROM s;
+----
+true
+
+query I
+SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 6} ORDER BY t)
+     = bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 6} ORDER BY (t * 37) % 61)
+FROM s;
+----
+false
+
+# The same series inserted in another order gives the same ORDER BY result
+statement ok
+CREATE TABLE s_rev AS SELECT * FROM s ORDER BY t DESC;
+
+query I
+SELECT (SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 6} ORDER BY t) FROM s)
+     = (SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 6} ORDER BY t) FROM s_rev);
+----
+true
+
+# =============================================================================
+# GROUP BY and window use
+# =============================================================================
+
+query II
+SELECT g, r.n
+FROM (SELECT g, bootstrap_mean_ci_agg(x, {'n_bootstrap': 100}) AS r FROM s GROUP BY g)
+ORDER BY g;
+----
+0	20
+1	20
+2	20
+
+# Moving window: the first frame has one value (NULL), frames from row 10 on have ten
+query III
+SELECT count(*) FILTER (WHERE r IS NULL), count(*) FILTER (WHERE r.n = 10), count(*)
+FROM (SELECT bootstrap_mean_ci_agg(x, {'n_bootstrap': 100}) OVER (ORDER BY t ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS r
+      FROM s);
+----
+1	51	60
+
+# =============================================================================
+# NULL / NaN handling and degenerate input
+# =============================================================================
+
+# NULL and NaN values are skipped
+query II
+SELECT r.n, abs(r.estimate - 2.5) < 1e-12
+FROM (SELECT bootstrap_mean_ci_agg(v, {'n_bootstrap': 100}) AS r
+      FROM (VALUES (1.0), (NULL), (2.0), ('NaN'::DOUBLE), (3.0), (4.0)) d(v));
+----
+4	true
+
+# Fewer than two values, all NULL, and an empty table give NULL
+query III
+SELECT bootstrap_mean_ci_agg(v) IS NULL,
+       bootstrap_mean_ci_agg(v) FILTER (WHERE v IS NULL) IS NULL,
+       bootstrap_mean_ci_agg(v) FILTER (WHERE false) IS NULL
+FROM (VALUES (1.0)) d(v);
+----
+true	true	true
+
+query I
+SELECT bootstrap_mean_ci_agg(x) IS NULL FROM s WHERE false;
+----
+true
+
+# Constant data: a zero-width interval
+query III
+SELECT r.std_error, r.conf_low, r.conf_high
+FROM (SELECT bootstrap_mean_ci_agg(5.0, {'n_bootstrap': 100}) AS r FROM range(10));
+----
+0.0	5.0	5.0
+
+# Group without valid values among valid groups
+query II
+SELECT g, r IS NULL
+FROM (SELECT g, bootstrap_mean_ci_agg(CASE WHEN g = 1 THEN NULL ELSE x END, {'n_bootstrap': 100}) AS r
+      FROM s GROUP BY g)
+ORDER BY g;
+----
+0	false
+1	true
+2	false
+
+# =============================================================================
+# Invalid options
+# =============================================================================
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'foo': 1}) FROM s;
+----
+bootstrap_mean_ci_agg: unknown option 'foo'
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'moving_block'}) FROM s;
+----
+Invalid method: 'moving_block'
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'stationary'} ORDER BY t) FROM s;
+----
+method 'stationary' is not available yet
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block'} ORDER BY t) FROM s;
+----
+method 'circular_block' requires block_length
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 1} ORDER BY t) FROM s;
+----
+block_length must be >= 2
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'block_length': 5}) FROM s;
+----
+block_length applies only to method 'circular_block'
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'n_bootstrap': 1}) FROM s;
+----
+n_bootstrap must be >= 2
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'n_bootstrap': -5}) FROM s;
+----
+expected a non-negative integer
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'confidence_level': 1.0}) FROM s;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'confidence_level': 0}) FROM s;
+----
+confidence_level must be in (0, 1)

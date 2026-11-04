@@ -10,6 +10,18 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
+  confidence interval of the mean from anofox-statistics `bootstrap_mean_ci`: the IID
+  bootstrap (`'method': 'iid'`, default) or the circular block bootstrap
+  (`'circular_block'` with `block_length`, resampling the series in the aggregate's
+  `ORDER BY` order). Options `n_bootstrap` (10000), `confidence_level` (0.95), `seed` (42).
+  Returns `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap,
+  block_length, method`. The stationary bootstrap is not offered yet (upstream runs it only
+  with expected block length 1). Reference values: exact bootstrap SE and
+  `boot::boot` / `boot::tsboot` intervals (`validation/generators/make_reference_bootstrap.R`).
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

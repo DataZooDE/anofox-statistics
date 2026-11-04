@@ -116,3 +116,16 @@ empirical-Bayes shrinkage (`metafor`). It writes JSON to `test/data/issue107/`,
 which no test consumes. Its AFT and GLMM parts are superseded by
 `make_reference_regression.R`; the priors and shrinkage parts remain until
 they are ported to the generated-test format.
+
+## `make_reference_bootstrap.R`
+
+```bash
+Rscript validation/generators/make_reference_bootstrap.R
+```
+
+Requires `boot`. Writes `bootstrap_mean_ci.test` (`bootstrap_mean_ci_agg`, #294):
+the exact bootstrap standard error of the mean (IID and circular block, closed
+form) and the percentile intervals of `boot::boot` / `boot::tsboot(sim = "fixed",
+endcorr = TRUE)` with 200000 replicates. R's generator differs from the
+extension's, so the intervals are compared within a Monte Carlo tolerance (see
+the script header).

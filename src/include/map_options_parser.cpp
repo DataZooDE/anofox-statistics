@@ -1971,4 +1971,29 @@ MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, 
 	    });
 }
 
+BootstrapMeanMapOptions BootstrapMeanMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}},
+	                                          {"n_bootstrap", {"n_boot"}},
+	                                          {"block_length", {"l", "block_size"}},
+	                                          {"confidence_level", {"confidence", "conf_level", "level"}},
+	                                          KEY_SEED};
+	return ParseTestOptions<BootstrapMeanMapOptions>(
+	    map_value, function_name, keys, [](BootstrapMeanMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"iid", "stationary", "circular_block"});
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractUInt32(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
 } // namespace duckdb

@@ -700,4 +700,17 @@ struct MediationMapOptions {
 	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+/**
+ * Options for the bootstrap CI of the mean (bootstrap_mean_ci_agg, #294)
+ */
+struct BootstrapMeanMapOptions {
+	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block'
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<uint32_t> block_length;
+	std::optional<double> confidence_level;
+	std::optional<uint64_t> seed; // also accepted as random_state
+
+	static BootstrapMeanMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
 } // namespace duckdb

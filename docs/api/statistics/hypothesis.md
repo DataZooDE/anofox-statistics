@@ -232,6 +232,68 @@ permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 | alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
 | seed (alias `random_state`) | INTEGER | 42 | Seed of the permutation draw; without it the default 42 makes the p-value reproducible |
 
+### bootstrap_mean_ci_agg
+
+Percentile bootstrap confidence interval of the mean (anofox-statistics
+`bootstrap_mean_ci`): the IID bootstrap, or the circular block bootstrap for a
+dependent series. The block bootstrap resamples blocks of `block_length`
+consecutive values in the aggregate's `ORDER BY` order (as `acf_agg`), so pass the
+time column there; without `ORDER BY` the row order, and so the result, is not
+defined. The IID bootstrap does not depend on the row order. NULL and NaN values are
+skipped; fewer than two values give NULL. The draw is seeded (42 by default), so
+repeated calls return the same interval.
+
+**Signature:**
+```text
+bootstrap_mean_ci_agg(x DOUBLE [, options MAP] [ORDER BY t]) -> STRUCT
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| method | VARCHAR | 'iid' | `'iid'` or `'circular_block'` (`'stationary'` is not available yet, see below) |
+| n_bootstrap (alias `n_boot`) | INTEGER | 10000 | Number of bootstrap replicates (>= 2) |
+| block_length (alias `l`, `block_size`) | INTEGER | - | Block length of `'circular_block'` (required, >= 2); not allowed for `'iid'` |
+| confidence_level (alias `confidence`, `conf_level`, `level`) | DOUBLE | 0.95 | Level of the percentile interval |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the bootstrap draw |
+
+**Returns:** `estimate` (the mean), `std_error` (standard deviation of the bootstrap
+means), `conf_low`, `conf_high` (percentile interval: the `floor(alpha/2 B)`-th and
+`ceil((1 - alpha/2) B)`-th sorted replicate, 0-based), `conf_level`, `n`,
+`n_bootstrap`, `block_length` (NULL for `'iid'`), `method`. A block length that
+divides `n` gives the textbook circular block bootstrap (R
+`boot::tsboot(sim = "fixed", endcorr = TRUE)`); otherwise the last block of each
+resample is cut to length `n`.
+
+```sql
+SELECT r.estimate, r.std_error, r.conf_low, r.conf_high, r.method
+FROM (SELECT bootstrap_mean_ci_agg(x) AS r
+      FROM (SELECT 10 + sin(i * 0.7) AS x FROM range(60) t(i)));
+```
+
+For a dependent series the block bootstrap gives a wider (more honest) interval:
+
+```sql
+SELECT (bootstrap_mean_ci_agg(x ORDER BY t)).std_error AS se_iid,
+       (bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 8} ORDER BY t)).std_error AS se_block
+FROM (SELECT i AS t, 10 + sin(i * 0.3) + 0.1 * cos(i * 2.1) AS x FROM range(120) r(i));
+```
+
+Per group, with a 90% interval:
+
+```sql
+SELECT sensor, (r).conf_low, (r).conf_high
+FROM (SELECT sensor, bootstrap_mean_ci_agg(reading, {'method': 'circular_block', 'block_length': 5,
+                                                     'confidence_level': 0.9, 'n_bootstrap': 2000} ORDER BY t) AS r
+      FROM (SELECT i % 2 AS sensor, i // 2 AS t, 20 + (i % 2) + sin(i * 0.4) AS reading FROM range(100) s(i))
+      GROUP BY sensor)
+ORDER BY sensor;
+```
+
+`'stationary'` (Politis-Romano stationary bootstrap) is not offered yet: upstream
+`bootstrap_mean_ci` runs it only with an expected block length of 1, which resamples
+like the IID bootstrap.
+
 ## Normality Tests
 
 ### shapiro_wilk_agg

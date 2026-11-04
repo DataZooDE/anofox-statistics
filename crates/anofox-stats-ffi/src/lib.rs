@@ -10779,3 +10779,7 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
 // After alloc_inference_arrays! (macro_rules scope is textual).
 mod ls_state_ffi;
 pub use ls_state_ffi::*;
+
+// Percentile bootstrap CI of the mean (#294).
+mod bootstrap_ffi;
+pub use bootstrap_ffi::*;

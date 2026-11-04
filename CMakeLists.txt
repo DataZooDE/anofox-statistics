@@ -233,6 +233,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/diebold_mariano_aggregate.cpp
     src/aggregate_functions/clark_west_aggregate.cpp
     src/aggregate_functions/permutation_t_test_aggregate.cpp
+    src/aggregate_functions/bootstrap_mean_ci_aggregate.cpp
     src/aggregate_functions/tost_paired_aggregate.cpp
     src/aggregate_functions/tost_correlation_aggregate.cpp
     src/aggregate_functions/chisq_gof_aggregate.cpp
