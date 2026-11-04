@@ -109,6 +109,10 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_tost.R` (base R only) prints the reference values of the TOST
+variants (#293) held by `tost_reference.test`; the test is written by hand from
+its output.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

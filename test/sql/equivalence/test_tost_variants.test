@@ -1,0 +1,239 @@
+# name: test/sql/equivalence/test_tost_variants.test
+# description: TOST variants (#293): shape, options, NULL handling, groups,
+#              degenerate input and invalid options. Reference values are in
+#              test/sql/reference/tost_reference.test.
+# group: [equivalence]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, (i % 2)::BIGINT AS g, CASE WHEN i % 2 = 0 THEN 'ctl' ELSE 'trt' END AS gs,
+       10 + sin(i * 1.3) + 0.05 * (i % 2) AS v,
+       10 + sin(i * 0.7) AS x, 10 + sin(i * 0.7) + 0.1 * cos(i * 1.9) AS y,
+       (i % 5 < 2)::BIGINT AS s
+FROM range(60) t(i);
+
+# All seven share the tost_t_test_agg result STRUCT.
+query I
+SELECT count(DISTINCT t) FROM (
+    SELECT typeof(tost_t_test_agg(v, g::INTEGER)) t FROM d
+    UNION ALL SELECT typeof(tost_one_sample_agg(v)) FROM d
+    UNION ALL SELECT typeof(tost_prop_one_agg(s)) FROM d
+    UNION ALL SELECT typeof(tost_prop_two_agg(s, g)) FROM d
+    UNION ALL SELECT typeof(tost_wilcoxon_paired_agg(x, y)) FROM d
+    UNION ALL SELECT typeof(tost_wilcoxon_agg(v, g)) FROM d
+    UNION ALL SELECT typeof(tost_yuen_agg(v, g)) FROM d
+    UNION ALL SELECT typeof(tost_bootstrap_agg(v, g, {'n_bootstrap': 200})) FROM d)
+----
+1
+
+# Defaults: symmetric bounds of the core (0.5; proportions 0.1), alpha 0.05,
+# p0 = 0.5, mu = 0, trim 0.2.
+query IIIIII
+SELECT (tost_one_sample_agg(v - 10)).bound_upper, (tost_prop_one_agg(s)).bound_upper,
+       (tost_prop_two_agg(s, g)).bound_lower, (tost_wilcoxon_agg(v, g)).bound_lower,
+       (tost_yuen_agg(v, g)).method, abs((tost_prop_one_agg(s)).estimate - (0.4 - 0.5)) < 1e-12
+FROM d;
+----
+0.5	0.1	-0.1	-0.5	Yuen TOST (20% trimmed)	true
+
+# The 90% CI of a TOST at alpha = 0.05; alpha = 1 - confidence_level.
+query II
+SELECT tost_yuen_agg(v, g, {'alpha': 0.1}) = tost_yuen_agg(v, g, {'confidence_level': 0.9}),
+       (tost_one_sample_agg(v, {'mu': 10})).conf_level
+FROM d;
+----
+true	0.9
+
+# Explicit asymmetric bounds; a delta wins over them.
+query IIII
+SELECT (r).bound_lower, (r).bound_upper, (q).bound_lower, (q).bound_upper FROM (
+    SELECT tost_wilcoxon_paired_agg(x, y, {'bound_lower': -0.2, 'bound_upper': 0.1}) r,
+           tost_wilcoxon_paired_agg(x, y, {'bound_lower': -0.2, 'bound_upper': 0.1, 'delta': 0.3}) q FROM d);
+----
+-0.2	0.1	-0.3	0.3
+
+# Group labels: any two BIGINT or VARCHAR labels; group 1 is the smaller one.
+query I
+SELECT tost_wilcoxon_agg(v, g) = tost_wilcoxon_agg(v, gs)
+   AND tost_yuen_agg(v, g) = tost_yuen_agg(v, g + 7)
+   AND tost_prop_two_agg(s, g) = tost_prop_two_agg(s, gs)
+   AND tost_bootstrap_agg(v, g, {'n_bootstrap': 500}) = tost_bootstrap_agg(v, gs, {'n_bootstrap': 500})
+FROM d;
+----
+true
+
+statement error
+SELECT tost_wilcoxon_agg(v, (i % 3)::BIGINT) FROM d;
+----
+compares exactly two groups
+
+# Bootstrap: seeded (default seed 42) and order independent; the seed matters.
+query III
+SELECT (SELECT tost_bootstrap_agg(v, g, {'n_bootstrap': 1000}) FROM d)
+     = (SELECT tost_bootstrap_agg(v, g, {'n_bootstrap': 1000} ORDER BY random()) FROM d),
+       (SELECT tost_bootstrap_agg(v, g, {'n_bootstrap': 1000}) FROM d)
+     = (SELECT tost_bootstrap_agg(v, g, {'n_bootstrap': 1000, 'seed': 42}) FROM d),
+       (SELECT (tost_bootstrap_agg(v, g, {'n_bootstrap': 1000, 'seed': 1})).ci_lower FROM d)
+     != (SELECT (tost_bootstrap_agg(v, g, {'n_bootstrap': 1000, 'seed': 2})).ci_lower FROM d);
+----
+true	true	true
+
+# Row order does not change any result.
+query I
+SELECT (SELECT tost_wilcoxon_paired_agg(x, y) FROM d) = (SELECT tost_wilcoxon_paired_agg(x, y ORDER BY -i) FROM d)
+   AND (SELECT tost_one_sample_agg(v) FROM d) = (SELECT tost_one_sample_agg(v ORDER BY -i) FROM d)
+   AND (SELECT tost_yuen_agg(v, g) FROM d) = (SELECT tost_yuen_agg(v, g ORDER BY -i) FROM d);
+----
+true
+
+# Window frames (segment-tree Combine keeps its source states).
+query I
+SELECT bool_and(w IS NOT DISTINCT FROM (SELECT tost_one_sample_agg(v2.v, {'mu': 10}) FROM d v2 WHERE v2.i BETWEEN o.i - 9 AND o.i))
+FROM (SELECT i, tost_one_sample_agg(v, {'mu': 10}) OVER (ORDER BY i ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS w FROM d) o;
+----
+true
+
+query I
+SELECT bool_and(w IS NOT DISTINCT FROM (SELECT tost_wilcoxon_agg(v2.v, v2.g) FROM d v2 WHERE v2.i <= o.i))
+FROM (SELECT i, tost_wilcoxon_agg(v, g) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS w FROM d) o;
+----
+true
+
+# GROUP BY
+query II
+SELECT i % 2 AS k, (tost_one_sample_agg(v, {'mu': 10, 'delta': 1})).n FROM d GROUP BY k ORDER BY k;
+----
+0	30
+1	30
+
+# =============================================================================
+# NULL handling: rows with a NULL (or NaN) input are skipped.
+# =============================================================================
+
+query I
+SELECT tost_one_sample_agg(v) = (SELECT tost_one_sample_agg(v) FROM d WHERE i < 50)
+FROM (SELECT CASE WHEN i < 50 THEN v END AS v FROM d);
+----
+true
+
+query I
+SELECT (tost_wilcoxon_paired_agg(x, y)).n
+FROM (SELECT x, CASE WHEN i % 4 = 0 THEN NULL WHEN i % 4 = 1 THEN 'nan'::DOUBLE ELSE y END AS y FROM d);
+----
+30
+
+query II
+SELECT (tost_prop_one_agg(s)).n, (tost_prop_two_agg(s, g)).n
+FROM (SELECT CASE WHEN i < 10 THEN NULL ELSE s END AS s, CASE WHEN i >= 10 THEN g END AS g FROM d);
+----
+50	50
+
+query I
+SELECT (tost_yuen_agg(v, g)).n FROM (SELECT v, CASE WHEN i < 20 THEN NULL ELSE g END AS g FROM d);
+----
+40
+
+# =============================================================================
+# Too little data: NULL, like the sibling TOST aggregates.
+# =============================================================================
+
+query IIIIIII
+SELECT tost_one_sample_agg(v) IS NULL, tost_wilcoxon_paired_agg(x, y) IS NULL,
+       tost_wilcoxon_agg(v, g) IS NULL, tost_yuen_agg(v, g) IS NULL,
+       tost_bootstrap_agg(v, g, {'n_bootstrap': 200}) IS NULL,
+       tost_prop_one_agg(s) IS NULL, tost_prop_two_agg(s, g) IS NULL
+FROM d WHERE i < 0;
+----
+true	true	true	true	true	true	true
+
+# One group only.
+query IIII
+SELECT tost_wilcoxon_agg(v, g) IS NULL, tost_yuen_agg(v, g) IS NULL,
+       tost_bootstrap_agg(v, g, {'n_bootstrap': 200}) IS NULL, tost_prop_two_agg(s, g) IS NULL
+FROM d WHERE g = 0;
+----
+true	true	true	true
+
+# Below the minimum sizes: one-sample 2, paired Wilcoxon 3 pairs, two-sample
+# Wilcoxon / bootstrap 3 per group, Yuen 4 per group.
+query IIIII
+SELECT (SELECT tost_one_sample_agg(v) IS NULL FROM d WHERE i < 1),
+       (SELECT tost_wilcoxon_paired_agg(x, y) IS NULL FROM d WHERE i < 2),
+       (SELECT tost_wilcoxon_agg(v, g) IS NULL FROM d WHERE i < 4),
+       (SELECT tost_yuen_agg(v, g) IS NULL FROM d WHERE i < 6),
+       (SELECT tost_yuen_agg(v, g) IS NULL FROM d WHERE i < 8);
+----
+true	true	true	true	false
+
+# All-NULL input.
+query II
+SELECT tost_one_sample_agg(NULL::DOUBLE) IS NULL, tost_prop_one_agg(NULL::BIGINT) IS NULL FROM d;
+----
+true	true
+
+# All successes: zero standard error; the core decides from the estimate.
+query III
+SELECT (r).p_value, (r).equivalent, (r).estimate FROM (SELECT tost_prop_one_agg(1::BIGINT, {'p0': 0.95}) r FROM d);
+----
+0.0	true	0.050000000000000044
+
+# =============================================================================
+# Invalid options are errors.
+# =============================================================================
+
+statement error
+SELECT tost_one_sample_agg(v, {'trim': 0.1}) FROM d;
+----
+trim
+
+statement error
+SELECT tost_wilcoxon_agg(v, g, {'mu': 0.1}) FROM d;
+----
+mu
+
+statement error
+SELECT tost_yuen_agg(v, g, {'trim': 0.5}) FROM d;
+----
+trim must be in [0, 0.5)
+
+statement error
+SELECT tost_bootstrap_agg(v, g, {'n_bootstrap': 10}) FROM d;
+----
+n_bootstrap must be at least 100
+
+statement error
+SELECT tost_prop_one_agg(s, {'p0': 1.5}) FROM d;
+----
+p0 must be in [0, 1]
+
+statement error
+SELECT tost_prop_two_agg(s, g, {'delta': 1.5}) FROM d;
+----
+Proportion bounds must be between -1 and 1
+
+statement error
+SELECT tost_wilcoxon_paired_agg(x, y, {'delta': -1}) FROM d;
+----
+delta must be a finite number > 0
+
+statement error
+SELECT tost_one_sample_agg(v, {'bound_lower': 1, 'bound_upper': -1}) FROM d;
+----
+must be less than bound_upper
+
+statement error
+SELECT tost_yuen_agg(v, g, {'alpha': 0.7}) FROM d;
+----
+alpha must be strictly between 0 and 0.5
+
+statement error
+SELECT tost_one_sample_agg(v, {'alpha': 0.1, 'confidence_level': 0.95}) FROM d;
+----
+inconsistent
+
+statement error
+SELECT tost_prop_one_agg(s, {'p0': i / 100}) FROM d;
+----
+constant expression

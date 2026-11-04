@@ -131,6 +131,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
 void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader);
+void RegisterTostVariantAggregateFunctions(ExtensionLoader &loader);
 void RegisterChisqGofAggregateFunction(ExtensionLoader &loader);
 void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader);
 void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader);

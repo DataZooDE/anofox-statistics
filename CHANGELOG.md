@@ -10,6 +10,19 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **The remaining TOST equivalence tests (#293):** `tost_one_sample_agg`, `tost_prop_one_agg`,
+  `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg` and
+  `tost_bootstrap_agg` (anofox-statistics `equivalence`), with the `tost_t_test_agg` result
+  STRUCT. Two-group variants take any two BIGINT or VARCHAR labels; the bootstrap is seeded
+  (default 42) and independent of row order.
+
+### Fixed
+
+- The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
+  (it had no SQL caller before #293).
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

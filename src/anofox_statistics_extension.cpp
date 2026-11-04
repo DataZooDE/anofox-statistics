@@ -178,6 +178,7 @@ void LoadInternal(ExtensionLoader &loader) {
     // TOST equivalence test variants
     RegisterTostPairedAggregateFunction(loader);
     RegisterTostCorrelationAggregateFunction(loader);
+    RegisterTostVariantAggregateFunctions(loader);
 
     // Categorical tests
     RegisterChisqGofAggregateFunction(loader);

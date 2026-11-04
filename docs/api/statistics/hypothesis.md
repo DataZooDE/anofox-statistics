@@ -300,6 +300,76 @@ TOST for paired samples.
 
 TOST for correlation equivalence.
 
+### TOST variants
+
+One-sample, proportion, rank-based, robust and bootstrap TOST. All seven return
+the `tost_t_test_agg` STRUCT: the two one-sided tests (`t_lower`, `t_upper`,
+`p_lower`, `p_upper`), `p_value` (the larger of the two), `estimate` with its
+`(1 - 2 alpha)` interval `ci_lower` / `ci_upper`, the bounds, `equivalent`
+(the interval lies inside the bounds), `n`, `method` and the unified fields.
+`t_lower` / `t_upper` hold the statistic of the respective test: t (one-sample,
+Yuen), z (proportions), Wilcoxon V (paired) or U (two-sample), and the point
+estimate for the bootstrap. `df` is NULL where the test has none.
+
+**Signatures:**
+```text
+tost_one_sample_agg(value DOUBLE, [options]) -> STRUCT
+tost_prop_one_agg(success BIGINT, [options]) -> STRUCT
+tost_prop_two_agg(success BIGINT, group_id BIGINT | VARCHAR, [options]) -> STRUCT
+tost_wilcoxon_paired_agg(x DOUBLE, y DOUBLE, [options]) -> STRUCT
+tost_wilcoxon_agg(value DOUBLE, group_id BIGINT | VARCHAR, [options]) -> STRUCT
+tost_yuen_agg(value DOUBLE, group_id BIGINT | VARCHAR, [options]) -> STRUCT
+tost_bootstrap_agg(value DOUBLE, group_id BIGINT | VARCHAR, [options]) -> STRUCT
+```
+
+| Function | Estimate | Method (upstream `equivalence`) |
+|----------|----------|----------------------------------|
+| `tost_one_sample_agg` | `mean(value) - mu` | one-sample t-tests (`TOSTER::TOSTone`) |
+| `tost_prop_one_agg` | `p_hat - p0` | z-tests, SE from `p_hat` (`TOSTER::TOSTone.prop`) |
+| `tost_prop_two_agg` | `p1 - p2` | z-tests, unpooled SE (`TOSTER::TOSTtwo.prop`) |
+| `tost_wilcoxon_paired_agg` | Hodges-Lehmann pseudo-median of `x - y` | shifted signed-rank tests, normal approximation with continuity correction |
+| `tost_wilcoxon_agg` | Hodges-Lehmann shift `group1 - group2` | shifted rank-sum tests, normal approximation with continuity correction |
+| `tost_yuen_agg` | difference of trimmed means | Yuen's t-tests, Welch df |
+| `tost_bootstrap_agg` | `mean(group1) - mean(group2)` | percentile bootstrap |
+
+Two-group variants take any two group labels (BIGINT or VARCHAR); group 1 is
+the smaller label, and a third label is an error. A success is a non-zero
+`success`, as in `prop_test_one_agg`. Rows with a NULL or NaN input are
+skipped; too little data (one-sample < 2 rows, Wilcoxon < 3 per group or pairs,
+Yuen < 4 per group, bootstrap < 3 per group, no trials) gives NULL.
+
+**Options:**
+| Key | Applies to | Default | Description |
+|-----|-----------|---------|-------------|
+| delta (alias `equivalence_bound`) | all | 0.5 (proportions 0.1) | Symmetric bounds `[-delta, delta]`; overrides the explicit bounds |
+| bound_lower / bound_upper (aliases `lower`/`low`, `upper`/`high`) | all | `-delta`, `delta` | Asymmetric bounds (raw units; proportions within [-1, 1]) |
+| alpha | all | 0.05 | Level of each one-sided test, in (0, 0.5) |
+| confidence_level | all | 0.95 | Alternative to alpha: `alpha = 1 - confidence_level` |
+| mu | `tost_one_sample_agg` | 0.0 | Hypothesised mean |
+| p0 (alias `p`) | `tost_prop_one_agg` | 0.5 | Hypothesised proportion |
+| trim (aliases `trim_proportion`, `tr`) | `tost_yuen_agg` | 0.2 | Proportion trimmed from each tail, in [0, 0.5) |
+| n_bootstrap (aliases `bootstrap_samples`, `n_boot`) | `tost_bootstrap_agg` | 10000 | Resamples (at least 100) |
+| seed (alias `random_state`) | `tost_bootstrap_agg` | 42 | RNG seed; the result is reproducible and independent of row order |
+
+**Example:**
+```sql
+CREATE TABLE eq AS
+SELECT i, CASE WHEN i % 2 = 0 THEN 'old' ELSE 'new' END AS process,
+       10 + sin(i * 1.3) + 0.05 * (i % 2) AS weight,
+       10 + sin(i * 0.7) AS before, 10 + sin(i * 0.7) + 0.1 * cos(i * 1.9) AS after,
+       (i % 5 < 2)::BIGINT AS defect
+FROM range(60) t(i);
+
+SELECT (tost_one_sample_agg(weight, {'mu': 10, 'delta': 0.5})).equivalent AS mean_is_10,
+       (tost_wilcoxon_paired_agg(before, after, {'delta': 0.2})).p_value AS paired_p,
+       (tost_wilcoxon_agg(weight, process, {'delta': 0.5})).estimate AS hl_shift,
+       (tost_yuen_agg(weight, process, {'delta': 0.5, 'trim': 0.1})).equivalent AS trimmed_equivalent,
+       (tost_bootstrap_agg(weight, process, {'delta': 0.5, 'n_bootstrap': 2000})).ci_upper AS boot_ci_upper,
+       (tost_prop_one_agg(defect, {'p0': 0.4, 'delta': 0.15})).equivalent AS rate_is_40pct,
+       (tost_prop_two_agg(defect, process, {'delta': 0.2})).p_value AS rate_diff_p
+FROM eq;
+```
+
 ## Distribution Comparison
 
 ### energy_distance_agg

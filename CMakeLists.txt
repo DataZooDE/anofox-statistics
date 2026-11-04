@@ -235,6 +235,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/permutation_t_test_aggregate.cpp
     src/aggregate_functions/tost_paired_aggregate.cpp
     src/aggregate_functions/tost_correlation_aggregate.cpp
+    src/aggregate_functions/tost_variants_aggregate.cpp
     src/aggregate_functions/chisq_gof_aggregate.cpp
     src/aggregate_functions/prop_test_one_aggregate.cpp
     src/aggregate_functions/prop_test_two_aggregate.cpp

@@ -137,7 +137,7 @@ fitted model struct).
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
-| Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg`, `tost_one_sample_agg`, `tost_prop_one_agg`, `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg`, `tost_bootstrap_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
@@ -1248,6 +1248,13 @@ FROM reg_data;
 | `tost_t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `delta` (symmetric bound), `bound_lower`, `bound_upper`, `confidence_level`, `kind` | `t_lower, t_upper, p_lower, p_upper, p_value, df, estimate, ci_lower, ci_upper, bound_lower, bound_upper, equivalent, n, method` |
 | `tost_paired_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `delta`, `bound_lower` (-0.5), `bound_upper` (0.5), `alpha` (0.05) | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
 | `tost_correlation_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `rho_null` (0), `delta`, `bound_lower` (-0.1), `bound_upper` (0.1), `alpha`, `method` ('pearson' or 'spearman') | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
+| `tost_one_sample_agg` | `(value DOUBLE [, options])` | `mu` (0), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_one_agg` | `(success BIGINT [, options])` | `p0` (0.5), `delta` (0.1), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_two_agg` | `(success BIGINT, group_id BIGINT\|VARCHAR [, options])` | `delta` (0.1), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_yuen_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `trim` (0.2), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_bootstrap_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `n_bootstrap` (10000), `seed` (42), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
 
 ```sql
 SELECT (tost_t_test_agg(y, grp2, {'delta': 2.0})).equivalent AS equivalent_means,

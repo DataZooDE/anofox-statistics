@@ -10779,3 +10779,6 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
 // After alloc_inference_arrays! (macro_rules scope is textual).
 mod ls_state_ffi;
 pub use ls_state_ffi::*;
+
+mod tost_ffi;
+pub use tost_ffi::*;

@@ -1,0 +1,163 @@
+# name: test/sql/reference/tost_reference.test
+# description: TOST equivalence variants (#293) vs R reference values
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tost.R (base R 4.x).
+# Each one-sided test is the base-R test with its null shifted to the bound
+# (t.test / wilcox.test(exact = FALSE, correct = TRUE)); Yuen's statistic, the
+# proportion z-tests and the Hodges-Lehmann CI order statistics are coded from
+# their definitions. The bootstrap resampling stream differs from R's, so only
+# its estimate is exact and its CI / p-values get a Monte-Carlo tolerance.
+# Tolerance: abs(a - b) <= tol * (1 + abs(b)).
+
+require anofox_statistics
+
+# ---------------------------------------------------------------------------
+# tost_one_sample_agg. R: t.test(x, mu = mu + bound, alternative = ...),
+# CI t.test(x, conf.level = 0.9)$conf.int - mu.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE one AS SELECT 0.3 * sin(0.7 * i) + 0.05 * cos(1.3 * i) AS x FROM range(30) t(i);
+
+query IIIIIIIIIIIIII
+SELECT abs(r.t_lower - 5.51268399692878) <= 1e-9 * (1 + abs(5.51268399692878)),
+       abs(r.t_upper - -9.61235111228228) <= 1e-9 * (1 + abs(-9.61235111228228)),
+       abs(r.p_lower - 3.05421058234837e-06) <= 1e-9,
+       abs(r.p_upper - 8.02943616346897e-11) <= 1e-12,
+       r.p_value = greatest(r.p_lower, r.p_upper), r.df,
+       abs(r.estimate - -0.081315522623617) <= 1e-12,
+       abs(r.ci_lower - -0.148718752339047) <= 1e-9,
+       abs(r.ci_upper - -0.0139122929081869) <= 1e-9,
+       r.bound_lower, r.bound_upper, r.equivalent, r.n, r.method
+FROM (SELECT tost_one_sample_agg(x, {'mu': 0.1, 'delta': 0.3}) r FROM one);
+----
+true	true	true	true	true	29.0	true	true	true	-0.3	0.3	true	30	One-sample TOST
+
+# ---------------------------------------------------------------------------
+# tost_prop_one_agg. 47 / 100 against p0 = 0.5, delta 0.1:
+# z = (p_hat - p0 -/+ delta) / sqrt(p_hat (1 - p_hat) / n).
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE prop1 AS SELECT (((i * 7) % 100) < 47)::BIGINT AS s FROM range(100) t(i);
+
+query IIIIIIIIIII
+SELECT abs(r.t_lower - 1.40252682447651) <= 1e-9 * (1 + abs(1.40252682447651)),
+       abs(r.t_upper - -2.6046926740278) <= 1e-9 * (1 + abs(-2.6046926740278)),
+       abs(r.p_lower - 0.0803789930122712) <= 1e-9,
+       abs(r.p_upper - 0.00459783507904339) <= 1e-9,
+       abs(r.p_value - 0.0803789930122712) <= 1e-9,
+       abs(r.estimate - -0.03) <= 1e-12,
+       abs(r.ci_lower - -0.112094511047644) <= 1e-9,
+       abs(r.ci_upper - 0.0520945110476435) <= 1e-9,
+       r.equivalent, r.n, r.method
+FROM (SELECT tost_prop_one_agg(s, {'p0': 0.5, 'delta': 0.1}) r FROM prop1);
+----
+true	true	true	true	true	true	true	true	false	100	One-proportion TOST
+
+# ---------------------------------------------------------------------------
+# tost_prop_two_agg. 45 / 100 ('a') vs 62 / 120 ('b'), bounds +/- 0.15:
+# z = (p1 - p2 -/+ delta) / sqrt(p1 q1 / n1 + p2 q2 / n2).
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE prop2 AS
+SELECT 'a' AS g, (((i * 7) % 100) < 45)::BIGINT AS s FROM range(100) t(i)
+UNION ALL SELECT 'b', (((i * 11) % 120) < 62)::BIGINT FROM range(120) t(i);
+
+query IIIIIIIIIII
+SELECT abs(r.t_lower - 1.23459926370333) <= 1e-9 * (1 + abs(1.23459926370333)),
+       abs(r.t_upper - -3.20995808562865) <= 1e-9 * (1 + abs(-3.20995808562865)),
+       abs(r.p_lower - 0.108489841588822) <= 1e-9,
+       abs(r.p_upper - 0.000663771643609533) <= 1e-9,
+       abs(r.estimate - -0.0666666666666667) <= 1e-12,
+       abs(r.ci_lower - -0.177691466056331) <= 1e-9,
+       abs(r.ci_upper - 0.0443581327229978) <= 1e-9,
+       r.df IS NULL, r.equivalent, r.n, r.method
+FROM (SELECT tost_prop_two_agg(s, g, {'bound_lower': -0.15, 'bound_upper': 0.15}) r FROM prop2);
+----
+true	true	true	true	true	true	true	true	false	220	Two-proportion TOST
+
+# ---------------------------------------------------------------------------
+# tost_wilcoxon_paired_agg. R: wilcox.test(x - y, mu = -/+0.1, alternative =
+# 'greater' / 'less', exact = FALSE, correct = TRUE); estimate = median of the
+# Walsh averages; CI = Walsh-average order statistics.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE paired AS SELECT 10 + sin(i) AS x, 10 + sin(i) + 0.2 * cos(1.7 * i) + 0.05 AS y FROM range(25) t(i);
+
+query IIIIIIIIIII
+SELECT r.t_lower, r.t_upper,
+       abs(r.p_lower - 0.0593089752646488) <= 1e-9,
+       abs(r.p_upper - 0.000211896964043086) <= 1e-9,
+       abs(r.estimate - -0.0500828313648629) <= 1e-9,
+       abs(r.ci_lower - -0.101251929447914) <= 1e-9,
+       abs(r.ci_upper - 0.00399530377013058) <= 1e-9,
+       r.df IS NULL, r.equivalent, r.n, r.method
+FROM (SELECT tost_wilcoxon_paired_agg(x, y, {'delta': 0.1}) r FROM paired);
+----
+221.0	31.0	true	true	true	true	true	true	false	25	Wilcoxon signed-rank TOST
+
+# ---------------------------------------------------------------------------
+# tost_wilcoxon_agg. R: wilcox.test(x, y, mu = -/+0.6, alternative = ...,
+# exact = FALSE, correct = TRUE); estimate = median of the pairwise differences.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE two AS
+SELECT 1 AS g, 5 + sin(0.9 * i) AS v FROM range(20) t(i)
+UNION ALL SELECT 2, 5.1 + sin(1.3 * i + 0.4) FROM range(24) t(i);
+
+query IIIIIIIIIII
+SELECT r.t_lower, r.t_upper,
+       abs(r.p_lower - 0.0129607315932852) <= 1e-9,
+       abs(r.p_upper - 0.00347959453447707) <= 1e-9,
+       abs(r.estimate - -0.0790965751032933) <= 1e-9,
+       abs(r.ci_lower - -0.423117023021387) <= 1e-9,
+       abs(r.ci_upper - 0.325896256158889) <= 1e-9,
+       abs(r.p_value - 0.0129607315932852) <= 1e-9, r.equivalent, r.n, r.method
+FROM (SELECT tost_wilcoxon_agg(v, g, {'delta': 0.6}) r FROM two);
+----
+335.0	125.0	true	true	true	true	true	true	true	44	Wilcoxon rank-sum TOST
+
+# ---------------------------------------------------------------------------
+# tost_yuen_agg. Yuen (1974) trimmed means / Winsorized variances, Welch df
+# (WRS2::yuen formulas), bounds +/- 1, trim 0.2; group 1 has an outlier.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE yu AS
+SELECT 1 AS g, 12 + 2 * sin(0.8 * i) + CASE WHEN i = 3 THEN 15 ELSE 0 END AS v FROM range(21) t(i)
+UNION ALL SELECT 2, 12.3 + 2 * cos(0.6 * i) FROM range(18) t(i);
+
+query IIIIIIIIIII
+SELECT abs(r.t_lower - 1.78678035358774) <= 1e-9 * (1 + abs(1.78678035358774)),
+       abs(r.t_upper - -1.21097630208735) <= 1e-9 * (1 + abs(-1.21097630208735)),
+       abs(r.p_lower - 0.0438087182842283) <= 1e-9,
+       abs(r.p_upper - 0.119310223762393) <= 1e-9,
+       abs(r.df - 22.2326883560835) <= 1e-9 * (1 + 22.2326883560835),
+       abs(r.estimate - 0.192078316433834) <= 1e-9,
+       abs(r.ci_lower - -0.953014913789626) <= 1e-9,
+       abs(r.ci_upper - 1.33717154665729) <= 1e-9,
+       r.equivalent, r.n, r.method
+FROM (SELECT tost_yuen_agg(v, g, {'delta': 1.0}) r FROM yu);
+----
+true	true	true	true	true	true	true	true	false	39	Yuen TOST (20% trimmed)
+
+# trim 0.1
+query III
+SELECT abs(r.estimate - 0.115564248409626) <= 1e-9, abs(r.df - 30.7188443839935) <= 1e-9 * (1 + 30.7188443839935), r.method
+FROM (SELECT tost_yuen_agg(v, g, {'delta': 1.0, 'trim': 0.1}) r FROM yu);
+----
+true	true	Yuen TOST (10% trimmed)
+
+# ---------------------------------------------------------------------------
+# tost_bootstrap_agg. Estimate exact (mean difference); percentile CI and
+# p-values vs R's set.seed(1) 20000-resample bootstrap within MC error.
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT abs(r.estimate - -0.0662446649402195) <= 1e-12,
+       abs(r.ci_lower - -0.41375868423388) <= 0.03,
+       abs(r.ci_upper - 0.284527260295396) <= 0.03,
+       abs(r.p_lower - 0.00545) <= 0.004,
+       abs(r.p_upper - 0.001) <= 0.004,
+       r.equivalent, r.n, r.method
+FROM (SELECT tost_bootstrap_agg(v, g, {'delta': 0.6, 'n_bootstrap': 20000, 'seed': 7}) r FROM two);
+----
+true	true	true	true	true	true	44	Bootstrap TOST (20000 resamples)

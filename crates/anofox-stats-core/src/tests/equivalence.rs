@@ -550,8 +550,9 @@ pub fn tost_yuen(
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
+    // Upstream order is (bounds, alpha, trim).
     let result =
-        lib_tost_yuen(&g1, &g2, &bounds, options.trim, options.alpha).map_err(convert_error)?;
+        lib_tost_yuen(&g1, &g2, &bounds, options.alpha, options.trim).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -575,6 +576,19 @@ mod tests {
         assert!(result.p_value >= 0.0 && result.p_value <= 1.0);
         // With wide bounds and similar groups, should be equivalent
         assert!(result.equivalent);
+    }
+
+    #[test]
+    fn test_tost_yuen_passes_trim_and_alpha_in_order() {
+        let g1 = vec![10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 100.0, 12.5];
+        let g2 = vec![10.1, 11.1, 12.1, 13.1, 14.1, 15.1, 16.1, 17.1, 17.2, 12.4];
+        let opts = TostYuenOptions {
+            bounds: TostBounds::Symmetric { delta: 1.0 },
+            trim: 0.2,
+            alpha: 0.05,
+        };
+        let r = tost_yuen(&g1, &g2, &opts).unwrap();
+        assert_eq!(r.method, "Yuen TOST (20% trimmed)");
     }
 
     #[test]
