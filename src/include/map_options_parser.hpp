@@ -736,9 +736,9 @@ struct MediationMapOptions {
  * Options for the bootstrap CI of the mean (bootstrap_mean_ci_agg, #294)
  */
 struct BootstrapMeanMapOptions {
-	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block'
+	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block' | 'moving_block'
 	std::optional<uint32_t> n_bootstrap;
-	std::optional<uint32_t> block_length;
+	std::optional<double> block_length; // expected block length for 'stationary'
 	std::optional<double> confidence_level;
 	std::optional<uint64_t> seed; // also accepted as random_state
 
@@ -752,6 +752,31 @@ struct PartialCorMapOptions {
 	std::optional<bool> spearman; // 'method': 'pearson' (false) | 'spearman' (true)
 
 	static PartialCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of the SPA-type tests (spa_test_agg, mspe_adjusted_spa_agg, #295)
+ */
+struct SpaMapOptions {
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+
+	static SpaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of model_confidence_set_agg (#295)
+ */
+struct McsMapOptions {
+	std::optional<double> alpha;
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+	std::optional<bool> max_statistic;  // 'statistic': 'range' (false) | 'max' (true)
+	std::optional<string> method;       // bootstrap: 'stationary' | 'moving_block' | 'circular_block' | 'iid'
+
+	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 } // namespace duckdb

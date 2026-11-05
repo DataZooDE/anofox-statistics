@@ -238,7 +238,7 @@ void RegisterOne(ExtensionLoader &loader, int32_t kind) {
 	const string description =
 	    kind == kSemiPartial
 	        ? "Semi-partial (part) correlation of x and y with the controls removed from y only (R "
-	          "ppcor::spcor.test), with its t test. At most one control variable. options: {'method': 'pearson' | "
+	          "ppcor::spcor.test), with its t test. Several controls are removed jointly. options: {'method': 'pearson' | "
 	          "'spearman'}."
 	        : "Partial correlation of x and y controlling for the controls (R ppcor::pcor.test), with its t test "
 	          "(df = n - 2 - n_controls). options: {'method': 'pearson' | 'spearman'}.";

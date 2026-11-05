@@ -26,7 +26,25 @@ SELECT r.conf_level, r.n_bootstrap, r.block_length, r.method
 FROM (SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 5, 'n_bootstrap': 500,
                                        'confidence_level': 0.8} ORDER BY t) AS r FROM s);
 ----
-0.8	500	5	circular_block
+0.8	500	5.0	circular_block
+
+# The stationary bootstrap takes a (possibly fractional) expected block length
+# (alias expected_block_length); the moving block bootstrap a whole number.
+query IIIIII
+SELECT a.block_length, a.method, b.block_length, b.method, a = c, a.std_error > 0
+FROM (SELECT bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 4.5, 'n_bootstrap': 500} ORDER BY t) AS a,
+             bootstrap_mean_ci_agg(x, {'method': 'moving_block', 'block_length': 4, 'n_bootstrap': 500} ORDER BY t) AS b,
+             bootstrap_mean_ci_agg(x, {'method': 'stationary', 'expected_block_length': 4.5, 'n_bootstrap': 500} ORDER BY t) AS c
+      FROM s);
+----
+4.5	stationary	4.0	moving_block	true	true
+
+query I
+SELECT bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 6} ORDER BY t)
+     = bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 6} ORDER BY (t * 37) % 61)
+FROM s;
+----
+false
 
 # MAP options and the aliases n_boot / level / l / random_state
 query I
@@ -166,14 +184,29 @@ SELECT bootstrap_mean_ci_agg(x, {'foo': 1}) FROM s;
 bootstrap_mean_ci_agg: unknown option 'foo'
 
 statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'jackknife'}) FROM s;
+----
+Invalid method: 'jackknife'
+
+statement error
 SELECT bootstrap_mean_ci_agg(x, {'method': 'moving_block'}) FROM s;
 ----
-Invalid method: 'moving_block'
+method 'moving_block' requires block_length
 
 statement error
 SELECT bootstrap_mean_ci_agg(x, {'method': 'stationary'} ORDER BY t) FROM s;
 ----
-method 'stationary' is not available yet
+method 'stationary' requires block_length
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 0.5} ORDER BY t) FROM s;
+----
+must be >= 1 for 'stationary'
+
+statement error
+SELECT bootstrap_mean_ci_agg(x, {'method': 'moving_block', 'block_length': 2.5} ORDER BY t) FROM s;
+----
+must be a whole number >= 2 for 'moving_block'
 
 statement error
 SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block'} ORDER BY t) FROM s;
@@ -183,12 +216,12 @@ method 'circular_block' requires block_length
 statement error
 SELECT bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 1} ORDER BY t) FROM s;
 ----
-block_length must be >= 2
+block_length must be a whole number >= 2
 
 statement error
 SELECT bootstrap_mean_ci_agg(x, {'block_length': 5}) FROM s;
 ----
-block_length applies only to method 'circular_block'
+block_length applies only to the block methods
 
 statement error
 SELECT bootstrap_mean_ci_agg(x, {'n_bootstrap': 1}) FROM s;

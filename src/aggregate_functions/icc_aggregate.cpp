@@ -252,7 +252,7 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
         FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.icc;
         FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.f_statistic;
-        // No interval (NaN) is NULL: the FFI passes none for ICC2 / ICC2k (#298).
+        // A missing interval (NaN) is NULL.
         for (double bound : {icc_result.ci_lower, icc_result.ci_upper}) {
             auto &child = StructEntry(struct_entries[struct_idx++]);
             if (std::isnan(bound)) {

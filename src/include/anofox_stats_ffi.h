@@ -3792,18 +3792,20 @@ typedef struct {
 	double conf_low;
 	double conf_high;
 	double conf_level;
+	double block_length; /* (expected) block length, 0 for the IID bootstrap */
 	size_t n;
 	size_t n_bootstrap;
-	size_t block_length; /* 0 for the IID bootstrap */
 } AnofoxBootstrapMeanResult;
 
 /**
  * Percentile bootstrap confidence interval of the mean of data (NaN entries are
  * dropped; for the block bootstrap the order of data is the series order).
- * method: 0 IID, 1 circular block bootstrap with block_length >= 2.
+ * method: 0 IID, 1 circular block bootstrap (block_length >= 2), 2 stationary
+ * bootstrap (expected block length block_length >= 1), 3 moving block bootstrap
+ * (block_length >= 2). The fixed block lengths must be whole numbers.
  */
 bool anofox_bootstrap_mean_ci(AnofoxDataArray data, int32_t method, size_t n_bootstrap, double confidence_level,
-                              size_t block_length, uint64_t seed, bool has_seed,
+                              double block_length, uint64_t seed, bool has_seed,
                               AnofoxBootstrapMeanResult *out_result, AnofoxError *out_error);
 /* ===========================================================================
  * Collinearity and separation diagnostics (#306). Must match
@@ -3941,6 +3943,100 @@ bool anofox_ptukey(double q, double n_means, double df, double n_ranges, bool lo
 /** Studentized range quantile function (R qtukey). */
 bool anofox_qtukey(double p, double n_means, double df, double n_ranges, bool lower_tail, double *out_value,
                    AnofoxError *out_error);
+/* ============================================================================
+ * Multiple-model forecast comparison: SPA, MSPE-adjusted SPA, MCS (#295)
+ * ============================================================================ */
+
+/**
+ * Options of anofox_spa_test. Must match SpaOptionsFFI in
+ * crates/anofox-stats-ffi/src/forecast_ffi.rs.
+ */
+typedef struct {
+	size_t n_bootstrap;
+	/** Expected stationary-bootstrap block length; <= 0 for T^(1/3) */
+	double block_length;
+	uint64_t seed;
+	bool has_seed;
+} AnofoxSpaOptions;
+
+/**
+ * Result of anofox_spa_test. Must match SpaResultFFI.
+ */
+typedef struct {
+	double statistic;
+	double p_value_lower;
+	double p_value_consistent;
+	double p_value_upper;
+	/** Block length actually used */
+	double block_length;
+	/** 0-based index of the best competing model, -1 for none */
+	int64_t best_model;
+	size_t n_bootstrap;
+	size_t n;
+	size_t n_models;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxSpaResult;
+
+/**
+ * SPA-type test of n_models competing series against a benchmark. kind 0: the
+ * SPA test on losses; kind 1: the MSPE-adjusted SPA test on forecast errors.
+ */
+bool anofox_spa_test(int32_t kind, AnofoxDataArray benchmark, const AnofoxDataArray *models, size_t n_models,
+                     AnofoxSpaOptions options, AnofoxSpaResult *out_result, AnofoxError *out_error);
+
+/**
+ * Options of anofox_model_confidence_set. Must match McsOptionsFFI.
+ */
+typedef struct {
+	double alpha;
+	size_t n_bootstrap;
+	/** (Expected) block length; <= 0 for T^(1/3) (rounded for the fixed-block schemes) */
+	double block_length;
+	uint64_t seed;
+	/** 0 range (T_R), 1 max (T_max) */
+	int32_t statistic;
+	/** 0 stationary, 1 moving block (R MCSprocedure(k)), 2 circular block, 3 IID */
+	int32_t bootstrap;
+	bool has_seed;
+} AnofoxMcsOptions;
+
+/**
+ * One elimination step of the MCS. Must match McsStepFFI.
+ */
+typedef struct {
+	/** 0-based model index */
+	uint64_t model;
+	double p_value;
+	/** MCS p-value (running maximum of the step p-values) */
+	double mcs_p_value;
+	bool eliminated;
+} AnofoxMcsStep;
+
+/**
+ * Result of anofox_model_confidence_set. Must match McsResultFFI.
+ */
+typedef struct {
+	double mcs_p_value;
+	/** Block length actually used */
+	double block_length;
+	size_t n_bootstrap;
+	size_t n;
+	size_t n_models;
+	/** Entries written to out_included */
+	size_t n_included;
+	/** Entries written to out_steps */
+	size_t n_steps;
+} AnofoxMcsResult;
+
+/**
+ * Model Confidence Set of n_models loss series. out_included, out_steps,
+ * out_order (full elimination order, best model last) and out_mcs_p_values
+ * (indexed by model) must each hold n_models entries.
+ */
+bool anofox_model_confidence_set(const AnofoxDataArray *models, size_t n_models, AnofoxMcsOptions options,
+                                 uint64_t *out_included, AnofoxMcsStep *out_steps, uint64_t *out_order,
+                                 double *out_mcs_p_values, AnofoxMcsResult *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

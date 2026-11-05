@@ -10,7 +10,8 @@ use crate::{StatsError, StatsResult};
 use anofox_tests::{
     brown_forsythe as lib_brown_forsythe, cohens_d as lib_cohens_d,
     cohens_d_one_sample as lib_cohens_d_one_sample, one_way_anova as lib_one_way_anova,
-    t_test as lib_t_test, yuen_test as lib_yuen_test, Alternative, AnovaKind, TTestKind,
+    t_test as lib_t_test, t_test_one_sample as lib_t_test_one_sample, yuen_test as lib_yuen_test,
+    Alternative, AnovaKind, TTestKind,
 };
 
 /// Options for t-test
@@ -336,11 +337,12 @@ fn paired_like_result(
     }
 }
 
-/// One-sample t-test of H0: mean(x) = `options.mu` (R `t.test(x, mu = mu)`).
+/// One-sample t-test of H0: mean(x) = `options.mu` (R `t.test(x, mu = mu)`),
+/// upstream `t_test_one_sample`.
 ///
-/// `options.kind` is ignored. The upstream crate exposes the one-sample test as
-/// the paired kind against a zero second sample (`x - 0 = x` exactly); Cohen's
-/// d is upstream `cohens_d_one_sample` ((mean - mu) / sd).
+/// `options.kind` is ignored. Cohen's d is upstream `cohens_d_one_sample`
+/// ((mean - mu) / sd). A one-sided alternative gives R's one-sided interval
+/// (one infinite bound).
 pub fn t_test_one_sample(x: &[f64], options: &TTestOptions) -> StatsResult<TestResult> {
     let x = filter_nan(x);
     if x.len() < 2 {
@@ -348,11 +350,8 @@ pub fn t_test_one_sample(x: &[f64], options: &TTestOptions) -> StatsResult<TestR
             "one-sample t-test requires at least 2 observations".into(),
         ));
     }
-    let zeros = vec![0.0; x.len()];
-    let result = lib_t_test(
+    let result = lib_t_test_one_sample(
         &x,
-        &zeros,
-        TTestKind::Paired,
         options.alternative,
         options.mu,
         options.confidence_level,
@@ -453,6 +452,28 @@ mod tests {
         assert_eq!(r.n, 8);
         assert!(r.effect_size > 0.0);
         assert!(t_test_one_sample(&[1.0], &opts).is_err());
+    }
+
+    // R: t.test(x, mu = 5, alternative = "greater" / "less")$conf.int
+    #[test]
+    fn test_t_test_one_sample_one_sided_ci_matches_r() {
+        let x = [5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1];
+        let greater = TTestOptions {
+            mu: 5.0,
+            alternative: Alternative::Greater,
+            ..Default::default()
+        };
+        let r = t_test_one_sample(&x, &greater).unwrap();
+        assert!((r.ci_lower - 5.28965460085684).abs() < 1e-10);
+        assert_eq!(r.ci_upper, f64::INFINITY);
+        assert!((r.p_value - 0.00459678543466782).abs() < 1e-12);
+        let less = TTestOptions {
+            alternative: Alternative::Less,
+            ..greater
+        };
+        let r = t_test_one_sample(&x, &less).unwrap();
+        assert_eq!(r.ci_lower, f64::NEG_INFINITY);
+        assert!((r.ci_upper - 5.94784539914316).abs() < 1e-10);
     }
 
     #[test]

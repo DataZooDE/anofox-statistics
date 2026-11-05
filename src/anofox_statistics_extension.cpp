@@ -174,6 +174,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTimeSeriesDiagnosticsAggregateFunctions(loader);
     RegisterSurvivalAggregateFunctions(loader);
     RegisterClarkWestAggregateFunction(loader);
+    RegisterForecastComparisonAggregateFunctions(loader);
 
     // Resampling tests
     RegisterPermutationTTestAggregateFunction(loader);

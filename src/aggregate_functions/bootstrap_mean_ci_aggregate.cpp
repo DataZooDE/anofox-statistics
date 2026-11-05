@@ -4,13 +4,14 @@
 //     -> {estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap,
 //         block_length, method}
 //
-// options: method 'iid' (default) | 'circular_block', n_bootstrap (10000),
-// block_length (required for 'circular_block', >= 2), confidence_level (0.95),
-// seed (ANOFOX_DEFAULT_MC_SEED). The block bootstrap resamples the series in
+// options: method 'iid' (default) | 'stationary' | 'circular_block' |
+// 'moving_block', n_bootstrap (10000), block_length (required for the block
+// methods: the expected block length >= 1 of 'stationary', a whole number >= 2
+// otherwise), confidence_level (0.95), seed (ANOFOX_DEFAULT_MC_SEED). The block bootstrap resamples the series in
 // the aggregate's ORDER BY order, as acf_agg does; the IID bootstrap sorts the
 // values first so a seeded result does not depend on row order. NULL / NaN
 // values are skipped. The resampling and the interval come from
-// anofox-statistics (resampling::bootstrap_mean_ci).
+// anofox-statistics (resampling::bootstrap_mean_ci_with_options).
 
 #include <algorithm>
 #include <cmath>
@@ -32,17 +33,32 @@ namespace duckdb {
 
 static constexpr const char *BOOTSTRAP_MEAN_CI_AGG = "bootstrap_mean_ci_agg";
 
-// Five doubles, then three sizes, padded to the alignment of double (wasm32: 52 -> 56
-// bytes; Rust's repr(C) pads BootstrapMeanResultFFI the same way).
-static_assert(offsetof(AnofoxBootstrapMeanResult, n) == 5 * sizeof(double) &&
+// Six doubles, then two sizes, padded to the alignment of double (wasm32 with 4-byte
+// size_t: 56 bytes, no padding; Rust's repr(C) lays out BootstrapMeanResultFFI the same way).
+static_assert(offsetof(AnofoxBootstrapMeanResult, n) == 6 * sizeof(double) &&
                   sizeof(AnofoxBootstrapMeanResult) ==
-                      (5 * sizeof(double) + 3 * sizeof(size_t) + alignof(double) - 1) / alignof(double) *
+                      (6 * sizeof(double) + 2 * sizeof(size_t) + alignof(double) - 1) / alignof(double) *
                           alignof(double),
               "AnofoxBootstrapMeanResult must match BootstrapMeanResultFFI in crates/anofox-stats-ffi/src/bootstrap_ffi.rs");
 
 //! FFI method codes of anofox_bootstrap_mean_ci.
 static constexpr int32_t BOOTSTRAP_IID = 0;
 static constexpr int32_t BOOTSTRAP_CIRCULAR_BLOCK = 1;
+static constexpr int32_t BOOTSTRAP_STATIONARY = 2;
+static constexpr int32_t BOOTSTRAP_MOVING_BLOCK = 3;
+
+static const char *BootstrapMethodName(int32_t method) {
+	switch (method) {
+	case BOOTSTRAP_CIRCULAR_BLOCK:
+		return "circular_block";
+	case BOOTSTRAP_STATIONARY:
+		return "stationary";
+	case BOOTSTRAP_MOVING_BLOCK:
+		return "moving_block";
+	default:
+		return "iid";
+	}
+}
 
 struct BootstrapMeanState {
 	vector<double> values;
@@ -51,7 +67,7 @@ struct BootstrapMeanState {
 struct BootstrapMeanBindData : public FunctionData {
 	int32_t method = BOOTSTRAP_IID;
 	size_t n_bootstrap = 10000;
-	size_t block_length = 0;
+	double block_length = 0;
 	double confidence_level = 0.95;
 	uint64_t seed = ANOFOX_DEFAULT_MC_SEED;
 
@@ -74,7 +90,7 @@ static LogicalType BootstrapMeanResultType() {
 	children.push_back(make_pair("conf_level", LogicalType::DOUBLE));
 	children.push_back(make_pair("n", LogicalType::BIGINT));
 	children.push_back(make_pair("n_bootstrap", LogicalType::BIGINT));
-	children.push_back(make_pair("block_length", LogicalType::BIGINT));
+	children.push_back(make_pair("block_length", LogicalType::DOUBLE));
 	children.push_back(make_pair("method", LogicalType::VARCHAR));
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -178,11 +194,10 @@ static void BootstrapMeanFinalize(Vector &state_vector, AggregateInputData &aggr
 		if (bind.method == BOOTSTRAP_IID) {
 			FlatVector::SetNull(block_vec, row, true);
 		} else {
-			FlatDataMut<int64_t>(block_vec)[row] = static_cast<int64_t>(r.block_length);
+			FlatDataMut<double>(block_vec)[row] = r.block_length;
 		}
 		auto &method_vec = StructEntry(entries[8]);
-		FlatDataMut<string_t>(method_vec)[row] =
-		    StringVector::AddString(method_vec, bind.method == BOOTSTRAP_IID ? "iid" : "circular_block");
+		FlatDataMut<string_t>(method_vec)[row] = StringVector::AddString(method_vec, BootstrapMethodName(bind.method));
 	}
 }
 
@@ -194,27 +209,31 @@ static unique_ptr<FunctionData> BootstrapMeanBind(ClientContext &context, Aggreg
 		Value options_val = EvaluateConstantOptions(context, *arguments[1], BOOTSTRAP_MEAN_CI_AGG);
 		auto opts = BootstrapMeanMapOptions::ParseFromValue(options_val, BOOTSTRAP_MEAN_CI_AGG);
 		const string method = opts.method.value_or("iid");
-		if (method == "stationary") {
-			// anofox-statistics' bootstrap_mean_ci runs the stationary bootstrap only
-			// with an expected block length of 1, which resamples like the IID bootstrap.
-			throw InvalidInputException(
-			    "%s: method 'stationary' is not available yet (the upstream bootstrap_mean_ci has no stationary "
-			    "bootstrap with a chosen expected block length); use 'circular_block' or 'iid'",
-			    BOOTSTRAP_MEAN_CI_AGG);
-		}
-		if (method == "circular_block") {
-			bind->method = BOOTSTRAP_CIRCULAR_BLOCK;
+		if (method == "iid") {
+			if (opts.block_length.has_value()) {
+				throw InvalidInputException("%s: block_length applies only to the block methods ('stationary', "
+				                            "'circular_block', 'moving_block')",
+				                            BOOTSTRAP_MEAN_CI_AGG);
+			}
+		} else {
+			bind->method = method == "stationary"       ? BOOTSTRAP_STATIONARY
+			               : method == "circular_block" ? BOOTSTRAP_CIRCULAR_BLOCK
+			                                            : BOOTSTRAP_MOVING_BLOCK;
 			if (!opts.block_length.has_value()) {
-				throw InvalidInputException("%s: method 'circular_block' requires block_length", BOOTSTRAP_MEAN_CI_AGG);
+				throw InvalidInputException("%s: method '%s' requires block_length", BOOTSTRAP_MEAN_CI_AGG, method);
 			}
-			if (opts.block_length.value() < 2) {
-				throw InvalidInputException("%s: block_length must be >= 2 for 'circular_block', got %u",
-				                            BOOTSTRAP_MEAN_CI_AGG, opts.block_length.value());
+			const double l = opts.block_length.value();
+			if (bind->method == BOOTSTRAP_STATIONARY) {
+				if (!std::isfinite(l) || l < 1) {
+					throw InvalidInputException(
+					    "%s: block_length (the expected block length) must be >= 1 for 'stationary', got %s",
+					    BOOTSTRAP_MEAN_CI_AGG, std::to_string(l));
+				}
+			} else if (!std::isfinite(l) || l < 2 || l != std::floor(l)) {
+				throw InvalidInputException("%s: block_length must be a whole number >= 2 for '%s', got %s",
+				                            BOOTSTRAP_MEAN_CI_AGG, method, std::to_string(l));
 			}
-			bind->block_length = opts.block_length.value();
-		} else if (opts.block_length.has_value()) {
-			throw InvalidInputException("%s: block_length applies only to method 'circular_block'",
-			                            BOOTSTRAP_MEAN_CI_AGG);
+			bind->block_length = l;
 		}
 		if (opts.n_bootstrap.has_value()) {
 			if (opts.n_bootstrap.value() < 2) {
@@ -264,9 +283,12 @@ void RegisterBootstrapMeanCiAggregateFunction(ExtensionLoader &loader) {
 	info.descriptions.push_back(std::move(d1));
 	FunctionDescription d2;
 	d2.description = "Percentile bootstrap confidence interval of the mean of x. options: method 'iid' | "
-	                 "'circular_block' (resamples blocks of block_length consecutive values in the aggregate's ORDER "
-	                 "BY order), n_bootstrap, block_length, confidence_level, seed.";
-	d2.examples = {"bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 5} ORDER BY t)"};
+	                 "'stationary' (geometric blocks of mean block_length, R tsboot(sim = 'geom')) | 'circular_block' "
+	                 "(blocks of block_length consecutive values, wrapping around, R tsboot(sim = 'fixed')) | "
+	                 "'moving_block' (non-wrapping blocks), resampling the series in the aggregate's ORDER BY order; "
+	                 "n_bootstrap, block_length, confidence_level, seed.";
+	d2.examples = {"bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 5} ORDER BY t)",
+	               "bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 5} ORDER BY t)"};
 	d2.categories = categories;
 	d2.parameter_names = {"x", "options"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};

@@ -2073,7 +2073,7 @@ MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, 
 BootstrapMeanMapOptions BootstrapMeanMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {{"method", {}},
 	                                          {"n_bootstrap", {"n_boot"}},
-	                                          {"block_length", {"l", "block_size"}},
+	                                          {"block_length", {"l", "block_size", "expected_block_length"}},
 	                                          {"confidence_level", {"confidence", "conf_level", "level"}},
 	                                          KEY_SEED};
 	return ParseTestOptions<BootstrapMeanMapOptions>(
@@ -2082,13 +2082,29 @@ BootstrapMeanMapOptions BootstrapMeanMapOptions::ParseFromValue(const Value &map
 			    return;
 		    }
 		    if (key == "method") {
-			    result.method = ExtractChoice(val, "method", {"iid", "stationary", "circular_block"});
+			    result.method =
+			        ExtractChoice(val, "method", {"iid", "stationary", "circular_block", "moving_block"});
 		    } else if (key == "n_bootstrap") {
 			    result.n_bootstrap = ExtractUInt32(val);
 		    } else if (key == "block_length") {
-			    result.block_length = ExtractUInt32(val);
+			    result.block_length = ExtractDouble(val);
 		    } else if (key == "confidence_level") {
 			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+SpaMapOptions SpaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"n_bootstrap", {"n_boot", "bootstrap"}}, {"block_length", {"block_size"}}, KEY_SEED};
+	return ParseTestOptions<SpaMapOptions>(
+	    map_value, function_name, keys, [](SpaMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
 		    } else if (key == "seed") {
 			    result.seed = ExtractUInt64(val);
 		    }
@@ -2101,6 +2117,32 @@ PartialCorMapOptions PartialCorMapOptions::ParseFromValue(const Value &map_value
 	    map_value, function_name, keys, [](PartialCorMapOptions &result, const string &key, const Value &val) {
 		    if (key == "method" && !val.IsNull()) {
 			    result.spearman = ExtractChoice(val, "method", {"pearson", "spearman"}) == "spearman";
+		    }
+	    });
+}
+
+McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"alpha", {}},
+	                                          {"n_bootstrap", {"n_boot", "bootstrap"}},
+	                                          {"block_length", {"block_size"}},
+	                                          KEY_SEED,
+	                                          {"statistic", {}},
+	                                          {"method", {"bootstrap_method"}}};
+	return ParseTestOptions<McsMapOptions>(
+	    map_value, function_name, keys, [](McsMapOptions &result, const string &key, const Value &val) {
+		    if (key == "alpha") {
+			    result.alpha = ExtractDouble(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "statistic") {
+			    result.max_statistic = ExtractChoice(val, "statistic", {"range", "max"}) == "max";
+		    } else if (key == "method") {
+			    result.method =
+			        ExtractChoice(val, "method", {"stationary", "moving_block", "circular_block", "iid"});
 		    }
 	    });
 }

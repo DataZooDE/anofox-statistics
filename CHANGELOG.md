@@ -13,14 +13,17 @@ Breaking changes are called out explicitly.
 ### Added
 
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
-  confidence interval of the mean from anofox-statistics `bootstrap_mean_ci`: the IID
-  bootstrap (`'method': 'iid'`, default) or the circular block bootstrap
-  (`'circular_block'` with `block_length`, resampling the series in the aggregate's
-  `ORDER BY` order). Options `n_bootstrap` (10000), `confidence_level` (0.95), `seed` (42).
-  Returns `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap,
-  block_length, method`. The stationary bootstrap is not offered yet (upstream runs it only
-  with expected block length 1). Reference values: exact bootstrap SE and
-  `boot::boot` / `boot::tsboot` intervals (`validation/generators/make_reference_bootstrap.R`).
+  confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
+  the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap
+  (`'stationary'`, `block_length` = the expected block length, may be fractional; R
+  `boot::tsboot(sim = "geom")`), the circular block bootstrap (`'circular_block'`,
+  `tsboot(sim = "fixed")`) or the moving block bootstrap (`'moving_block'`,
+  `tsboot(sim = "fixed", endcorr = FALSE)`); the block methods resample the series in the
+  aggregate's `ORDER BY` order. Options `n_bootstrap` (10000), `confidence_level` (0.95),
+  `seed` (42). Returns `estimate, std_error, conf_low, conf_high, conf_level, n,
+  n_bootstrap, block_length (DOUBLE), method`. Reference values: exact bootstrap SE (IID,
+  circular block, stationary) and `boot::boot` / `boot::tsboot` intervals
+  (`validation/generators/make_reference_bootstrap.R`).
 - **Collinearity and separation diagnostics (#306).** `condition_diagnostic_agg(x [, options])`
   returns the Belsley-Kuh-Welsch condition indices and variance-decomposition proportions
   (`perturb::colldiag`) with `kappa(X, exact = TRUE)`; `detect_separation_agg(y, x [, options])`
@@ -29,7 +32,9 @@ Breaking changes are called out explicitly.
   binary and count responses. All computed by anofox-regression's diagnostics.
 - **`t_test_one_sample_agg(x [, options])` and `t_test_paired_agg(x, y [, options])`** (#299):
   one-sample and paired t-tests (R `t.test(x, mu =)`, `t.test(x, y, paired = TRUE)`) with
-  Cohen's d / d_z as `effect_size`; options `alternative`, `confidence_level`, `mu`.
+  Cohen's d / d_z as `effect_size`; options `alternative`, `confidence_level`, `mu`. The
+  one-sample test is anofox-statistics' `t_test_one_sample`; one-sided alternatives give
+  R's one-sided interval (see Changed).
 - **`wilcoxon_signed_rank_agg` reports `rank_biserial`** (#299), the matched-pairs
   rank-biserial correlation, as a new STRUCT field after `alternative` and in the unified
   `effect_size` / `effect_name`. Positive when `y` tends to be larger (the sign convention of
@@ -38,9 +43,9 @@ Breaking changes are called out explicitly.
 - **`icc_agg`: all six Shrout & Fleiss types (#298).** Option `type` accepts `'icc1'`,
   `'icc2'`, `'icc3'`, `'icc1k'`, `'icc2k'`, `'icc3k'` (case-insensitive, `psych::ICC`
   naming); `'single'` / `'average'` stay aliases of `'icc1'` / `'icc1k'`, and the default
-  is still ICC1. ICC, F and p match `psych::ICC` for every type, and the 95% interval
-  for ICC1, ICC3, ICC1k and ICC3k. ICC2 / ICC2k return a `NULL` interval: upstream gives
-  them the ICC3 interval, which can exclude the estimate.
+  is still ICC1. ICC, F, p and the 95% interval match `psych::ICC` for every type (ICC2 /
+  ICC2k: the Shrout-Fleiss / McGraw-Wong absolute-agreement interval with Satterthwaite
+  df, from anofox-statistics 0.8.0; before it they had the ICC3 interval).
 - **Option pass-throughs (#305)** for options anofox-regression 0.11 added; every default is
   unchanged, so existing results do not move:
   - `quantile_fit_agg` / `quantile_fit_predict_agg` / `quantile_*_by`: `alpha`, the L1 penalty
@@ -63,25 +68,54 @@ Breaking changes are called out explicitly.
   no default, unlike the older TOST aggregates). Two-group variants take any two BIGINT or
   VARCHAR labels; the bootstrap is seeded (default 42) and independent of row order.
 
-### Fixed
-
-- The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
-  (it had no SQL caller before #293).
 - **`partial_cor_agg` and `semi_partial_cor_agg` (#296).** Partial and semi-partial (part)
   correlation of `x` and `y` controlling for a `DOUBLE[]` list of variables, with the t test
   (df = n - 2 - k), `{'method': 'pearson' | 'spearman'}`; upstream
   `correlation::partial_cor` / `semi_partial_cor`, checked against R `ppcor::pcor.test` /
-  `spcor.test`. `semi_partial_cor_agg` takes at most one control for now: upstream
-  anofox-statistics 0.7.0 residualizes y on several controls one at a time, which is not the
-  OLS residual when the controls are correlated.
+  `spcor.test` with 1 to 3 correlated controls. With several controls `y` is residualized
+  on all of them jointly (anofox-statistics 0.8.1; 0.7.0 residualized them one at a time,
+  which is why an earlier draft allowed only one control).
 - **AUC null distribution and Tukey distribution functions (#304).** Scalars
   `auc_null_quantile(p, n_pos, n_neg)` and `auc_null_p_value(auc, n_pos, n_neg)` (the AUC
   of a random classifier, exact from the Mann-Whitney distribution: R `qwilcox` / `pwilcox`
   divided by `n_pos · n_neg`), and `ptukey(q, n_means, df [, n_ranges [, lower_tail]])` /
   `qtukey(p, ...)` (R's studentized range distribution), from anofox-statistics.
+  `auc_null_quantile(1, ...)` is exactly 1, as `qwilcox` (anofox-statistics 0.8.1).
+- **Multiple-model forecast comparison (#295):** `spa_test_agg(benchmark_loss, model_losses
+  DOUBLE[] ORDER BY t [, options])` (Hansen's 2005 SPA test), `mspe_adjusted_spa_agg(
+  benchmark_error, model_errors DOUBLE[] ...)` (Clark-McCracken MSPE-adjusted SPA) and
+  `model_confidence_set_agg(model_losses DOUBLE[] ...)` (Hansen-Lunde-Nason MCS), from
+  anofox-statistics 0.8 (`spa_test`, `mspe_adjusted_spa`,
+  `model_confidence_set_with_method`). SPA: Hansen's statistic
+  `max(0, max_k sqrt(T) mean(d_k) / omega_k)`, `p_value_lower` / `p_value_consistent`
+  (= `p_value`) / `p_value_upper`, one stationary-bootstrap draw shared by all models.
+  MCS: `mcs_p_values` (per model, as R's `MCS p-Value`), `elimination_order` (best model
+  last), `elimination_steps` with step and MCS p-values; bootstrap `method` `'stationary'`
+  (default, expected block length T^(1/3)), `'moving_block'` (= R
+  `MCS::MCSprocedure(k = block_length)`), `'circular_block'` or `'iid'`; reproducible for
+  a fixed seed with any number of models. Options `n_bootstrap` (1000), `block_length`,
+  `seed` (42), and for the MCS `alpha` (0.1) and `statistic` (`range` / `max`). Reference
+  values: a base-R Hansen (2005) SPA and `MCS::MCSprocedure`
+  (`validation/generators/make_reference_forecast_comparison.R`; statistics and elimination
+  order exact, p-values within Monte Carlo error).
 
+### Fixed
+
+- The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
+  (it had no SQL caller before #293).
 ### Changed
 
+- **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /
+  `'greater'`, `t_test_agg` (Welch and Student), `t_test_one_sample_agg` and
+  `t_test_paired_agg` now return R's one-sided confidence interval, `(-inf, est + t se]` /
+  `[est - t se, inf)` (as `t.test(alternative = )`), instead of the two-sided interval.
+  `ci_lower` / `ci_upper` (and `conf_low` / `conf_high`) carry `-inf` / `inf`; statistic,
+  df and p-value are unchanged. Two-sided results do not move. From anofox-statistics 0.8.0.
+- **anofox-statistics 0.8.1** (from 0.7.0). Besides the fixes above (SPA / MCS, ICC2
+  intervals, one-sided t intervals, joint residualization in the semi-partial correlation,
+  `qwilcox` boundaries), the exact Wilcoxon / Mann-Whitney quantile behind the
+  Hodges-Lehmann intervals is exact at p = 0 / 1. Upstream's repeated-measures ANOVA
+  changes (Huynh-Feldt epsilon, Mauchly p-value) are not exposed in SQL.
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).

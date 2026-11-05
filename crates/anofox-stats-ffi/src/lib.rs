@@ -3,6 +3,7 @@
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
 mod drift_ffi;
+mod forecast_ffi;
 mod inference_ffi;
 mod models_ffi;
 mod types;
@@ -7674,19 +7675,8 @@ pub unsafe extern "C" fn anofox_icc(
 
         match result {
             Ok(r) => {
-                let mut unified = TestSummaryFFI::from(&r.unified);
-                // Upstream (anofox-statistics 0.7.0) gives ICC2 / ICC2k the
-                // F = MS_R / MS_E interval of ICC3 / ICC3k, not the Shrout &
-                // Fleiss approximate-F interval, so it need not even contain
-                // the estimate. Pass no interval rather than a wrong one (#298).
-                let no_ci = matches!(icc_type, IccTypeFFI::Icc2 | IccTypeFFI::Icc2k);
-                let (ci_lower, ci_upper) = if no_ci {
-                    unified.conf_low = f64::NAN;
-                    unified.conf_high = f64::NAN;
-                    (f64::NAN, f64::NAN)
-                } else {
-                    (r.ci_lower, r.ci_upper)
-                };
+                let unified = TestSummaryFFI::from(&r.unified);
+                let (ci_lower, ci_upper) = (r.ci_lower, r.ci_upper);
                 (*out_result) = IccResultFFI {
                     icc: r.icc,
                     f_statistic: r.f_statistic,

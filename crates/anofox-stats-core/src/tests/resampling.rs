@@ -1,13 +1,14 @@
 //! Resampling methods
 //!
 //! - Permutation t-test
-//! - Bootstrap methods (stationary, circular block)
+//! - Bootstrap methods (IID, stationary, circular and moving block)
 
 use super::{convert_error, filter_nan, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    bootstrap_mean_ci as lib_bootstrap_mean_ci, permutation_t_test as lib_permutation_t_test,
-    Alternative,
+    bootstrap_mean_ci as lib_bootstrap_mean_ci,
+    bootstrap_mean_ci_with_options as lib_bootstrap_mean_ci_with_options,
+    permutation_t_test as lib_permutation_t_test, Alternative, BootstrapCIOptions,
 };
 
 /// Options for permutation t-test
@@ -128,37 +129,97 @@ impl Default for BootstrapOptions {
     }
 }
 
-/// Resampling scheme of [`bootstrap_mean`], mapped onto the `block_length`
-/// encoding of `anofox_statistics::bootstrap_mean_ci` (0 IID, >= 2 circular
-/// block bootstrap).
-///
-/// Upstream's stationary bootstrap is reachable only with an expected block
-/// length of 1 (`block_length == 1`), which resamples like the IID bootstrap,
-/// so it is not offered here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Resampling scheme of [`bootstrap_mean_with_method`], mapped onto upstream
+/// `anofox_statistics::BootstrapMethod`.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BootstrapMethod {
     /// IID (nonparametric) bootstrap
     Iid,
     /// Circular block bootstrap with fixed blocks of `block_length >= 2`
+    /// (R `boot::tsboot(sim = "fixed")`)
     CircularBlock { block_length: usize },
+    /// Stationary bootstrap (Politis & Romano, 1994) with geometric block
+    /// lengths of mean `expected_block_length >= 1` (R `boot::tsboot(sim = "geom")`)
+    Stationary { expected_block_length: f64 },
+    /// Moving (non-circular) block bootstrap with blocks of `block_length >= 2`
+    MovingBlock { block_length: usize },
 }
 
 impl BootstrapMethod {
-    /// The upstream `block_length` argument for this method.
-    pub fn upstream_block_length(&self) -> StatsResult<usize> {
+    /// The upstream scheme, after checking the block length.
+    pub fn to_upstream(&self) -> StatsResult<anofox_tests::BootstrapMethod> {
+        let block_error = |what: &str, l: String| {
+            Err(StatsError::InvalidInput(format!(
+                "block_length must be >= {what}, got {l}"
+            )))
+        };
         match *self {
-            BootstrapMethod::Iid => Ok(0),
+            BootstrapMethod::Iid => Ok(anofox_tests::BootstrapMethod::Iid),
             BootstrapMethod::CircularBlock { block_length } if block_length >= 2 => {
-                Ok(block_length)
+                Ok(anofox_tests::BootstrapMethod::CircularBlock { block_length })
             }
-            BootstrapMethod::CircularBlock { block_length } => {
-                Err(StatsError::InvalidInput(format!(
-                    "block_length must be >= 2 for the circular block bootstrap, got {}",
-                    block_length
-                )))
+            BootstrapMethod::MovingBlock { block_length } if block_length >= 2 => {
+                Ok(anofox_tests::BootstrapMethod::MovingBlock { block_length })
             }
+            BootstrapMethod::CircularBlock { block_length }
+            | BootstrapMethod::MovingBlock { block_length } => {
+                block_error("2 for a block bootstrap", block_length.to_string())
+            }
+            BootstrapMethod::Stationary {
+                expected_block_length: l,
+            } if l.is_finite() && l >= 1.0 => Ok(anofox_tests::BootstrapMethod::Stationary {
+                expected_block_length: l,
+            }),
+            BootstrapMethod::Stationary {
+                expected_block_length: l,
+            } => block_error("1 for the stationary bootstrap", l.to_string()),
         }
     }
+}
+
+/// Percentile bootstrap confidence interval of the mean with the resampling
+/// scheme `method` (delegates to
+/// `anofox_statistics::bootstrap_mean_ci_with_options`). NaN entries are
+/// dropped; for the block schemes the order of `data` is the series order.
+pub fn bootstrap_mean_with_method(
+    data: &[f64],
+    n_bootstrap: usize,
+    confidence_level: f64,
+    method: BootstrapMethod,
+    seed: Option<u64>,
+) -> StatsResult<BootstrapResult> {
+    let filtered = filter_nan(data);
+    if filtered.len() < 2 {
+        return Err(StatsError::InsufficientDataMsg(
+            "Bootstrap requires at least 2 observations".into(),
+        ));
+    }
+    if n_bootstrap < 2 {
+        return Err(StatsError::InvalidInput(format!(
+            "n_bootstrap must be >= 2, got {}",
+            n_bootstrap
+        )));
+    }
+    if !(confidence_level > 0.0 && confidence_level < 1.0) {
+        return Err(StatsError::InvalidInput(format!(
+            "confidence_level must be in (0, 1), got {}",
+            confidence_level
+        )));
+    }
+    let options = BootstrapCIOptions {
+        n_bootstrap,
+        conf_level: confidence_level,
+        method: method.to_upstream()?,
+        seed,
+    };
+    let result = lib_bootstrap_mean_ci_with_options(&filtered, &options).map_err(convert_error)?;
+    Ok(BootstrapResult {
+        statistic: result.estimate,
+        se: result.se,
+        ci_lower: result.conf_int_lower,
+        ci_upper: result.conf_int_upper,
+        n_bootstrap: result.n_bootstrap,
+    })
 }
 
 /// Bootstrap mean confidence interval
@@ -266,13 +327,54 @@ mod tests {
 
     #[test]
     fn test_bootstrap_method_block_length() {
-        assert_eq!(BootstrapMethod::Iid.upstream_block_length().unwrap(), 0);
+        assert_eq!(
+            BootstrapMethod::Iid.to_upstream().unwrap(),
+            anofox_tests::BootstrapMethod::Iid
+        );
         let cbb = BootstrapMethod::CircularBlock { block_length: 4 };
-        assert_eq!(cbb.upstream_block_length().unwrap(), 4);
+        assert!(cbb.to_upstream().is_ok());
         for l in [0, 1] {
-            let m = BootstrapMethod::CircularBlock { block_length: l };
-            assert!(m.upstream_block_length().is_err());
+            assert!(BootstrapMethod::CircularBlock { block_length: l }
+                .to_upstream()
+                .is_err());
+            assert!(BootstrapMethod::MovingBlock { block_length: l }
+                .to_upstream()
+                .is_err());
         }
+        for l in [0.5, f64::NAN, f64::INFINITY] {
+            let m = BootstrapMethod::Stationary {
+                expected_block_length: l,
+            };
+            assert!(m.to_upstream().is_err());
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_iid_method_matches_bootstrap_mean() {
+        let data: Vec<f64> = (0..30).map(|i| ((i as f64) * 0.7).sin()).collect();
+        let opts = BootstrapOptions {
+            n_bootstrap: 500,
+            seed: Some(3),
+            ..Default::default()
+        };
+        let a = bootstrap_mean(&data, &opts).unwrap();
+        let b =
+            bootstrap_mean_with_method(&data, 500, 0.95, BootstrapMethod::Iid, Some(3)).unwrap();
+        assert_eq!(
+            (a.ci_lower, a.ci_upper, a.se),
+            (b.ci_lower, b.ci_upper, b.se)
+        );
+        let s = bootstrap_mean_with_method(
+            &data,
+            500,
+            0.95,
+            BootstrapMethod::Stationary {
+                expected_block_length: 4.0,
+            },
+            Some(3),
+        )
+        .unwrap();
+        assert!(s.ci_lower < s.statistic && s.statistic < s.ci_upper);
     }
 
     #[test]
