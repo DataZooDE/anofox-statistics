@@ -10817,5 +10817,7 @@ mod tost_ffi;
 pub use tost_ffi::*;
 // Partial / semi-partial correlation (#296).
 mod partial_cor_ffi;
+pub use partial_cor_ffi::*;
+// AUC null distribution and Tukey distribution functions (#304).
 mod null_distributions_ffi;
 pub use null_distributions_ffi::*;
