@@ -1,6 +1,7 @@
 # Diagnostic Functions
 
-Model diagnostics: multicollinearity (VIF), information criteria (AIC/BIC),
+Model diagnostics: multicollinearity (VIF, condition indices), separation of
+binary and count responses, information criteria (AIC/BIC),
 residual normality (Jarque-Bera) and residual analysis. Most come in a scalar
 form that takes arrays and an aggregate form that takes one row at a time.
 
@@ -16,6 +17,10 @@ form that takes arrays and an aggregate form that takes one row at a time.
 | `jarque_bera_agg` | Aggregate | Jarque-Bera normality test on rows |
 | `residuals_diagnostics` | Scalar | Raw, standardized and studentized residuals, leverage, Cook's distance |
 | `residuals_diagnostics_agg` | Aggregate | Same, from rows |
+| `condition_diagnostic_agg` | Aggregate | Belsley-Kuh-Welsch condition indices and variance-decomposition proportions |
+| `separation_check_agg` | Aggregate | Per-predictor separation check of a binary response |
+| `count_sparsity_agg` | Aggregate | All-zero responses on an active indicator (count response) |
+| `detect_separation_agg` | Aggregate | Exact separation check (does the logistic MLE exist?) |
 
 ## Variance Inflation Factor
 
@@ -61,6 +66,143 @@ SELECT vif_agg([x1, x2, x3]) AS vif_values FROM diag_demo;
 | 1-5 | Moderate correlation |
 | > 5 | High correlation (warning) |
 | > 10 | Very high correlation (problematic) |
+
+## Condition Indices
+
+### condition_diagnostic_agg
+
+```text
+condition_diagnostic_agg(x DOUBLE[] [, options]) -> STRUCT
+```
+
+Belsley-Kuh-Welsch collinearity diagnostics of the design `[1, x]` (R's
+`perturb::colldiag`, `olsrr::ols_eigen_cindex`). Every column of the design,
+the intercept included, is scaled to unit length; the SVD `X = U D V'` of that
+design gives the condition indices `d_max / d_k` and the variance-decomposition
+proportions `pi_kj = (v_jk^2 / d_k^2) / sum_k (v_jk^2 / d_k^2)`: the share of
+the variance of coefficient `j` that is associated with component `k`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fit_intercept` | BOOLEAN | true | Add the intercept column to the design |
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `condition_number` | DOUBLE | `kappa(X, exact = TRUE)` of the unscaled design (depends on units) |
+| `condition_number_xtx` | DOUBLE | Condition number of X'X (`condition_number^2`) |
+| `scaled_condition_number` | DOUBLE | Largest condition index of the unit-length design |
+| `singular_values` | DOUBLE[] | Singular values of the unit-length design, descending |
+| `condition_indices` | DOUBLE[] | `d_max / d_k`, one per component, increasing |
+| `variance_proportions` | DOUBLE[][] | One list per component (aligned with `condition_indices`), one proportion per coefficient (intercept first) |
+| `severity` | VARCHAR | `well_conditioned` (< 30), `moderate` (< 100), `high` (< 1000) or `severe`, from `scaled_condition_number` |
+| `warning` | VARCHAR | Advice when the severity is not `well_conditioned`, else NULL |
+| `n_observations` | BIGINT | Rows used |
+
+A row is skipped when the list, one of its elements, or a value is NULL or not
+finite. Fewer than two rows, or an empty `x`, give NULL. An exactly collinear
+design has an infinite condition number.
+
+```sql
+SELECT
+    r.scaled_condition_number,
+    r.severity,
+    r.condition_indices,
+    r.variance_proportions[len(r.variance_proportions)] AS last_component
+FROM (SELECT condition_diagnostic_agg([x1, x2, x3]) AS r FROM diag_demo) s;
+```
+
+Two or more coefficients with a proportion above 0.5 on a component whose
+condition index exceeds 30 are involved in a near dependency (here `x1` and
+`x2`, since `x2` is almost `2 * x1`).
+
+## Separation
+
+Separation makes the maximum-likelihood estimate of a logistic (or Poisson)
+model diverge: a linear combination of predictors predicts the response
+perfectly. Check for it before reading the coefficients of
+[logistic_fit_agg](../glm/logistic.md), or use a penalized fit.
+
+### detect_separation_agg
+
+```text
+detect_separation_agg(y DOUBLE, x DOUBLE[] [, options]) -> STRUCT
+```
+
+The exact check of Konis (2007), as R's `detectseparation::detect_separation`:
+a linear program that finds a direction `b` with `(2y - 1) x'b >= 0` for every
+row. `y` must be 0 or 1. It sees separation by a combination of predictors.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fit_intercept` | BOOLEAN | true | Add the intercept column to the design |
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `separated` | BOOLEAN | The classes are (quasi-)completely separated: the logistic MLE does not exist |
+| `infinite` | DOUBLE[] | `inf` / `-inf` for each coefficient that diverges, `0` otherwise (intercept first), as `detectseparation`'s `coefficients` |
+| `direction` | DOUBLE[] | The separating direction found (`|b_j| <= 1`, all zero without separation) |
+| `n_observations` | BIGINT | Rows used |
+
+```sql
+CREATE OR REPLACE TABLE sep_demo AS
+SELECT * FROM (VALUES
+    (1.0, 1.0, 0.0), (2.0, 1.0, 0.0), (3.0, 1.0, 0.0), (4.0, 1.0, 0.0),
+    (1.0, 4.0, 0.0), (2.0, 4.0, 1.0), (3.0, 4.0, 1.0), (4.0, 4.0, 1.0),
+    (2.0, 2.0, 0.0), (3.0, 3.0, 1.0), (1.0, 3.0, 0.0), (4.0, 2.0, 1.0)
+) t(x1, x2, y);
+
+-- y = 1 exactly when x1 + x2 > 5: separated by the combination.
+SELECT detect_separation_agg(y, [x1, x2]) AS sep FROM sep_demo;
+```
+
+### separation_check_agg
+
+```text
+separation_check_agg(y DOUBLE, x DOUBLE[]) -> STRUCT
+```
+
+A per-predictor heuristic for a binary (0/1) `y`: a predictor shows
+`complete` separation when a threshold on it splits the classes, `quasi`
+separation when at most two observations overlap, and a `monotonic_response`
+when every repeated value of it has a single class. It does not see separation
+by a combination of predictors (use `detect_separation_agg`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `has_separation` | BOOLEAN | Some predictor is flagged |
+| `separated_predictors` | BIGINT[] | 1-based positions in `x` of the flagged predictors |
+| `separation_types` | VARCHAR[] | `complete`, `quasi` or `monotonic_response`, aligned with `separated_predictors` |
+| `warning` | VARCHAR | Advice when a predictor is flagged, else NULL |
+| `n_observations` | BIGINT | Rows used |
+
+```sql
+SELECT separation_check_agg(y, [x1, x2]) AS chk FROM sep_demo;
+```
+
+### count_sparsity_agg
+
+```text
+count_sparsity_agg(y DOUBLE, x DOUBLE[]) -> STRUCT
+```
+
+The count-data analogue for Poisson / negative binomial models: when more than
+90% of the non-negative counts `y` are zero, an indicator predictor (at most
+three distinct values) whose active rows all have a zero count drives its
+coefficient to `-inf`. Returns the same fields as `separation_check_agg`.
+
+```sql
+SELECT count_sparsity_agg(y, [z, ind]) AS chk
+FROM (
+    SELECT CASE WHEN i = 0 THEN 4.0 ELSE 0.0 END AS y,
+           CASE WHEN i >= 15 THEN 1.0 ELSE 0.0 END AS ind,
+           (i % 7)::DOUBLE AS z
+    FROM range(20) t(i)
+) s;
+```
+
+All three skip rows with a NULL or non-finite `y`, a NULL list or a NULL
+element, and return NULL on no rows or an empty `x`. A `y` outside the allowed
+values is an error.
 
 ## Information Criteria
 
@@ -200,8 +342,11 @@ FROM (VALUES (1.0, 1.1, 1.0), (2.0, 1.9, 2.0), (3.0, 3.2, 3.0),
   check its studentized residual.
 - **Outliers**: |studentized residual| > 3.
 - **Non-normal residuals**: small Jarque-Bera p-value.
-- **Multicollinearity**: VIF > 5 (moderate) or > 10 (severe); consider
+- **Multicollinearity**: VIF > 5 (moderate) or > 10 (severe), or a condition
+  index > 30 with two proportions > 0.5 (`condition_diagnostic_agg`); consider
   [Ridge](../regression/ridge.md) or dropping features.
+- **Separation**: `detect_separation_agg(...).separated` before trusting a
+  logistic fit.
 
 ## See Also
 

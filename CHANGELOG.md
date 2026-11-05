@@ -10,6 +10,15 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Collinearity and separation diagnostics (#306).** `condition_diagnostic_agg(x [, options])`
+  returns the Belsley-Kuh-Welsch condition indices and variance-decomposition proportions
+  (`perturb::colldiag`) with `kappa(X, exact = TRUE)`; `detect_separation_agg(y, x [, options])`
+  is the exact linear-programming separation check of `detectseparation`;
+  `separation_check_agg(y, x)` and `count_sparsity_agg(y, x)` are the per-predictor checks for
+  binary and count responses. All computed by anofox-regression's diagnostics.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

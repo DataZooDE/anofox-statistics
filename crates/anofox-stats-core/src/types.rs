@@ -220,6 +220,14 @@ pub struct ConditionDiagnosticResult {
     pub singular_values: Vec<f64>,
     /// Condition indices
     pub condition_indices: Vec<f64>,
+    /// Largest Belsley-Kuh-Welsch condition index (kappa of the
+    /// unit-column-length design)
+    pub scaled_condition_number: f64,
+    /// Variance-decomposition proportions: one row per component (in the
+    /// order of `condition_indices`), one entry per coefficient (intercept
+    /// first when fitted); each coefficient's proportions sum to 1 over the
+    /// components (`perturb::colldiag`'s `pi`)
+    pub variance_proportions: Vec<Vec<f64>>,
     /// Severity classification
     pub severity: ConditionSeverity,
     /// Optional warning message
@@ -250,6 +258,20 @@ pub struct SeparationCheckResult {
     pub separation_types: Vec<SeparationType>,
     /// Warning message if separation detected
     pub warning: Option<String>,
+}
+
+/// Result of the exact linear-programming separation check (Konis 2007,
+/// R's `detectseparation::detect_separation`)
+#[derive(Debug, Clone)]
+pub struct LinearSeparationResult {
+    /// Whether a linear combination of the columns (quasi-)separates the
+    /// classes, i.e. the logistic MLE does not exist
+    pub separated: bool,
+    /// `+inf` / `-inf` for coefficients that diverge, `0` otherwise
+    /// (intercept first when fitted)
+    pub infinite: Vec<f64>,
+    /// The separating direction (`|b_j| <= 1`, all zero without separation)
+    pub direction: Vec<f64>,
 }
 
 /// Decomposition method for solving linear systems
