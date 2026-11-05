@@ -12,6 +12,17 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
+  and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
+  ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,
+  scikit-learn's `LogisticRegression` objective: options `C` (default 1) or `lambda` (= 1 / C),
+  `l1_ratio`, `fit_intercept`, `max_iterations`, `tolerance`, and optional sample weights.
+  `y` is a VARCHAR or integer label; the model STRUCT holds `classes`, a `coefficients` matrix
+  (one row per class, a single log-odds row for two classes), `intercepts`, `accuracy`,
+  `log_likelihood`, `objective` and the convergence fields. `multinomial_predict` and
+  `predict(model, x)` return the most probable class or, with `{'type': 'prob'}`, the class
+  probabilities. Validated against scikit-learn (penalized fits, weights) and R
+  `nnet::multinom` (unpenalized).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap

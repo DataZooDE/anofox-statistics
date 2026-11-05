@@ -116,6 +116,7 @@ fitted model struct).
 | Poisson | `poisson_fit_agg` | `poisson_fit_predict_agg`, `poisson_fit_predict_by` | [Poisson](api/glm/poisson.md) |
 | Binomial | `binomial_fit_agg` | `binomial_fit_predict_by` | [Binomial](api/glm/binomial.md) |
 | Logistic | `logistic_fit_agg` | `logistic_fit_predict_by` | [Logistic](api/glm/logistic.md) |
+| Multinomial logistic (softmax, L1 / elastic net) | `multinomial_fit_agg` | `multinomial_predict`, `multinomial_fit_predict_by` | [Multinomial](api/glm/multinomial.md) |
 | Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
 | Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |

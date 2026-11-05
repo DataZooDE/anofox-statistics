@@ -1,0 +1,365 @@
+# name: test/sql/regression/test_multinomial.test
+# description: multinomial_fit_agg, multinomial_predict, predict(model, x) and multinomial_fit_predict_by (#314):
+#   result shape, label types, prediction, NULL handling, degenerate groups and invalid options.
+#   Reference values: test/sql/reference/multinomial_sklearn.test and multinomial_nnet.test.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE f AS
+SELECT i AS id, i % 3 AS grp,
+       ((i * 37) % 101) / 101.0 AS x1, ((i * 53) % 97) / 97.0 AS x2,
+       1 + (i % 4) * 0.5 AS w,
+       CASE WHEN ((i * 37) % 101) / 101.0 + 0.3 * sin(i) < 0.35 THEN 'setosa'
+            WHEN ((i * 53) % 97) / 97.0 + 0.3 * cos(i) < 0.5 THEN 'versicolor' ELSE 'virginica' END AS species
+FROM range(1, 151) t(i);
+
+# ---- result shape -------------------------------------------------------------
+
+# The classes are the sorted distinct labels; one coefficient row per class.
+query IIIIIIIII
+SELECT m.classes, len(m.coefficients), len(m.coefficients[1]), len(m.intercepts), m.n_classes,
+       m.n_observations, m.n_features, m.converged, m.accuracy BETWEEN 0 AND 1
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+[setosa, versicolor, virginica]	3	2	3	3	150	2	true	true
+
+query IIIIII
+SELECT m.model_type, m.family, m.link, m.lambda, m.l1_ratio, abs(list_sum(m.intercepts)) < 1e-9
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+multinomial_logistic	multinomial	softmax	1.0	0.0	true
+
+# objective = -log_likelihood + penalty >= -log_likelihood
+query I
+SELECT m.objective >= -m.log_likelihood AND m.log_likelihood < 0
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+true
+
+# Integer labels (any integer type) give BIGINT classes.
+query II
+SELECT m.classes, typeof(m.classes)
+FROM (SELECT multinomial_fit_agg(grp::INTEGER - 1, [x1, x2]) AS m FROM f);
+----
+[-1, 0, 1]	BIGINT[]
+
+# Two classes: a single coefficient row (the log-odds of the second class), link logit.
+query IIII
+SELECT m.classes, len(m.coefficients), len(m.intercepts), m.link
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f WHERE species <> 'virginica');
+----
+[setosa, versicolor]	1	1	logit
+
+# C and lambda = 1 / C are the same option; C = inf is no penalty.
+query II
+SELECT abs(a.m.coefficients[2][1] - b.m.coefficients[2][1]) < 1e-12, c.m.lambda
+FROM (SELECT multinomial_fit_agg(species, [x1, x2], {'C': 4}) AS m FROM f) a,
+     (SELECT multinomial_fit_agg(species, [x1, x2], {'lambda': 0.25}) AS m FROM f) b,
+     (SELECT multinomial_fit_agg(species, [x1, x2], {'C': 'inf'::DOUBLE}) AS m FROM f) c;
+----
+true	0.0
+
+# A strong lasso penalty sets every coefficient to exactly 0.
+query I
+SELECT list_sum(list_transform(m.coefficients, lambda r: list_sum(list_transform(r, lambda v: abs(v)))))
+FROM (SELECT multinomial_fit_agg(species, [x1, x2], {'C': 0.001, 'l1_ratio': 1}) AS m FROM f);
+----
+0.0
+
+# No intercept: the intercepts are 0.
+query I
+SELECT m.intercepts FROM (SELECT multinomial_fit_agg(species, [x1, x2], {'fit_intercept': false}) AS m FROM f);
+----
+[0.0, 0.0, 0.0]
+
+# Sample weights: integer weights equal replicated rows.
+query I
+SELECT abs(a.m.coefficients[3][2] - b.m.coefficients[3][2]) < 1e-7
+FROM (SELECT multinomial_fit_agg(species, [x1, x2], (id % 3)::DOUBLE + 1) AS m FROM f) a,
+     (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f, range(3) r(k) WHERE k <= id % 3) b;
+----
+true
+
+# The 3-argument form takes the weight when its third argument is numeric.
+query I
+SELECT abs(a.m.coefficients[1][1] - b.m.coefficients[1][1]) < 1e-12
+FROM (SELECT multinomial_fit_agg(species, [x1, x2], w) AS m FROM f) a,
+     (SELECT multinomial_fit_agg(species, [x1, x2], w, {'C': 1}) AS m FROM f) b;
+----
+true
+
+# Per group
+query II
+SELECT grp, m.n_observations FROM (SELECT grp, multinomial_fit_agg(species, [x1, x2]) AS m FROM f GROUP BY grp)
+ORDER BY grp;
+----
+0	50
+1	50
+2	50
+
+# As a window aggregate
+query I
+SELECT count(DISTINCT m.n_observations) FROM (
+    SELECT multinomial_fit_agg(species, [x1, x2]) OVER (PARTITION BY grp) AS m FROM f);
+----
+1
+
+# ---- prediction ---------------------------------------------------------------
+
+# predict(model, x) is multinomial_predict(model, x): the most probable class.
+query III
+SELECT multinomial_predict(m, [0.2, 0.8]) = predict(m, [0.2, 0.8]),
+       multinomial_predict(m, [0.2, 0.8], {'type': 'class'}) = predict(m, [0.2, 0.8]),
+       typeof(predict(m, [0.2, 0.8]))
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+true	true	VARCHAR
+
+# {'type': 'prob'}: one probability per class, summing to 1; the class is the arg max.
+query IIII
+SELECT len(p), abs(list_sum(p) - 1) < 1e-12, m.classes[list_position(p, list_max(p))] = predict(m, [0.9, 0.1]),
+       p = predict(m, [0.9, 0.1], {'type': 'prob'})
+FROM (SELECT m, multinomial_predict(m, [0.9, 0.1], {'type': 'prob'}) AS p
+      FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f));
+----
+3	true	true	true
+
+# Two classes: the probabilities are the logistic function of the linear predictor.
+query I
+SELECT abs(predict(m, [0.3, 0.6], {'type': 'prob'})[2]
+           - 1 / (1 + exp(-(m.intercepts[1] + 0.3 * m.coefficients[1][1] + 0.6 * m.coefficients[1][2])))) < 1e-14
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f WHERE species <> 'virginica');
+----
+true
+
+# Integer labels predict BIGINT.
+query II
+SELECT typeof(predict(m, [0.5, 0.5])), predict(m, [0.5, 0.5]) IN (-1, 0, 1)
+FROM (SELECT multinomial_fit_agg(grp::INTEGER - 1, [x1, x2]) AS m FROM f);
+----
+BIGINT	true
+
+# The training accuracy is the share of rows whose predicted class is their class.
+query I
+SELECT abs(any_value(m.accuracy) - avg((predict(m, [x1, x2]) = species)::INTEGER)) < 1e-12
+FROM f, (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f) t;
+----
+true
+
+# A NULL model, a NULL x and an x with a NULL element give NULL.
+query III
+SELECT predict(NULL::STRUCT(classes VARCHAR[], coefficients DOUBLE[][], intercepts DOUBLE[]), [1.0]),
+       predict(m, NULL::DOUBLE[]), multinomial_predict(m, [1.0, NULL], {'type': 'prob'})
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+NULL	NULL	NULL
+
+# A hand-written model literal (DECIMAL coefficients, INTEGER classes).
+query II
+SELECT predict(m, [1.0]), [round(v, 6) FOR v IN predict(m, [1.0], {'type': 'prob'})]
+FROM (SELECT {'classes': [3, 7], 'coefficients': [[2.0]], 'intercepts': [-2.0]} AS m);
+----
+3	[0.5, 0.5]
+
+query II
+SELECT predict(m, [0.0, 0.0]), [round(v, 6) FOR v IN predict(m, [1.0, 0.0], {'type': 'prob'})]
+FROM (SELECT {'classes': ['a', 'b', 'c'], 'coefficients': [[1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+              'intercepts': [0.0, 0.5, 0.0]} AS m);
+----
+b	[0.50648, 0.307196, 0.186324]
+
+statement error
+SELECT predict(m, [1.0, 2.0, 3.0]) FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+has 2 coefficients per class but x has 3 values
+
+statement error
+SELECT predict(m, [1.0, 2.0], {'type': 'link'}) FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+option 'type' must be 'class' or 'prob'
+
+statement error
+SELECT predict(m, [1.0, 2.0], {'se_fit': true}) FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f);
+----
+unknown option 'se_fit' for a multinomial model
+
+statement error
+SELECT multinomial_predict({'classes': ['a', 'b']}, [1.0]);
+----
+must have the fields classes, coefficients and intercepts
+
+statement error
+SELECT multinomial_predict({'classes': [1.5, 2.5], 'coefficients': [[1.0]], 'intercepts': [0.0]}, [1.0]);
+----
+the model's classes must be VARCHAR or integer labels
+
+statement error
+SELECT multinomial_predict({'classes': ['a', 'b', 'c'], 'coefficients': [[1.0]], 'intercepts': [0.0]}, [1.0]);
+----
+a model of 3 classes needs 3 coefficient rows and intercepts
+
+# ---- NULL handling ------------------------------------------------------------
+
+statement ok
+CREATE TABLE fn AS
+SELECT * REPLACE (CASE WHEN id % 10 = 0 THEN NULL ELSE species END AS species) FROM f
+UNION ALL SELECT 1000, 0, NULL, 0.5, 1.0, 'setosa'
+UNION ALL SELECT 1001, 0, 0.5, 'nan'::DOUBLE, 1.0, 'virginica';
+
+# NULL labels, NULL x, NULL / NaN feature values are left out ...
+query II
+SELECT t.m.n_observations, t.m.coefficients = c.m.coefficients
+FROM (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM fn) t,
+     (SELECT multinomial_fit_agg(species, [x1, x2]) AS m FROM f WHERE id % 10 <> 0) c;
+----
+135	true
+
+# ... as is a NULL x list
+query I
+SELECT m.n_observations FROM (SELECT multinomial_fit_agg(species, CASE WHEN id <= 10 THEN NULL ELSE [x1, x2] END) AS m FROM f);
+----
+140
+
+# ... and a row with a NULL weight.
+query I
+SELECT m.n_observations FROM (SELECT multinomial_fit_agg(species, [x1, x2], CASE WHEN id <= 5 THEN NULL ELSE w END) AS m FROM f);
+----
+145
+
+# ---- degenerate groups: NULL ----------------------------------------------------
+
+# A single class, a single row, no rows, all-NULL labels.
+query IIII
+SELECT (SELECT multinomial_fit_agg(species, [x1, x2]) FROM f WHERE species = 'setosa') IS NULL,
+       (SELECT multinomial_fit_agg(species, [x1, x2]) FROM f WHERE id = 1) IS NULL,
+       (SELECT multinomial_fit_agg(species, [x1, x2]) FROM f WHERE false) IS NULL,
+       (SELECT multinomial_fit_agg(NULL::VARCHAR, [x1, x2]) FROM f) IS NULL;
+----
+true	true	true	true
+
+# Separable classes without a penalty: no error, converged = false.
+query II
+SELECT m.converged, m.n_classes
+FROM (SELECT multinomial_fit_agg(CASE WHEN v < 10 THEN 'a' ELSE 'b' END, [v::DOUBLE], {'lambda': 0, 'max_iterations': 20}) AS m
+      FROM range(20) t(v));
+----
+false	2
+
+# ---- invalid input ----------------------------------------------------------------
+
+statement error
+SELECT multinomial_fit_agg(x1, [x1, x2]) FROM f;
+----
+No function matches
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'C': 1, 'lambda': 1}) FROM f;
+----
+give either 'C' or 'lambda'
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'C': 0}) FROM f;
+----
+option 'C' must be > 0
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'lambda': -1}) FROM f;
+----
+option 'lambda' must be finite and >= 0
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'l1_ratio': 1.5}) FROM f;
+----
+option 'l1_ratio' must be in [0, 1]
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'max_iterations': 0}) FROM f;
+----
+option 'max_iterations' must be at least 1
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'tolerance': 0}) FROM f;
+----
+option 'tolerance' must be finite and > 0
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'alpha': 1}) FROM f;
+----
+unsupported option 'alpha'
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], {'bogus': 1}) FROM f;
+----
+unknown option 'bogus'
+
+statement error
+SELECT multinomial_fit_agg(species, [x1, x2], w - 2) FROM f;
+----
+weights
+
+statement error
+SELECT multinomial_fit_agg(species, CASE WHEN id = 3 THEN [x1] ELSE [x1, x2] END) FROM f;
+----
+inconsistent feature count
+
+# ---- multinomial_fit_predict_by ---------------------------------------------------
+
+query IIII
+SELECT count(*), count(yhat), bool_and(abs(list_sum(probabilities) - 1) < 1e-12), bool_and(is_training)
+FROM multinomial_fit_predict_by('f', grp, species, [x1, x2], options := {'C': 10});
+----
+150	150	true	true
+
+# Matches multinomial_fit_agg + predict per group.
+query I
+SELECT bool_and(p.yhat = predict(m.m, [p.x1, p.x2]))
+FROM multinomial_fit_predict_by('f', grp, species, [x1, x2]) p
+JOIN (SELECT grp, multinomial_fit_agg(species, [x1, x2]) AS m FROM f GROUP BY grp) m USING (grp);
+----
+true
+
+# split: only 'train' rows fit, every row is predicted.
+statement ok
+CREATE TABLE fs AS SELECT *, CASE WHEN id % 5 = 0 THEN 'test' ELSE 'train' END AS part FROM f;
+
+query III
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training), count(yhat)
+FROM multinomial_fit_predict_by('fs', grp, species, [x1, x2], split := part);
+----
+120	30	150
+
+# A group whose fit is NULL (one class) gets NULL predictions.
+statement ok
+CREATE TABLE fg AS SELECT * REPLACE (CASE WHEN grp = 2 THEN 'setosa' ELSE species END AS species) FROM f;
+
+query II
+SELECT grp, count(yhat) FROM multinomial_fit_predict_by('fg', grp, species, [x1, x2]) GROUP BY grp ORDER BY grp;
+----
+0	50
+1	50
+2	0
+
+# ---- parallel aggregation: bitwise the same whatever the thread count (#226) -------
+
+statement ok
+CREATE TABLE big AS
+SELECT i AS id, ((i * 37) % 1009) / 1009.0 AS x1, ((i * 53) % 997) / 997.0 AS x2,
+       CASE WHEN ((i * 37) % 1009) / 1009.0 + 0.3 * sin(i) < 0.35 THEN 'a'
+            WHEN ((i * 53) % 997) / 997.0 + 0.3 * cos(i) < 0.5 THEN 'b' ELSE 'c' END AS y
+FROM range(1, 30001) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE r1 AS SELECT multinomial_fit_agg(y, [x1, x2], {'C': 2, 'l1_ratio': 0.3}) AS m FROM big;
+
+statement ok
+SET threads = 8;
+
+query I
+SELECT (SELECT multinomial_fit_agg(y, [x1, x2], {'C': 2, 'l1_ratio': 0.3}) FROM big) = (SELECT m FROM r1);
+----
+true

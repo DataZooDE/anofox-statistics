@@ -165,6 +165,11 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
 // R predict.lm(se.fit = TRUE, interval = ...) for OLS / WLS / Ridge, and for the
 // GLMs predict.glm(se.fit = TRUE) with the interval built on the link scale and
 // mapped through the inverse link (anofox_predict_se -> upstream predict_se).
+// Multinomial models (#314) are predicted by multinomial_aggregate.cpp.
+bool IsMultinomialModelType(const LogicalType &type);
+unique_ptr<FunctionData> MultinomialPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
+                                                vector<unique_ptr<Expression>> &arguments, const char *fn_name);
+
 namespace {
 
 enum class ModelKind : uint8_t { LINEAR, ISOTONIC };
@@ -235,6 +240,10 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 		throw InvalidInputException("predict(model, x): model must be the STRUCT returned by a *_fit_agg or *_fit "
 		                            "function, got %s",
 		                            ReturnTypeOf(*arguments[0]).ToString());
+	}
+	// A multinomial_fit_agg model: the class or, with {'type': 'prob'}, the class probabilities.
+	if (IsMultinomialModelType(ReturnTypeOf(*arguments[0]))) {
+		return MultinomialPredictBind(context, bound_function, arguments, "predict");
 	}
 	// Numeric fields of a hand-written model literal (e.g. DECIMAL) are cast to DOUBLE.
 	{

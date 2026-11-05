@@ -226,3 +226,21 @@ Requires `sandwich`, `lmtest` and `rms`. It (re)writes
 (#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
 clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
 `rms::robcov`.
+
+## `make_reference_multinomial.py` and `make_reference_multinomial.R`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_multinomial.py
+Rscript validation/generators/make_reference_multinomial.R
+```
+
+The Python script writes `test/sql/reference/multinomial_sklearn.test`:
+`multinomial_fit_agg` / `multinomial_predict` / `predict` (#314) against
+scikit-learn `LogisticRegression` (`coef_`, `intercept_`, `predict_proba`,
+`predict`, `score` and the weighted log-likelihood) for ridge, lasso and
+elastic-net penalties, sample weights, no intercept, two classes and integer
+labels, solved to a tight tolerance (`lbfgs` / `saga`). The R script (needs
+`nnet`) writes `test/sql/reference/multinomial_nnet.test`: the unpenalized fit
+(`lambda` 0, with and without case weights) against `nnet::multinom`, comparing
+the baseline-category contrasts `coefficients[k] - coefficients[1]`, the
+fitted probabilities, the predicted classes and `logLik`.

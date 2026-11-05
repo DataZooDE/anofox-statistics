@@ -6,6 +6,7 @@
 pub mod diagnostics;
 pub mod errors;
 pub mod models;
+pub mod multinomial;
 pub mod multivariate;
 pub mod tests;
 pub mod types;

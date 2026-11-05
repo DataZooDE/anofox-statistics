@@ -243,6 +243,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPathAggregateFunctions(loader);
     // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
     RegisterPcaFunctions(loader);
+    // Multinomial logistic regression (#314)
+    RegisterMultinomialFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
