@@ -10779,3 +10779,7 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
 // After alloc_inference_arrays! (macro_rules scope is textual).
 mod ls_state_ffi;
 pub use ls_state_ffi::*;
+
+// Cluster-robust covariance of OLS / WLS fits (#309).
+mod cluster_ffi;
+pub use cluster_ffi::*;

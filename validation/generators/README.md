@@ -116,3 +116,16 @@ empirical-Bayes shrinkage (`metafor`). It writes JSON to `test/data/issue107/`,
 which no test consumes. Its AFT and GLMM parts are superseded by
 `make_reference_regression.R`; the priors and shrinkage parts remain until
 they are ported to the generated-test format.
+
+## `make_reference_cluster_vcov.R`
+
+```bash
+Rscript validation/generators/make_reference_cluster_vcov.R
+```
+
+Requires `sandwich`, `lmtest` and `rms`. It (re)writes
+`test/sql/reference/cluster_vcov.test`: the cluster-robust inference of
+`ols_fit_agg(y, x, cluster, options)` / `wls_fit_agg(y, x, w, cluster, options)`
+(#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
+clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
+`rms::robcov`.

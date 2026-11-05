@@ -835,6 +835,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"fit_intercept", {"intercept"}},
 	    {"compute_inference", {"inference"}},
 	    {"compute_loo", {}},
+	    {"cadjust", {"cluster_adjust"}},
 	    {"confidence_level", {"confidence"}},
 	    {"alpha", {}},
 	    {"lambda", {}},
@@ -1020,6 +1021,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.compute_inference = ExtractBool(val);
 		} else if (key == "compute_loo") {
 			result.compute_loo = ExtractBool(val);
+		} else if (key == "cadjust") {
+			result.cadjust = ExtractBool(val);
 		} else if (key == "confidence_level") {
 			result.confidence_level = ExtractConfidenceLevel(val, function_name);
 		} else if (key == "alpha") {

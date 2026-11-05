@@ -146,6 +146,8 @@ struct RegressionMapOptions {
 	std::optional<bool> compute_inference;
 	//! Leave-one-out statistics (press, press_rmse, loo_r_squared) of OLS / WLS (#220) and Ridge (#235) fits
 	std::optional<bool> compute_loo;
+	//! Cluster-robust covariance (#309): vcovCL's cadjust, G/(G-1) per clustering dimension
+	std::optional<bool> cadjust;
 	std::optional<double> confidence_level;
 
 	// Ridge/ElasticNet regularization

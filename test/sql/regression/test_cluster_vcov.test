@@ -1,0 +1,202 @@
+# name: test/sql/regression/test_cluster_vcov.test
+# description: Cluster-robust covariance of ols_fit_agg / wls_fit_agg (#309): functional checks, NULLs, edge cases, options
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE cd AS
+SELECT i,
+       (i % 3)::VARCHAR AS grp,
+       'c' || (i % 7)::VARCHAR AS cl,
+       (i % 4) AS cl2,
+       i::DOUBLE / 3 AS x1,
+       ((i * 7) % 11)::DOUBLE AS x2,
+       1.0 + 0.5 * i / 3 - 0.2 * ((i * 7) % 11) + ((i * 13) % 5 - 2) * 0.4 + (i % 7) * 0.3 AS y,
+       0.5 + (i % 5) / 4.0 AS w
+FROM range(0, 60) t(i);
+
+# Shape: the sibling's fields plus vcov_type and n_clusters; compute_inference defaults to true.
+query IIIIII
+SELECT (m).vcov_type, (m).n_clusters, len((m).std_errors), len((m).vcov), (m).n_observations, (m).df_residual
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS m FROM cd);
+----
+cluster_HC1	[7]	2	9	60	57.0
+
+# Coefficients are the plain fit's; the standard errors differ from the classical ones.
+query II
+SELECT list_cosine_similarity((a).coefficients, (b).coefficients) > 0.9999999,
+       (a).std_errors <> (b).std_errors
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS a,
+             ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS b FROM cd);
+----
+true	true
+
+# std_errors are the square roots of the vcov diagonal (intercept first).
+query II
+SELECT abs((m).std_errors[1] - sqrt((m).vcov[5])) < 1e-12, abs((m).intercept_std_error - sqrt((m).vcov[1])) < 1e-12
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS m FROM cd);
+----
+true	true
+
+# Singleton clusters with hc0 and no cadjust are White's HC0.
+query I
+SELECT abs((a).std_errors[1] - (b).std_errors[1]) < 1e-10 AND abs((a).std_errors[2] - (b).std_errors[2]) < 1e-10
+FROM (SELECT ols_fit_agg(y, [x1, x2], i, {'hc_type': 'hc0', 'cadjust': false}) AS a,
+             ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'hc_type': 'hc0'}) AS b FROM cd);
+----
+true
+
+# The ids are labels: renaming them does not change the result.
+query I
+SELECT (a).std_errors = (b).std_errors AND (a).vcov = (b).vcov
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS a,
+             ols_fit_agg(y, [x1, x2], 1000 - (i % 7) * 3, MAP {}) AS b FROM cd);
+----
+true
+
+# Row order does not matter (canonical order, #226).
+query I
+SELECT (a).vcov = (b).vcov
+FROM (SELECT ols_fit_agg(y, [x1, x2], [cl, cl2::VARCHAR], MAP {}) AS a FROM (SELECT * FROM cd ORDER BY i)),
+     (SELECT ols_fit_agg(y, [x1, x2], [cl, cl2::VARCHAR], MAP {}) AS b FROM (SELECT * FROM cd ORDER BY (i * 37) % 60));
+----
+true
+
+# Multiway as LIST or STRUCT is the same.
+query II
+SELECT (a).vcov = (b).vcov, (a).n_clusters
+FROM (SELECT ols_fit_agg(y, [x1, x2], [cl, cl2::VARCHAR], MAP {}) AS a,
+             ols_fit_agg(y, [x1, x2], {'a': cl, 'b': cl2}, MAP {}) AS b FROM cd);
+----
+true	[7, 4]
+
+# GROUP BY: one clustered model per group.
+query II
+SELECT grp, (m).n_clusters FROM (SELECT grp, ols_fit_agg(y, [x1, x2], cl, MAP {}) AS m FROM cd GROUP BY grp) ORDER BY grp;
+----
+0	[7]
+1	[7]
+2	[7]
+
+# WLS with weights 1 is OLS.
+query I
+SELECT abs((a).std_errors[1] - (b).std_errors[1]) < 1e-10 AND abs((a).f_statistic - (b).f_statistic) < 1e-8
+FROM (SELECT wls_fit_agg(y, [x1, x2], 1.0, cl, MAP {}) AS a, ols_fit_agg(y, [x1, x2], cl, MAP {}) AS b FROM cd);
+----
+true
+
+# predict() uses the clustered vcov.
+query I
+SELECT (predict(m, [1.0, 2.0], {'se_fit': true})).se_fit > 0
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS m FROM cd);
+----
+true
+
+# Window use.
+query I
+SELECT count(*) FROM (
+    SELECT (ols_fit_agg(y, [x1, x2], cl, MAP {}) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).std_errors AS se
+    FROM cd) WHERE se IS NOT NULL;
+----
+57
+
+# =============================================================================
+# NULL handling: a NULL cluster id (or LIST / STRUCT element) skips the row
+# =============================================================================
+
+query I
+SELECT (a).vcov = (b).vcov AND (a).n_observations = 50
+FROM (SELECT ols_fit_agg(y, [x1, x2], CASE WHEN i < 10 THEN NULL ELSE cl END, MAP {}) AS a FROM cd),
+     (SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) AS b FROM cd WHERE i >= 10);
+----
+true
+
+query I
+SELECT (a).vcov = (b).vcov
+FROM (SELECT ols_fit_agg(y, [x1, x2], [cl, CASE WHEN i < 10 THEN NULL ELSE cl2::VARCHAR END], MAP {}) AS a FROM cd),
+     (SELECT ols_fit_agg(y, [x1, x2], [cl, cl2::VARCHAR], MAP {}) AS b FROM cd WHERE i >= 10);
+----
+true
+
+query I
+SELECT (a).n_observations
+FROM (SELECT wls_fit_agg(y, [x1, x2], CASE WHEN i < 5 THEN NULL ELSE w END, cl, MAP {}) AS a FROM cd);
+----
+55
+
+# All cluster ids NULL / empty input: NULL model.
+query I
+SELECT ols_fit_agg(y, [x1, x2], NULL::VARCHAR, MAP {}) IS NULL FROM cd;
+----
+true
+
+query I
+SELECT ols_fit_agg(y, [x1, x2], cl, MAP {}) IS NULL FROM cd WHERE i < 0;
+----
+true
+
+# =============================================================================
+# Degenerate clusterings: the fit stands, the clustered inference is NaN (lists) / NULL, as hc_type
+# =============================================================================
+
+query IIIII
+SELECT (m).coefficients IS NOT NULL, isnan((m).std_errors[1]), (m).intercept_std_error IS NULL, (m).vcov IS NULL,
+       (m).n_clusters
+FROM (SELECT ols_fit_agg(y, [x1, x2], 'one', MAP {}) AS m FROM cd);
+----
+true	true	true	true	[1]
+
+# compute_inference false: no inference, no vcov_type / n_clusters.
+query IIII
+SELECT (m).coefficients IS NOT NULL, (m).std_errors IS NULL, (m).vcov_type IS NULL, (m).n_clusters IS NULL
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, {'compute_inference': false}) AS m FROM cd);
+----
+true	true	true	true
+
+# HC2 / HC3 (CR2 / CR3) are available.
+query II
+SELECT (a).vcov_type, (b).vcov_type
+FROM (SELECT ols_fit_agg(y, [x1, x2], cl, {'hc_type': 'hc2'}) AS a, ols_fit_agg(y, [x1, x2], cl, {'hc_type': 'hc3'}) AS b FROM cd);
+----
+cluster_HC2	cluster_HC3
+
+# =============================================================================
+# Errors
+# =============================================================================
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], cl, {'bogus': 1}) FROM cd;
+----
+ols_fit_agg: unknown option 'bogus'
+
+# cadjust belongs to the cluster overload only.
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'cadjust': true}) FROM cd;
+----
+unsupported option 'cadjust'
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], cl, {'cadjust': 'maybe'}) FROM cd;
+----
+Cannot convert 'maybe' to boolean
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], cl, CASE WHEN i > 3 THEN MAP {} ELSE MAP {} END) FROM cd;
+----
+options must be a constant
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], CASE WHEN i < 30 THEN [cl] ELSE [cl, cl] END, MAP {}) FROM cd;
+----
+inconsistent number of cluster dimensions
+
+statement error
+SELECT wls_fit_agg(y, [x1, x2], w, [cl], {'bogus': 1}) FROM cd;
+----
+wls_fit_agg: unknown option 'bogus'
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], []::VARCHAR[], MAP {}) FROM cd;
+----
+must not be empty

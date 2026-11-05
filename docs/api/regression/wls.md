@@ -103,6 +103,20 @@ The aggregate skips rows where `y`, `x` or `weight` is NULL, or where `x`
 contains a NULL element. `wls_fit` drops positions with NaN or infinite
 values.
 
+## Cluster-robust standard errors
+
+`wls_fit_agg(y, x, weight, cluster, options)` reports cluster-robust standard
+errors, tests and `vcov`, as `sandwich::vcovCL(lm(y ~ x, weights = w), cluster = ~id)`:
+the scores are `wᵢ eᵢ xᵢ` and the bread `(X'WX)⁻¹`. `cluster`, the options
+(`hc_type`, `cadjust`, `compute_inference` default true) and the added
+`vcov_type` / `n_clusters` fields are those of
+[OLS](ols.md#cluster-robust-standard-errors).
+
+```sql
+SELECT (m).std_errors, (m).n_clusters
+FROM (SELECT wls_fit_agg(y, [x], weight, (x::INTEGER) % 4, MAP {}) AS m FROM wls_demo);
+```
+
 ## Coefficient covariance
 
 With `compute_inference` the struct also carries `vcov`, the coefficient covariance

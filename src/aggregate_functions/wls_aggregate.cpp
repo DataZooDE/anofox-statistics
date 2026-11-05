@@ -11,6 +11,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/cluster_fit.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -449,6 +450,9 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
                                       ANOFOX_AGG_BIND(WlsAggBind), WlsAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Cluster-robust covariance (#309): wls_fit_agg(y, x, weight, cluster, options)
+    AddClusterFitOverload(func_set, true);
+
     CreateAggregateFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
@@ -465,6 +469,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     d2.parameter_names = {"y", "x", "weight"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
+    info.descriptions.push_back(ClusterFitDescription(true));
     loader.RegisterFunction(std::move(info));
 
 }

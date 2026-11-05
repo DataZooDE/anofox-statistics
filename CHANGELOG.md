@@ -10,6 +10,15 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Cluster-robust (sandwich) covariance** (#309): `ols_fit_agg(y, x, cluster, options)` and
+  `wls_fit_agg(y, x, weight, cluster, options)` replace the standard errors, tests, F test and
+  `vcov` with the cluster-robust ones (`sandwich::vcovCL`, `rms::robcov`; upstream
+  `inference::cluster`). `cluster` is a per-row argument of any type, or a LIST / STRUCT of ids
+  for multiway clustering; `hc_type` picks the type (HC0-HC3, default HC1) and the new `cadjust`
+  option the `G/(G-1)` adjustment. The result adds `vcov_type` and `n_clusters`.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

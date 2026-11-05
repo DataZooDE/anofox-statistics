@@ -171,6 +171,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/elasticnet_aggregate.cpp
     src/aggregate_functions/lars_aggregate.cpp
     src/aggregate_functions/wls_aggregate.cpp
+    src/aggregate_functions/cluster_fit_aggregate.cpp
     src/aggregate_functions/huber_aggregate.cpp
     src/aggregate_functions/ransac_aggregate.cpp
     src/aggregate_functions/theil_sen_aggregate.cpp
