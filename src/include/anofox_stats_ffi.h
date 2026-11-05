@@ -4458,6 +4458,31 @@ bool anofox_multivariate_two_sample(int32_t kind, const double *x, size_t n_x, c
                                     size_t dim, AnofoxMultivariateTestOptions options,
                                     AnofoxMultivariateTestResult *out_result, AnofoxError *out_error);
 
+/* ============================================================================
+ * Cluster-robust (sandwich) covariance of OLS / WLS (#309)
+ * ============================================================================
+ * sandwich::vcovCL(lm(...), cluster, type, cadjust) through upstream's
+ * cluster_vcov. clusters holds n_dims arrays of y.len non-negative codes (two
+ * or more dimensions: multiway clustering, Cameron-Gelbach-Miller); the type is
+ * options.hc_type (ANOFOX_HC_NONE = HC1, vcovCL's default for linear models).
+ * With options.compute_inference the inference and the F test are the
+ * cluster-robust ones and out_vcov receives the dim x dim clustered covariance
+ * (intercept first; free with anofox_free_interval_matrix), else NULL and 0.
+ * out_n_clusters (NULL or n_dims entries) receives the number of clusters per
+ * dimension among the fitted rows (0 without inference). out_inference,
+ * out_vcov and out_dim may be NULL.
+ */
+bool anofox_ols_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            const int32_t *const *clusters, size_t n_dims, bool cadjust,
+                            AnofoxOlsOptions options, AnofoxFitResultCore *out_core,
+                            AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+bool anofox_wls_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                            const int32_t *const *clusters, size_t n_dims, bool cadjust,
+                            AnofoxWlsOptions options, AnofoxFitResultCore *out_core,
+                            AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

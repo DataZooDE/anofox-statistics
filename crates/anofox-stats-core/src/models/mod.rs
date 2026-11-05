@@ -6,6 +6,7 @@ mod alm;
 mod augment;
 mod bayesian;
 mod bls;
+mod cluster;
 mod eb_shrink;
 mod elasticnet;
 mod glm;
@@ -50,6 +51,7 @@ pub use bayesian::{
     fit_bayesian, fit_predict_bayesian, BayesianFitResult, BayesianOptions, BayesianPredictions,
 };
 pub use bls::{fit_bls, fit_nnls};
+pub use cluster::{fit_ols_cluster, fit_wls_cluster, ClusterFit, ClusterSpec};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};
 pub use elasticnet::fit_elasticnet;
 pub use glm::{

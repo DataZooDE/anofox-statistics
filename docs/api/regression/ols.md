@@ -12,6 +12,7 @@ and optional heteroscedasticity-consistent (HC0-HC3) standard errors.
 | `ols_fit_predict` | Window aggregate | Fit and predict per window frame, see [Window fit-predict](fit_predict_window.md) |
 | `ols_fit_predict_agg` | Aggregate | Fit and predict every row of a group, see [Fit-predict aggregates](fit_predict_agg.md) |
 | `ols_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#ols_fit_predict_by) |
+| `ols_fit_agg(y, x, cluster, options)` | Aggregate | Cluster-robust (sandwich) standard errors, see [below](#cluster-robust-standard-errors) |
 | `ols_anova_agg` | Aggregate | Nested-model F test (reduced vs full model), see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | `ols_anova_by` | Table macro | Nested-model F test per group, see [below](#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | `ols_anova_table_agg` | Aggregate | Per-term ANOVA table (type I / type II), see [below](#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
@@ -179,6 +180,74 @@ ORDER BY region;
   before fitting.
 - A feature that is constant over the fitted rows cannot be estimated; its
   coefficient is returned as NaN (aliased) rather than failing the whole fit.
+
+## Cluster-robust standard errors
+
+With a cluster id as third argument, `ols_fit_agg` (and
+[`wls_fit_agg`](wls.md#cluster-robust-standard-errors)) replaces the coefficient
+covariance by the cluster-robust (Huber-White sandwich) one,
+`V = A (Σ_g s_g s_gᵀ) A` with `A = (X'WX)⁻¹` and `s_g` the summed scores of
+cluster `g`, as R's `sandwich::vcovCL(fit, cluster = ~id)` and
+`rms::robcov(fit, cluster)`. The covariance is upstream's
+(`anofox-regression` `inference::cluster`).
+
+**Signatures:**
+
+```text
+ols_fit_agg(y DOUBLE, x DOUBLE[], cluster ANY, options MAP) -> STRUCT
+wls_fit_agg(y DOUBLE, x DOUBLE[], weight DOUBLE, cluster ANY, options MAP) -> STRUCT
+```
+
+- **`cluster`** is per-row data, an aggregate argument like `wls_fit_agg`'s
+  `weight`: one id per row of any type (`firm_id`, `'store-7'`, a date ...).
+  A `LIST` or `STRUCT` of ids (`[firm, year]`, `{'f': firm, 'y': year}`) gives
+  **multiway** clustering, one dimension per element, combined by
+  inclusion-exclusion (Cameron, Gelbach & Miller: `V_firm + V_year − V_firm∩year`),
+  as `vcovCL(cluster = ~firm + year)`. A `LIST` needs one element type, so cast
+  mixed ids (`[firm, year::VARCHAR]`) or use a `STRUCT`.
+- **`options`** is required (`MAP {}` for the defaults): it tells the cluster
+  overload apart from `ols_fit_agg(y, x, options)`. `compute_inference`
+  defaults to **true** here; the other keys are those of [Options](#options), plus `cadjust`.
+- **`hc_type`** chooses `vcovCL`'s `type`: `'hc1'` (the default; also for
+  `'none'`) multiplies by `(n − 1)/(n − k)`, `'hc0'` does not, `'hc2'` is the
+  bias-reduced linearization (Bell-McCaffrey, CR2) and `'hc3'` the
+  jackknife-like variant.
+- **`cadjust`** (alias `cluster_adjust`, BOOLEAN, default `true`) multiplies
+  each dimension's meat by `G/(G − 1)`. The default (`hc1` with `cadjust`) is
+  Stata's CR1 and `vcovCL`'s default for linear models;
+  `{'hc_type': 'hc0', 'cadjust': false}` is `rms::robcov`.
+
+What changes: `std_errors`, `t_values`, `p_values`, `conf_low` / `conf_high`
+(t with the residual degrees of freedom, as `lmtest::coeftest(fit, vcov = V)`),
+the `intercept_*` inference, the F test (the Wald F of all slopes with `V`, as
+`lmtest::waldtest(fit, vcov = V, test = "F")`) and `vcov`, so
+[`predict`](model_tools.md#standard-errors-and-intervals)'s `se_fit` uses the
+clustered covariance. Coefficients and fit statistics are those of the plain
+fit. Two fields are added at the end of the STRUCT:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vcov_type` | `VARCHAR` | `'cluster_HC0'`, `'cluster_HC1'`, `'cluster_HC2'` or `'cluster_HC3'`; NULL without `compute_inference` |
+| `n_clusters` | `BIGINT[]` | Clusters per dimension among the fitted rows; NULL without `compute_inference` |
+
+Rows with a NULL cluster id (or a NULL element of the LIST / STRUCT) are
+skipped, like a NULL `x`. With fewer than two clusters in a dimension, or when
+the variant is undefined for the data (a cluster with leverage 1 for
+`hc2` / `hc3`), the fit is returned with NULL inference and `vcov`, as for
+`hc_type`. Multiway covariances are not guaranteed positive definite; a
+negative variance gives a NULL standard error.
+
+**Example** (continues with `ols_demo` from above):
+
+```sql
+-- Standard errors clustered by region (CR1), and two-way by region and ads level
+SELECT (m).std_errors, (m).n_clusters, (m).vcov_type
+FROM (SELECT ols_fit_agg(sales, [price, ads], region, MAP {}) AS m FROM ols_demo);
+
+SELECT (m).std_errors, (m).n_clusters
+FROM (SELECT ols_fit_agg(sales, [price], [region, (ads::INTEGER)::VARCHAR], {'hc_type': 'hc0', 'cadjust': false}) AS m
+      FROM ols_demo);
+```
 
 ## Nested-model F test: ols_anova_agg / ols_anova_by
 

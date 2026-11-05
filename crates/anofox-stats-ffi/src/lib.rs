@@ -10825,3 +10825,7 @@ pub use gvif_ffi::*;
 // Predictive accuracy indexes (#308).
 mod accuracy_ffi;
 pub use accuracy_ffi::*;
+
+// Cluster-robust covariance of OLS / WLS fits (#309).
+mod cluster_ffi;
+pub use cluster_ffi::*;

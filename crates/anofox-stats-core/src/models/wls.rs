@@ -1,6 +1,7 @@
 //! Weighted Least Squares (WLS) regression using native WlsRegressor
 
 use crate::errors::{StatsError, StatsResult};
+use crate::models::cluster::{lm_cluster_inference, ClusterFit, ClusterSpec, LmClusterInput};
 use crate::types::{
     FitResult, FitResultCore, FitResultInference, HcType, ModelSummary, SolverType, WlsOptions,
 };
@@ -43,6 +44,17 @@ pub fn fit_wls(
     weights: &[f64],
     options: &WlsOptions,
 ) -> StatsResult<FitResult> {
+    fit_wls_impl(y, x, weights, options, None).map(|c| c.fit)
+}
+
+/// `fit_wls`, with the cluster-robust inference of `cluster` when given (#309).
+pub(crate) fn fit_wls_impl(
+    y: &[f64],
+    x: &[Vec<f64>],
+    weights: &[f64],
+    options: &WlsOptions,
+    cluster: Option<&ClusterSpec>,
+) -> StatsResult<ClusterFit> {
     // Validate inputs
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });
@@ -103,7 +115,7 @@ pub fn fit_wls(
     if kept.is_empty() && n_valid == 1 {
         // A single observation: the intercept is that value, its residual
         // variance is undefined (upstream needs two rows).
-        return Ok(FitResult {
+        return Ok(ClusterFit::plain(FitResult {
             core: FitResultCore {
                 coefficients: vec![f64::NAN; n_features],
                 intercept: Some(y[valid_indices[0]]),
@@ -116,7 +128,7 @@ pub fn fit_wls(
             inference: None,
             diagnostics: None,
             summary: ModelSummary::new(ModelInfo::gaussian("wls")),
-        });
+        }));
     }
 
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
@@ -126,7 +138,7 @@ pub fn fit_wls(
     let mut builder = WlsRegressor::builder()
         .with_intercept(options.fit_intercept)
         .weights(w_col)
-        .compute_inference(options.compute_inference)
+        .compute_inference(options.compute_inference && cluster.is_none())
         .confidence_level(options.confidence_level)
         .solve_method(convert_solver(options.solver));
     if let Some(tol) = options.alias_tolerance {
@@ -172,10 +184,26 @@ pub fn fit_wls(
     let mut summary = ModelSummary::from_result(
         fitted.model_info(),
         result,
-        options.compute_inference && options.hc_type.is_none(),
+        options.compute_inference && options.hc_type.is_none() && cluster.is_none(),
     );
+    let mut clustered = None;
     let inference = if !options.compute_inference {
         None
+    } else if let Some(spec) = cluster {
+        let input = LmClusterInput {
+            spec,
+            valid_indices: &valid_indices,
+            kept: &kept,
+            n_features,
+            result,
+            hc_type: options.hc_type,
+            confidence_level: options.confidence_level,
+        };
+        let (inf, vcov, n_clusters) = lm_cluster_inference(&input, &mut summary, |codes, opts| {
+            fitted.cluster_vcov(&x_mat, codes, opts)
+        });
+        clustered = Some((vcov, n_clusters));
+        Some(inf)
     } else if let Some(hc_type) = options.hc_type {
         match anofox_regression::inference::compute_hc_inference(
             &x_mat,
@@ -226,11 +254,19 @@ pub fn fit_wls(
         }
     }
 
-    Ok(FitResult {
+    let fit = FitResult {
         core,
         inference,
         diagnostics: None,
         summary,
+    };
+    Ok(match clustered {
+        Some((vcov, n_clusters)) => ClusterFit {
+            fit,
+            vcov,
+            n_clusters,
+        },
+        None => ClusterFit::plain(fit),
     })
 }
 

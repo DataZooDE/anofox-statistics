@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/cluster_fit.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -433,6 +434,9 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
                                       ANOFOX_AGG_BIND(OlsAggBind), OlsAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Cluster-robust covariance (#309): ols_fit_agg(y, x, cluster, options)
+    AddClusterFitOverload(func_set, false);
+
     CreateAggregateFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
@@ -449,6 +453,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
+    info.descriptions.push_back(ClusterFitDescription(false));
     loader.RegisterFunction(std::move(info));
 
 }

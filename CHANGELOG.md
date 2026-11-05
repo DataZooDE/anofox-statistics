@@ -180,6 +180,15 @@ Breaking changes are called out explicitly.
   / `mmd_agg` are unchanged). All vectors of a call must have the same length. Reference
   values: base R (`validation/generators/make_reference_embedding_drift.R`).
 
+### Added
+
+- **Cluster-robust (sandwich) covariance** (#309): `ols_fit_agg(y, x, cluster, options)` and
+  `wls_fit_agg(y, x, weight, cluster, options)` replace the standard errors, tests, F test and
+  `vcov` with the cluster-robust ones (`sandwich::vcovCL`, `rms::robcov`; upstream
+  `inference::cluster`). `cluster` is a per-row argument of any type, or a LIST / STRUCT of ids
+  for multiway clustering; `hc_type` picks the type (HC0-HC3, default HC1) and the new `cadjust`
+  option the `G/(G-1)` adjustment. The result adds `vcov_type` and `n_clusters`.
+
 ### Changed
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /

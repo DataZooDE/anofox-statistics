@@ -44,7 +44,7 @@ unsafe fn write_bytes(
 /// Write a fit result the way `anofox_ols_fit` does, plus the covariance (a
 /// malloc'ed `dim × dim` matrix, freed with `anofox_free_interval_matrix`; NULL
 /// and 0 without inference) when `out_vcov` / `out_dim` are given.
-unsafe fn write_fit_result(
+pub(crate) unsafe fn write_fit_result(
     fit: StatsResult<StateFit>,
     out_core: *mut FitResultCore,
     out_inference: *mut FitResultInference,

@@ -213,3 +213,16 @@ Rscript validation/generators/make_reference_vif.R
 Requires `car`. Writes `vif_reference.test`: `vif`, `vif_agg` and `gvif_agg`
 (default terms, factor terms, non-adjacent integer labels) against
 `car::vif(lm(...))` (#307).
+
+## `make_reference_cluster_vcov.R`
+
+```bash
+Rscript validation/generators/make_reference_cluster_vcov.R
+```
+
+Requires `sandwich`, `lmtest` and `rms`. It (re)writes
+`test/sql/reference/cluster_vcov.test`: the cluster-robust inference of
+`ols_fit_agg(y, x, cluster, options)` / `wls_fit_agg(y, x, w, cluster, options)`
+(#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
+clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
+`rms::robcov`.
