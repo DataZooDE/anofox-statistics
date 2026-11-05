@@ -277,3 +277,9 @@ statement error
 SELECT ols_fit_agg(cnt, [x1], {'profile_ci': true}) FROM d;
 ----
 unsupported option 'profile_ci'
+
+# profile_ci uses the unweighted likelihood: with prior weights (#305) it is an error
+statement error
+SELECT poisson_fit_agg(y, [x], w, {'profile_ci': true}) FROM (VALUES (1.0, 0.5, 1.0), (2.0, 1.0, 2.0), (3.0, 1.5, 1.0), (5.0, 2.0, 1.0), (4.0, 2.5, 2.0)) t(y, x, w);
+----
+profile_ci cannot be combined with prior weights
