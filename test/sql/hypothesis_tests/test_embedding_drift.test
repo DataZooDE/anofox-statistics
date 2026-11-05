@@ -1,0 +1,309 @@
+# name: test/sql/hypothesis_tests/test_embedding_drift.test
+# description: embedding_drift_agg, energy_distance_test_agg, mmd_test_agg (#302): group
+#              labels, BOOLEAN is_reference, NULL handling, bootstrap, determinism, errors
+# group: [hypothesis_tests]
+#
+# Reference values: test/sql/reference/embedding_drift_reference.test.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE emb AS
+SELECT 0 AS grp, i AS id, [sin(0.7*i), cos(1.3*i), 0.1*(i % 5)] AS e FROM range(30) r(i)
+UNION ALL
+SELECT 1, 100 + i, [sin(0.9*i) + 0.4, cos(1.1*i) - 0.2, 0.1*(i % 7) + 0.1] FROM range(25) r(i);
+
+# ---------------------------------------------------------------------------
+# Group labels: BIGINT, VARCHAR, BOOLEAN is_reference (TRUE rows are the reference)
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs((embedding_drift_agg(e, grp)).score - 0.497432149080502) < 1e-12,
+       abs((embedding_drift_agg(e, CASE grp WHEN 0 THEN 'ref' ELSE 'cur' END,
+                                {'reference': 'ref'})).score - 0.497432149080502) < 1e-12,
+       (embedding_drift_agg(e, grp = 0)).n1,
+       (embedding_drift_agg(e, grp = 1)).n1
+FROM emb;
+----
+true	true	30	25
+
+# is_reference reproduces the labelled call, for every method.
+query III
+SELECT embedding_drift_agg(e, grp = 0, {'method': 'mmd'}) = embedding_drift_agg(e, grp, {'method': 'mmd'}),
+       embedding_drift_agg(e, grp = 0, {'method': 'ratio'}) = embedding_drift_agg(e, grp, {'method': 'ratio'}),
+       embedding_drift_agg(e, grp = 0, {'bootstrap': true}) = embedding_drift_agg(e, grp, {'bootstrap': true})
+FROM emb;
+----
+true	true	true
+
+# options.reference swaps the roles.
+query III
+SELECT r.n1, r.n2, abs(r.score - 0.497432149080502) < 1e-12
+FROM (SELECT embedding_drift_agg(e, grp, {'reference': 1}) r FROM emb);
+----
+25	30	true
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'reference': 7}) FROM emb;
+----
+reference group 7 not found
+
+statement error
+SELECT embedding_drift_agg(e, grp = 0, {'reference': true}) FROM emb;
+----
+option 'reference' needs a group label
+
+# The tests: group 1 is the smaller label.
+query IIII
+SELECT (energy_distance_test_agg(e, grp)).n1, (energy_distance_test_agg(e, grp::VARCHAR)).n1,
+       (mmd_test_agg(e, 1 - grp)).n1, abs((mmd_test_agg(e, grp)).statistic - (mmd_test_agg(e, 1 - grp)).statistic) < 1e-14
+FROM emb;
+----
+30	30	25	true
+
+# ---------------------------------------------------------------------------
+# GROUP BY: one result per segment
+# ---------------------------------------------------------------------------
+query III
+SELECT seg, (embedding_drift_agg(e, grp)).n1, (energy_distance_test_agg(e, grp, {'n_permutations': 19})).n2
+FROM (SELECT *, id % 2 AS seg FROM emb)
+GROUP BY seg ORDER BY seg;
+----
+0	15	13
+1	15	12
+
+# ---------------------------------------------------------------------------
+# NULL handling: a NULL embedding, a NULL group, a NULL or NaN element drop the row
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE dirty AS
+SELECT grp, e FROM emb
+UNION ALL SELECT 0, NULL
+UNION ALL SELECT NULL, [9.0, 9.0, 9.0]
+UNION ALL SELECT 1, [9.0, NULL, 9.0]
+UNION ALL SELECT 1, [9.0, 'NaN'::DOUBLE, 9.0];
+
+query IIII
+SELECT (SELECT embedding_drift_agg(e, grp) FROM dirty) = (SELECT embedding_drift_agg(e, grp) FROM emb),
+       (SELECT embedding_drift_agg(e, grp, {'method': 'ratio'}) FROM dirty)
+           = (SELECT embedding_drift_agg(e, grp, {'method': 'ratio'}) FROM emb),
+       (SELECT energy_distance_test_agg(e, grp) FROM dirty) = (SELECT energy_distance_test_agg(e, grp) FROM emb),
+       (SELECT mmd_test_agg(e, grp) FROM dirty) = (SELECT mmd_test_agg(e, grp) FROM emb);
+----
+true	true	true	true
+
+# Empty input, one group only, or a group left empty by NULLs: NULL.
+query IIII
+SELECT (SELECT embedding_drift_agg(e, grp) FROM emb WHERE false),
+       (SELECT embedding_drift_agg(e, grp) FROM emb WHERE grp = 0),
+       (SELECT energy_distance_test_agg(e, grp) FROM dirty WHERE grp = 0 OR e IS NULL),
+       (SELECT mmd_test_agg(e, grp) FROM emb WHERE grp = 1);
+----
+NULL	NULL	NULL	NULL
+
+# MMD needs two rows per group (insufficient data: NULL).
+query II
+SELECT (SELECT mmd_test_agg(e, grp) FROM emb WHERE grp = 0 OR id = 100),
+       (SELECT embedding_drift_agg(e, grp, {'method': 'mmd'}) FROM emb WHERE grp = 0 OR id = 100);
+----
+NULL	NULL
+
+# An infinite element: upstream rejects non-finite data (NULL result).
+query II
+SELECT (SELECT embedding_drift_agg(e, grp) FROM (SELECT grp, e FROM emb UNION ALL SELECT 1, [1.0, 'inf'::DOUBLE, 0.0])),
+       (SELECT energy_distance_test_agg(e, grp) FROM (SELECT grp, e FROM emb UNION ALL SELECT 1, [1.0, 'inf'::DOUBLE, 0.0]));
+----
+NULL	NULL
+
+# ---------------------------------------------------------------------------
+# Errors: embeddings of different lengths, a third group label
+# ---------------------------------------------------------------------------
+statement error
+SELECT embedding_drift_agg(e, grp) FROM (SELECT grp, e FROM emb UNION ALL SELECT 1, [1.0, 2.0]);
+----
+every embedding must have the same length
+
+statement error
+SELECT energy_distance_test_agg(e, grp) FROM (SELECT grp, e FROM emb UNION ALL SELECT 0, [1.0, 2.0, 3.0, 4.0]);
+----
+every embedding must have the same length
+
+statement error
+SELECT mmd_test_agg(e, grp) FROM (SELECT grp, e FROM emb UNION ALL SELECT 2, [1.0, 2.0, 3.0]);
+----
+compares exactly two groups
+
+# ---------------------------------------------------------------------------
+# Bootstrap threshold: seeded, reproducible, and the score is unchanged
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT a.score = d.score, a.threshold <> d.threshold, a.drifted = (a.score > a.threshold), a = b, a <> c
+FROM (SELECT embedding_drift_agg(e, grp, {'bootstrap': true}) a,
+             embedding_drift_agg(e, grp, {'bootstrap': true, 'seed': 42}) b,
+             embedding_drift_agg(e, grp, {'bootstrap': true, 'seed': 7}) c,
+             embedding_drift_agg(e, grp) d FROM emb);
+----
+true	true	true	true	true
+
+query III
+SELECT a.score = d.score, a.drifted = (a.score > a.threshold), a <> b
+FROM (SELECT embedding_drift_agg(e, grp, {'method': 'mmd', 'bootstrap': true, 'n_boot': 50}) a,
+             embedding_drift_agg(e, grp, {'method': 'mmd', 'bootstrap': true, 'n_boot': 50, 'quantile': 0.5}) b,
+             embedding_drift_agg(e, grp, {'method': 'mmd'}) d FROM emb);
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# Row order: the result (seeded bootstrap and permutations included) does not
+# depend on the order the rows arrive in
+# ---------------------------------------------------------------------------
+query IIII
+SELECT (SELECT embedding_drift_agg(e, grp, {'bootstrap': true} ORDER BY id) FROM emb)
+           = (SELECT embedding_drift_agg(e, grp, {'bootstrap': true} ORDER BY id DESC) FROM emb),
+       (SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'component_test': 'TVD'} ORDER BY id) FROM emb)
+           = (SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'component_test': 'TVD'} ORDER BY (id * 7) % 11) FROM emb),
+       (SELECT energy_distance_test_agg(e, grp, {'n_permutations': 199} ORDER BY id) FROM emb)
+           = (SELECT energy_distance_test_agg(e, grp, {'n_permutations': 199} ORDER BY id DESC) FROM emb),
+       (SELECT mmd_test_agg(e, grp, {'n_permutations': 199} ORDER BY id) FROM emb)
+           = (SELECT mmd_test_agg(e, grp, {'n_permutations': 199} ORDER BY (id * 7) % 11) FROM emb);
+----
+true	true	true	true
+
+# Same distribution: a large p-value; seeds give different permutation draws.
+query III
+WITH s AS (SELECT i % 2 AS grp, [sin(1.1*i), cos(2.3*i)] AS e FROM range(60) r(i))
+SELECT (energy_distance_test_agg(e, grp, {'n_permutations': 199})).p_value > 0.05,
+       (mmd_test_agg(e, grp, {'n_permutations': 199})).p_value > 0.05,
+       (energy_distance_test_agg(e, grp, {'seed': 1})).p_value <> (energy_distance_test_agg(e, grp, {'seed': 2})).p_value
+FROM s;
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# Invalid options
+# ---------------------------------------------------------------------------
+statement error
+SELECT embedding_drift_agg(e, grp, {'methd': 'mmd'}) FROM emb;
+----
+unknown option 'methd'
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'method': 'model'}) FROM emb;
+----
+Invalid method
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'metric': 'minkowski'}) FROM emb;
+----
+Invalid metric
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'method': 'mmd', 'metric': 'cosine'}) FROM emb;
+----
+option 'metric' applies only to method 'distance'
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'bootstrap': true}) FROM emb;
+----
+option 'bootstrap' applies only to method 'distance' or 'mmd'
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'component_test': 'ks'}) FROM emb;
+----
+option 'component_test' applies only to method 'ratio'
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'component_test': 'nope'}) FROM emb;
+----
+unknown component_test 'nope'
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'bootstrap': true, 'threshold': 0.1}) FROM emb;
+----
+threshold and bootstrap = true exclude each other
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'n_boot': 10}) FROM emb;
+----
+n_bootstrap and quantile need bootstrap = true
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'bootstrap': true, 'quantile': 1.5}) FROM emb;
+----
+quantile must be in [0, 1]
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'bootstrap': true, 'n_bootstrap': 0}) FROM emb;
+----
+n_bootstrap must be at least 1
+
+statement error
+SELECT embedding_drift_agg(e, grp, {'threshold': 'inf'::DOUBLE}) FROM emb;
+----
+threshold must be finite
+
+statement error
+SELECT energy_distance_test_agg(e, grp, {'kernel': 'linear'}) FROM emb;
+----
+unknown option 'kernel'
+
+statement error
+SELECT mmd_test_agg(e, grp, {'kernel': 'rbf'}) FROM emb;
+----
+Invalid kernel
+
+statement error
+SELECT mmd_test_agg(e, grp, {'kernel': 'linear', 'bandwidth': 2}) FROM emb;
+----
+bandwidth applies only to the gaussian and laplacian kernels
+
+statement error
+SELECT mmd_test_agg(e, grp, {'degree': 3}) FROM emb;
+----
+degree, scale and offset apply only to the polynomial kernel
+
+statement error
+SELECT mmd_test_agg(e, grp, {'bandwidth': 0}) FROM emb;
+----
+bandwidth must be > 0
+
+# ---------------------------------------------------------------------------
+# Parallel: 8 threads with every scan vector a separate task (per-thread states
+# and Combine) give the single-threaded results exactly (the rows are sorted
+# before the seeded draws).
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE big AS
+SELECT i, i % 4 AS seg, (hash(i) % 3 = 0)::INT AS grp,
+       [sin(0.37 * i), cos(0.11 * i) + 0.2 * (hash(i) % 3 = 0)::INT, (i % 13) / 13.0] AS e
+FROM range(6000) r(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS
+SELECT seg, embedding_drift_agg(e, grp) a, embedding_drift_agg(e, grp, {'method': 'ratio'}) b,
+       embedding_drift_agg(e, grp = 0, {'bootstrap': true, 'n_boot': 20}) c,
+       energy_distance_test_agg(e, grp, {'n_permutations': 2}) d
+FROM (SELECT * FROM big WHERE i < 1600 OR seg = 0) GROUP BY seg;
+
+statement ok
+SET threads = 8;
+
+statement ok
+PRAGMA verify_parallelism;
+
+statement ok
+CREATE TABLE par AS
+SELECT seg, embedding_drift_agg(e, grp) a, embedding_drift_agg(e, grp, {'method': 'ratio'}) b,
+       embedding_drift_agg(e, grp = 0, {'bootstrap': true, 'n_boot': 20}) c,
+       energy_distance_test_agg(e, grp, {'n_permutations': 2}) d
+FROM (SELECT * FROM big WHERE i < 1600 OR seg = 0) GROUP BY seg;
+
+query IIIIII
+SELECT count(*), bool_and(abs((r.a).score - (p.a).score) < 1e-12), bool_and(r.b = p.b),
+       bool_and(abs((r.c).threshold - (p.c).threshold) < 1e-12), bool_and(abs((r.d).statistic - (p.d).statistic) < 1e-12),
+       bool_and((r.d).p_value = (p.d).p_value)
+FROM ref r JOIN par p USING (seg);
+----
+4	true	true	true	true	true

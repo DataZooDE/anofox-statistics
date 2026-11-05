@@ -1077,6 +1077,65 @@ FROM (
 ORDER BY group_col, order_col
 )"},
 
+    // dataset_drift_by: evidently's column and dataset drift (issue #300)
+    // C++ API: dataset_drift_by(source, group_col, columns, options := NULL, drift_share := 0.5)
+    // group_col splits reference and current rows (two labels; the reference is the
+    // smaller label unless options.reference names it). columns lists the column
+    // names to test; numeric columns are tested as numbers, all others (VARCHAR,
+    // BOOLEAN, ...) as categories. Each column goes through column_drift_agg(options);
+    // the dataset flag is dataset_drift_agg over the column flags.
+    // Returns one row per column, in the order of columns: column_name, test, score,
+    // is_p_value, threshold, drifted, n1, n2, n_columns, n_drifted, share_drifted,
+    // drift_share, dataset_drift.
+    {"dataset_drift_by", {"source", "group_col", "columns", nullptr}, {{"options", "NULL"}, {"drift_share", "0.5"}},
+R"(
+WITH _anofox_src AS (
+    SELECT group_col AS _anofox_g, COLUMNS(lambda _anofox_c: list_contains(columns, _anofox_c))
+    FROM query_table(source::VARCHAR)
+),
+_anofox_typed AS (
+    SELECT _anofox_g, {
+        'num': CASE WHEN typeof(COLUMNS(* EXCLUDE (_anofox_g))) IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT',
+                         'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE')
+                    OR typeof(COLUMNS(* EXCLUDE (_anofox_g))) LIKE 'DECIMAL%'
+               THEN TRY_CAST(COLUMNS(* EXCLUDE (_anofox_g)) AS DOUBLE) END,
+        'str': CASE WHEN typeof(COLUMNS(* EXCLUDE (_anofox_g))) NOT IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT',
+                         'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE')
+                    AND typeof(COLUMNS(* EXCLUDE (_anofox_g))) NOT LIKE 'DECIMAL%'
+               THEN COLUMNS(* EXCLUDE (_anofox_g))::VARCHAR END
+    }
+    FROM _anofox_src
+),
+_anofox_long AS (
+    UNPIVOT _anofox_typed ON COLUMNS(* EXCLUDE (_anofox_g)) INTO NAME column_name VALUE _anofox_v
+),
+_anofox_cols AS (
+    SELECT column_name,
+        coalesce(column_drift_agg((_anofox_v).str, _anofox_g, options),
+                 column_drift_agg((_anofox_v).num, _anofox_g, options)) AS _anofox_d
+    FROM _anofox_long
+    GROUP BY column_name
+),
+_anofox_ds AS (
+    SELECT dataset_drift_agg((_anofox_d).drifted, drift_share) AS _anofox_s FROM _anofox_cols
+)
+SELECT column_name,
+    (_anofox_d).test AS test,
+    (_anofox_d).score AS score,
+    (_anofox_d).is_p_value AS is_p_value,
+    (_anofox_d).threshold AS threshold,
+    (_anofox_d).drifted AS drifted,
+    (_anofox_d).n1 AS n1,
+    (_anofox_d).n2 AS n2,
+    (_anofox_s).n_columns AS n_columns,
+    (_anofox_s).n_drifted AS n_drifted,
+    (_anofox_s).share_drifted AS share_drifted,
+    (_anofox_s).drift_share AS drift_share,
+    (_anofox_s).dataset_drift AS dataset_drift
+FROM _anofox_cols CROSS JOIN _anofox_ds
+ORDER BY list_position(columns, column_name)
+)"},
+
     // Sentinel
     {nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
@@ -1133,6 +1192,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},
     {"passive_aggressive_fit_predict_by", "Table macro: fits a Passive-Aggressive online regression per group of source, updating row by row in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case), and returns every source row with yhat from the final coefficients, yhat_lower / yhat_upper (NULL: no interval) and is_training appended.", "passive_aggressive_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
     {"lm_dynamic_fit_predict_by", "Table macro: fits a dynamic linear model with time-varying coefficients (greybox lmDynamic) per group of source in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL) and is_training appended.", "lm_dynamic_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
+    {"dataset_drift_by", "Table macro: evidently's data drift of a table. group_col splits the reference and the current rows (two labels; the reference is the smaller label unless options.reference names it); every column named in columns is tested with column_drift_agg(options) (numeric columns as numbers, other types as categories) and the dataset drifted when the share of drifted columns is at least drift_share (default 0.5). Returns one row per column: column_name, test, score, is_p_value, threshold, drifted, n1, n2, plus the dataset summary n_columns, n_drifted, share_drifted, drift_share, dataset_drift.", "dataset_drift_by('events', is_current, ['age', 'city'])", "drift"},
     {nullptr, nullptr, nullptr, nullptr}
 };
 // clang-format on

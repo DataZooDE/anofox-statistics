@@ -157,6 +157,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterDAgostinoK2AggregateFunction(loader);
     RegisterEnergyDistanceAggregateFunction(loader);
     RegisterDriftAggregateFunctions(loader);
+    RegisterEmbeddingAggregateFunctions(loader);
     RegisterMmdAggregateFunction(loader);
     RegisterTostTTestAggregateFunction(loader);
 

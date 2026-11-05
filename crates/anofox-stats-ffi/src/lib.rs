@@ -4,6 +4,7 @@
 
 mod drift_ffi;
 mod forecast_ffi;
+mod embedding_ffi;
 mod inference_ffi;
 mod models_ffi;
 mod types;

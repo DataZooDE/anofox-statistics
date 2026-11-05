@@ -150,6 +150,36 @@ Breaking changes are called out explicitly.
   Emax/E90/Eavg, Spiegelhalter z), `gini_md_agg` (Hmisc::GiniMd) and the scalar `r2_measures`
   (Hmisc::R2Measures). See [docs/api/statistics/accuracy.md](docs/api/statistics/accuracy.md).
 
+### Added
+
+- **evidently data drift (#300, anofox-statistics 0.7).** `z_drift_agg` (two-proportion
+  z test), `chisq_drift_agg` and `g_drift_agg` (goodness of fit of the current counts against
+  the reference shares) take numeric or VARCHAR categories. `column_drift_agg(value, group,
+  {'test': 'auto' | <evidently name>, 'threshold': ...})` runs evidently's column drift
+  (default test choice, thresholds and drift rules over all 18 evidently tests) and returns
+  `STRUCT(test, score, is_p_value, threshold, drifted, n1, n2)`. `dataset_drift_agg` and the
+  `dataset_drift_by(source, group_col, columns)` table macro apply evidently's
+  share-of-drifted-columns rule. Reference values: base R
+  (`validation/generators/make_reference_drift_evidently.R`), cross-checked against scipy.
+- **Drift on category labels (#301, anofox-statistics 0.7).** VARCHAR values of `psi_agg`,
+  `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg` and `tvd_agg` now go to
+  upstream's `*_categorical` variants and `tvd_test` on the labels (same result shape and
+  values as before; one bin per label, sorted by byte order). New
+  `category_proportions_agg(category, group [, {'reference': ...}])` returns
+  `STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`: the per-category
+  shares the divergences compare. Reference values: base R
+  (`validation/generators/make_reference_drift_categorical.R`), cross-checked against scipy.
+- **Embedding drift and multivariate two-sample tests (#302, anofox-statistics 0.7).**
+  `embedding_drift_agg(embedding DOUBLE[], group | is_reference, {'method': 'distance' |
+  'ratio' | 'mmd', ...})` runs evidently's embedding drift methods (distance between the mean
+  embeddings with euclidean / cosine / cityblock / chebyshev, share of drifted components,
+  MMD with the median bandwidth) with a fixed or seeded bootstrap threshold and returns
+  `STRUCT(method, score, threshold, drifted, n1, n2, dim)`. `energy_distance_test_agg(x
+  DOUBLE[], group [, options])` and `mmd_test_agg(x DOUBLE[], group [, {'kernel': ...}])` are
+  the multivariate energy distance and MMD permutation tests (the 1-D `energy_distance_agg`
+  / `mmd_agg` are unchanged). All vectors of a call must have the same length. Reference
+  values: base R (`validation/generators/make_reference_embedding_drift.R`).
+
 ### Changed
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /

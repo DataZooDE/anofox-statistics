@@ -535,9 +535,10 @@ struct DriftMapOptions {
 	std::optional<uint32_t> n_bins;         // quantile binning
 	std::optional<double> base;             // kl, jensen_shannon
 	std::optional<double> epsilon;          // psi, kl: constant zero fill
-	std::optional<double> threshold;        // drift flag of the divergences
+	std::optional<double> threshold;        // drift flag of the divergences, column_drift
+	std::optional<string> test;             // column_drift: evidently's test name or 'auto'
 
-	//! kind: an AnofoxDriftKind, or -1 for ad_test_agg.
+	//! kind: an AnofoxDriftKind, -1 for ad_test_agg, -2 for column_drift_agg.
 	static DriftMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
 };
 
@@ -807,6 +808,45 @@ struct RmAnovaMapOptions {
 	std::optional<bool> sphericity; // Mauchly's test + Greenhouse-Geisser correction
 
 	static RmAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+};
+
+/**
+/**
+ * Options of embedding_drift_agg (#302). Each method accepts only its own keys
+ * (checked after parsing, see EmbeddingDriftMapOptions::ParseFromValue).
+ */
+struct EmbeddingDriftMapOptions {
+	std::optional<Value> reference;           // label of the reference group
+	std::optional<string> method;             // distance (default) / ratio / mmd
+	std::optional<string> metric;             // distance: euclidean / cosine / cityblock / chebyshev
+	std::optional<double> threshold;          // fixed threshold (default evidently's)
+	std::optional<bool> bootstrap;            // distance, mmd: bootstrapped threshold
+	std::optional<uint32_t> n_bootstrap;      // also n_boot; default 100
+	std::optional<double> quantile;           // bootstrap quantile
+	std::optional<string> component_test;     // ratio: evidently's test name
+	std::optional<double> component_threshold; // ratio
+	std::optional<uint64_t> seed;             // default ANOFOX_DEFAULT_MC_SEED
+
+	static EmbeddingDriftMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of energy_distance_test_agg and mmd_test_agg (#302); the kernel keys
+ * only for mmd_test_agg.
+ */
+struct MultivariateTestMapOptions {
+	std::optional<uint32_t> n_permutations; // default 1000
+	std::optional<uint64_t> seed;           // default ANOFOX_DEFAULT_MC_SEED
+	std::optional<string> kernel;           // gaussian (default) / laplacian / linear / polynomial
+	std::optional<double> bandwidth;        // gaussian, laplacian; default 1
+	std::optional<uint32_t> degree;         // polynomial; default 2
+	std::optional<double> scale;            // polynomial; default 1
+	std::optional<double> offset;           // polynomial; default 1
+
+	static MultivariateTestMapOptions ParseFromValue(const Value &map_value, const string &function_name,
+	                                                 bool mmd);
 };
 
 } // namespace duckdb

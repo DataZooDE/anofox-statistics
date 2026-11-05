@@ -1,0 +1,146 @@
+# name: test/sql/hypothesis_tests/test_drift_categorical.test
+# description: Drift aggregates on category labels (#301): VARCHAR values of psi / kl / js / hellinger / tvd, category_proportions_agg, NULLs, options, determinism
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE drift AS
+SELECT 0 AS grp, (i % 4)::INTEGER AS c FROM range(50) r(i)
+UNION ALL
+SELECT 1, ((i*3) % 5)::INTEGER FROM range(40) r(i);
+
+# Labels give the numeric-code values (one bin per category), whole structs.
+query I
+SELECT bool_and(a = b) FROM (
+    SELECT psi_agg(c, grp)::VARCHAR a, psi_agg('c' || c, grp)::VARCHAR b FROM drift UNION ALL
+    SELECT kl_divergence_agg(c, grp, {'base': 2})::VARCHAR, kl_divergence_agg('c' || c, grp, {'base': 2})::VARCHAR FROM drift UNION ALL
+    SELECT jensen_shannon_agg(c, grp)::VARCHAR, jensen_shannon_agg('c' || c, grp)::VARCHAR FROM drift UNION ALL
+    SELECT hellinger_agg(c, grp)::VARCHAR, hellinger_agg('c' || c, grp)::VARCHAR FROM drift UNION ALL
+    SELECT tvd_agg(c, grp)::VARCHAR, tvd_agg('c' || c, grp)::VARCHAR FROM drift);
+----
+true
+
+# Row order does not change the result (labels are sorted before the call, the
+# permutation draw is seeded).
+query I
+SELECT (SELECT tvd_agg('c' || c, grp)::VARCHAR FROM drift)
+     = (SELECT tvd_agg('c' || c, grp)::VARCHAR FROM (SELECT * FROM drift ORDER BY c DESC, grp DESC));
+----
+true
+
+# Labels sort by byte order; renaming categories monotonically keeps every value.
+query I
+SELECT (SELECT category_proportions_agg('c' || c, grp).p_current FROM drift)
+     = (SELECT category_proportions_agg(chr(65 + c), grp).p_current FROM drift);
+----
+true
+
+query IIII
+SELECT r.categories, r.p_reference, r.p_current, r.n_categories
+FROM (SELECT category_proportions_agg(chr(65 + c), grp) r FROM drift);
+----
+[A, B, C, D, E]	[0.26, 0.26, 0.24, 0.24, 0.0]	[0.2, 0.2, 0.2, 0.2, 0.2]	5
+
+# Numeric values: one category per distinct value, categories as DOUBLE[].
+query III
+SELECT r.categories, r.p_reference, typeof(r.categories)
+FROM (SELECT category_proportions_agg(c, grp) r FROM drift);
+----
+[0.0, 1.0, 2.0, 3.0, 4.0]	[0.26, 0.26, 0.24, 0.24, 0.0]	DOUBLE[]
+
+# NULL values and groups are skipped.
+query I
+SELECT (SELECT psi_agg('c' || c, grp)::VARCHAR || category_proportions_agg('c' || c, grp)::VARCHAR FROM drift)
+     = (SELECT psi_agg(s, grp)::VARCHAR || category_proportions_agg(s, grp)::VARCHAR
+        FROM (SELECT 'c' || c AS s, grp FROM drift UNION ALL SELECT NULL, 0 UNION ALL SELECT 'zz', NULL UNION ALL SELECT NULL, NULL));
+----
+true
+
+# One group only, or no rows: NULL.
+query IIII
+SELECT psi_agg('c' || c, grp) IS NULL, tvd_agg('c' || c, grp) IS NULL, category_proportions_agg('c' || c, grp) IS NULL,
+       category_proportions_agg(c, grp) IS NULL
+FROM drift WHERE grp = 0;
+----
+true	true	true	true
+
+query I
+SELECT category_proportions_agg('x', 1) IS NULL FROM range(0);
+----
+true
+
+# Identical distributions: no drift.
+query IIIII
+SELECT psi_agg(s, g).psi, kl_divergence_agg(s, g).kl, jensen_shannon_agg(s, g).distance,
+       tvd_agg(s, g).statistic, tvd_agg(s, g).p_value
+FROM (SELECT ['x', 'y', 'z'][i % 3 + 1] AS s, i % 2 AS g FROM range(60) r(i));
+----
+0.0	0.0	0.0	0.0	1.0
+
+# A single category in both groups.
+query III
+SELECT hellinger_agg(s, g).distance, tvd_agg(s, g).n_categories, category_proportions_agg(s, g).p_reference
+FROM (SELECT 'only' AS s, i % 2 AS g FROM range(10) r(i));
+----
+0.0	1	[1.0]
+
+# Per-group (GROUP BY) results equal the filtered ones.
+statement ok
+CREATE TABLE kg AS SELECT i % 3 AS k, chr((65 + (i * 7) % 4)::INTEGER) AS s, (i // 3) % 2 AS g FROM range(300) r(i);
+
+query I
+SELECT count(*) FROM (SELECT k, psi_agg(s, g)::VARCHAR AS a FROM kg GROUP BY k) t
+JOIN (SELECT 0 AS k, psi_agg(s, g)::VARCHAR AS a FROM kg WHERE k = 0 UNION ALL
+      SELECT 1, psi_agg(s, g)::VARCHAR FROM kg WHERE k = 1 UNION ALL
+      SELECT 2, psi_agg(s, g)::VARCHAR FROM kg WHERE k = 2) u USING (k)
+WHERE t.a = u.a;
+----
+3
+
+# Parallel aggregation (Combine remaps the label codes) matches a single thread.
+statement ok
+CREATE TABLE big AS SELECT 'L' || ((i * 7919) % 13) AS s, (i % 2)::BIGINT AS g FROM range(200000) r(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT tvd_agg(s, g)::VARCHAR || category_proportions_agg(s, g)::VARCHAR AS r FROM big;
+
+statement ok
+SET threads = 8;
+
+query I
+SELECT (SELECT r FROM one) = (SELECT tvd_agg(s, g)::VARCHAR || category_proportions_agg(s, g)::VARCHAR FROM big);
+----
+true
+
+statement ok
+RESET threads;
+
+# Options.
+statement error
+SELECT category_proportions_agg('c' || c, grp, {'binning': 'categorical'}) FROM drift;
+----
+unknown option 'binning'
+
+statement error
+SELECT category_proportions_agg('c' || c, grp, {'reference': 7}) FROM drift;
+----
+reference group 7 not found
+
+statement error
+SELECT hellinger_agg('c' || c, grp, {'binning': 'quantile', 'n_bins': 4}) FROM drift;
+----
+needs numeric values
+
+statement error
+SELECT category_proportions_agg('c' || c, grp % 3) FROM (SELECT c, (row_number() OVER ())::BIGINT AS grp FROM drift);
+----
+compares exactly two groups
+
+statement error
+SELECT tvd_agg('c' || c, grp, {'n_permutations': 0}) FROM drift;
+----
+n_permutations

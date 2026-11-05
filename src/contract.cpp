@@ -72,6 +72,8 @@ static const struct {
     {"ks_test_agg", "test"}, {"ad_test_agg", "test"}, {"cvm_test_agg", "test"}, {"epps_singleton_agg", "test"},
     {"wasserstein_agg", "test"}, {"psi_agg", "test"}, {"kl_divergence_agg", "test"}, {"jensen_shannon_agg", "test"},
     {"hellinger_agg", "test"}, {"tvd_agg", "test"},
+    {"z_drift_agg", "test"}, {"chisq_drift_agg", "test"}, {"g_drift_agg", "test"},
+    {"energy_distance_test_agg", "test"}, {"mmd_test_agg", "test"},
     {"ols_anova_table_agg", "test"}, {"ols_anova_table_by", "test"},
     {"pairwise_t_test_agg", "test"}, {"tukey_hsd_agg", "test"}, {"dunn_test_agg", "test"},
     {"pairwise_t_test_by", "test"}, {"tukey_hsd_by", "test"}, {"dunn_test_by", "test"},

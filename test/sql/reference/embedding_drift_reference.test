@@ -1,0 +1,109 @@
+# name: test/sql/reference/embedding_drift_reference.test
+# description: embedding_drift_agg, energy_distance_test_agg, mmd_test_agg (#302) vs R reference values
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_embedding_drift.R (base R:
+# colMeans, dist, ecdf, ks.test and the documented formulas of evidently's embedding
+# drift methods, of the energy statistic and of the unbiased MMD^2). Group 0 is the
+# reference sample A (30 rows), group 1 the current sample B (25 rows), 3 dimensions.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE emb AS
+SELECT 0 AS grp, [sin(0.7*i), cos(1.3*i), 0.1*(i % 5)] AS e FROM range(30) r(i)
+UNION ALL
+SELECT 1, [sin(0.9*i) + 0.4, cos(1.1*i) - 0.2, 0.1*(i % 7) + 0.1] FROM range(25) r(i);
+
+# ---------------------------------------------------------------------------
+# distance: metric(colMeans(A), colMeans(B)); evidently's fixed threshold 0.2
+# ---------------------------------------------------------------------------
+query IIIIIII
+SELECT r.method, abs(r.score - 0.497432149080502) < 1e-12, r.threshold, r.drifted, r.n1, r.n2, r.dim
+FROM (SELECT embedding_drift_agg(e, grp) r FROM emb);
+----
+distance	true	0.2	true	30	25	3
+
+query IIII
+SELECT abs((embedding_drift_agg(e, grp, {'metric': 'euclidean'})).score - 0.497432149080502) < 1e-12,
+       abs((embedding_drift_agg(e, grp, {'metric': 'cosine'})).score - 0.262802179832803) < 1e-12,
+       abs((embedding_drift_agg(e, grp, {'metric': 'cityblock'})).score - 0.782826676716453) < 1e-12,
+       abs((embedding_drift_agg(e, grp, {'metric': 'chebyshev'})).score - 0.430581406581895) < 1e-12
+FROM emb;
+----
+true	true	true	true
+
+query II
+SELECT r.threshold, r.drifted FROM (SELECT embedding_drift_agg(e, grp, {'threshold': 0.5}) r FROM emb);
+----
+0.5	false
+
+# ---------------------------------------------------------------------------
+# ratio: share of components drifted by the component test, drift when > 0.2.
+# wasserstein normed W1 per component: 0.6125, 0.2471, 1.2445 (all >= 0.1);
+# ks p-values: 0.0978, 0.4205, 0.0121.
+# ---------------------------------------------------------------------------
+query III
+SELECT r.score, r.threshold, r.drifted FROM (SELECT embedding_drift_agg(e, grp, {'method': 'ratio'}) r FROM emb);
+----
+1.0	0.2	true
+
+query II
+SELECT abs(r.score - 2.0 / 3.0) < 1e-15, r.drifted
+FROM (SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'component_threshold': 0.5}) r FROM emb);
+----
+true	true
+
+query II
+SELECT abs(r.score - 1.0 / 3.0) < 1e-15, r.drifted
+FROM (SELECT embedding_drift_agg(e, grp, {'method': 'ratio', 'component_test': 'ks', 'threshold': 0.4}) r FROM emb);
+----
+true	false
+
+# ---------------------------------------------------------------------------
+# mmd: unbiased MMD^2 with exp(-|a - b|^2 / s2), s2 = median cross distance^2
+# (1.89271827844197); evidently's fixed threshold 0.015
+# ---------------------------------------------------------------------------
+query IIII
+SELECT r.method, abs(r.score - 0.0232831661825482) < 1e-12, r.threshold, r.drifted
+FROM (SELECT embedding_drift_agg(e, grp, {'method': 'mmd'}) r FROM emb);
+----
+mmd	true	0.015	true
+
+# ---------------------------------------------------------------------------
+# energy_distance_test_agg: 2 E|X-Y| - E|X-X'| - E|Y-Y'| (within means over i != j).
+# energy::eqdist.etest's statistic is n1 n2 / (n1 + n2) (2 M12 - M11 - M22) with the
+# means over all pairs (2.54598508933508 here).
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT abs(r.statistic - 0.0883702929758567) < 1e-12, r.p_value BETWEEN 0.001 AND 1, r.n1, r.n2, r.dim,
+       r.n_permutations, r.n, r.alternative
+FROM (SELECT energy_distance_test_agg(e, grp) r FROM emb);
+----
+true	true	30	25	3	1000	55	two_sided
+
+# ---------------------------------------------------------------------------
+# mmd_test_agg: unbiased MMD^2 with the given kernel
+# ---------------------------------------------------------------------------
+query IIIIII
+SELECT abs((mmd_test_agg(e, grp)).statistic - 0.0240892109612384) < 1e-12,
+       abs((mmd_test_agg(e, grp, {'bandwidth': 0.5})).statistic - 0.00897521533440643) < 1e-12,
+       abs((mmd_test_agg(e, grp, {'kernel': 'laplacian'})).statistic - 0.0325895080006817) < 1e-12,
+       abs((mmd_test_agg(e, grp, {'kernel': 'linear'})).statistic - 0.169391566507339) < 1e-12,
+       abs((mmd_test_agg(e, grp, {'kernel': 'polynomial'})).statistic - 0.354883619490965) < 1e-12,
+       abs((mmd_test_agg(e, grp, {'kernel': 'polynomial', 'degree': 3, 'scale': 0.5, 'offset': 2})).statistic
+           - 1.12681358303578) < 1e-11
+FROM emb;
+----
+true	true	true	true	true	true
+
+# Separated samples: no permutation reaches the observed statistic, p = 1 / (B + 1).
+query II
+WITH s AS (
+    SELECT grp, [e[1] + 5 * grp, e[2], e[3]] AS e FROM emb
+)
+SELECT (energy_distance_test_agg(e, grp, {'n_permutations': 99})).p_value,
+       (mmd_test_agg(e, grp, {'n_permutations': 99})).p_value
+FROM s;
+----
+0.01	0.01
