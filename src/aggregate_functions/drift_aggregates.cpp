@@ -6,6 +6,10 @@
 //     group label unless options.reference names it;
 //   ad_test_agg(value, group [, options]) -- k samples.
 // The divergences and tvd_agg also take VARCHAR values (one bin per category).
+// #300 (anofox-statistics 0.7): z_drift_agg, chisq_drift_agg, g_drift_agg
+// (numeric or VARCHAR categories), column_drift_agg (evidently's per-column
+// drift: default test choice, thresholds and drift rules) and
+// dataset_drift_agg (evidently's share-of-drifted-columns rule).
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +18,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
@@ -30,11 +35,18 @@
 
 namespace duckdb {
 
-static constexpr int DRIFT_AD = -1; // ad_test_agg; the others are AnofoxDriftKind
+static constexpr int DRIFT_AD = -1;     // ad_test_agg; the others are AnofoxDriftKind
+static constexpr int DRIFT_COLUMN = -2; // column_drift_agg
 
 static bool IsDivergence(int kind) {
 	return kind == ANOFOX_DRIFT_PSI || kind == ANOFOX_DRIFT_KL || kind == ANOFOX_DRIFT_JENSEN_SHANNON ||
 	       kind == ANOFOX_DRIFT_HELLINGER;
+}
+
+//! Kinds that accept VARCHAR (categorical) values.
+static bool AcceptsCategories(int kind) {
+	return IsDivergence(kind) || kind == ANOFOX_DRIFT_TVD || kind == ANOFOX_DRIFT_Z || kind == ANOFOX_DRIFT_CHISQ ||
+	       kind == ANOFOX_DRIFT_G || kind == DRIFT_COLUMN;
 }
 
 //===--------------------------------------------------------------------===//
@@ -136,6 +148,37 @@ static LogicalType DriftResultType(int kind) {
 		add("n2", LogicalType::BIGINT);
 		add("method", LogicalType::VARCHAR);
 		break;
+	case ANOFOX_DRIFT_Z:
+		add("statistic", LogicalType::DOUBLE);
+		add("p_value", LogicalType::DOUBLE);
+		add("p_reference", LogicalType::DOUBLE);
+		add("p_current", LogicalType::DOUBLE);
+		add("n_categories", LogicalType::BIGINT);
+		add("n1", LogicalType::BIGINT);
+		add("n2", LogicalType::BIGINT);
+		add("method", LogicalType::VARCHAR);
+		break;
+	case ANOFOX_DRIFT_CHISQ:
+	case ANOFOX_DRIFT_G:
+		add("statistic", LogicalType::DOUBLE);
+		add("df", LogicalType::BIGINT);
+		add("p_value", LogicalType::DOUBLE);
+		add("n_categories", LogicalType::BIGINT);
+		add("n1", LogicalType::BIGINT);
+		add("n2", LogicalType::BIGINT);
+		add("method", LogicalType::VARCHAR);
+		break;
+	case DRIFT_COLUMN:
+		// evidently's column drift: no unified test fields (the score is a
+		// p-value or a distance depending on the test).
+		add("test", LogicalType::VARCHAR);
+		add("score", LogicalType::DOUBLE);
+		add("is_p_value", LogicalType::BOOLEAN);
+		add("threshold", LogicalType::DOUBLE);
+		add("drifted", LogicalType::BOOLEAN);
+		add("n1", LogicalType::BIGINT);
+		add("n2", LogicalType::BIGINT);
+		return LogicalType::STRUCT(std::move(c));
 	default: // divergences
 		add(kind == ANOFOX_DRIFT_PSI  ? "psi"
 		    : kind == ANOFOX_DRIFT_KL ? "kl"
@@ -316,6 +359,46 @@ static int32_t BinningCode(const DriftBindData &bind, bool categorical_values) {
 	return binning == "sturges" ? 1 : binning == "quantile" ? 3 : 0;
 }
 
+static AnofoxColumnDriftOptions ColumnDriftOptions(const DriftBindData &bind, bool categorical) {
+	AnofoxColumnDriftOptions o;
+	o.test = bind.options.test ? bind.options.test->c_str() : nullptr;
+	o.threshold = bind.options.threshold.value_or(std::nan(""));
+	o.epsilon = bind.options.epsilon.value_or(std::nan(""));
+	o.n_permutations = bind.options.n_permutations.value_or(1000);
+	o.seed = bind.options.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
+	o.has_seed = true;
+	o.n_bins = bind.options.n_bins.value_or(10);
+	o.binning = BinningCode(bind, categorical);
+	return o;
+}
+
+//! column_drift_agg: evidently's drift of the column (reference slot ref).
+static void FinalizeColumnDrift(const DriftAggregateState &state, const DriftBindData &bind, idx_t ref,
+                                bool categorical, Vector &result, idx_t row) {
+	auto o = ColumnDriftOptions(bind, categorical);
+	AnofoxColumnDriftResult r;
+	AnofoxError error;
+	if (!anofox_column_drift(AsArray(state.values[ref]), AsArray(state.values[1 - ref]), categorical, o, &r,
+	                         &error)) {
+		ThrowUnlessDegenerate(bind.name.c_str(), error);
+		FlatVector::SetNull(result, row, true);
+		return;
+	}
+	auto &entries = StructVector::GetEntries(result);
+	SetResultString(StructEntry(entries[0]), row, r.test);
+	auto &score = StructEntry(entries[1]);
+	if (std::isnan(r.score)) {
+		SetResultNull(score, row);
+	} else {
+		FlatDataMut<double>(score)[row] = r.score;
+	}
+	FlatDataMut<bool>(StructEntry(entries[2]))[row] = r.is_p_value;
+	FlatDataMut<double>(StructEntry(entries[3]))[row] = r.threshold;
+	FlatDataMut<bool>(StructEntry(entries[4]))[row] = r.drifted;
+	FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(r.n1);
+	FlatDataMut<int64_t>(StructEntry(entries[6]))[row] = static_cast<int64_t>(r.n2);
+}
+
 static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                           idx_t offset) {
 	auto &bind = aggr_input_data.bind_data->Cast<DriftBindData>();
@@ -359,10 +442,15 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 				FlatVector::SetNull(result, row, true);
 				continue;
 			}
-			if (categorical && !IsDivergence(bind.kind) && bind.kind != ANOFOX_DRIFT_TVD) {
+			if (categorical && !AcceptsCategories(bind.kind)) {
 				throw InvalidInputException("%s needs numeric values", bind.name);
 			}
 			auto ref = ReferenceSlot(state, bind);
+			if (bind.kind == DRIFT_COLUMN) {
+				FinalizeColumnDrift(state, bind, ref, categorical, result, row);
+				state.Reset();
+				continue;
+			}
 			AnofoxDriftOptions o;
 			auto &t = bind.options.t;
 			o.t = t ? t->data() : nullptr;
@@ -446,6 +534,26 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			put_int(n2);
 			put_method();
 			break;
+		case ANOFOX_DRIFT_Z:
+			put_double(r.statistic);
+			put_double(r.p_value);
+			put_double(r.estimate_reference);
+			put_double(r.estimate_current);
+			put_int(static_cast<int64_t>(r.n_bins));
+			put_int(n1);
+			put_int(n2);
+			put_method();
+			break;
+		case ANOFOX_DRIFT_CHISQ:
+		case ANOFOX_DRIFT_G:
+			put_double(r.statistic);
+			put_int(static_cast<int64_t>(r.df));
+			put_double(r.p_value);
+			put_int(static_cast<int64_t>(r.n_bins));
+			put_int(n1);
+			put_int(n2);
+			put_method();
+			break;
 		default:
 			put_double(r.statistic);
 			if (bind.kind == ANOFOX_DRIFT_JENSEN_SHANNON) {
@@ -486,8 +594,16 @@ static const char *DriftName(int kind) {
 		return "jensen_shannon_agg";
 	case ANOFOX_DRIFT_HELLINGER:
 		return "hellinger_agg";
-	default:
+	case ANOFOX_DRIFT_TVD:
 		return "tvd_agg";
+	case ANOFOX_DRIFT_Z:
+		return "z_drift_agg";
+	case ANOFOX_DRIFT_CHISQ:
+		return "chisq_drift_agg";
+	case ANOFOX_DRIFT_G:
+		return "g_drift_agg";
+	default:
+		return "column_drift_agg";
 	}
 }
 
@@ -502,6 +618,18 @@ static unique_ptr<FunctionData> DriftBind(ClientContext &context, AggregateBindF
 		Value options = EvaluateConstantOptions(context, *arguments[2], bind->name);
 		bind->options = DriftMapOptions::ParseFromValue(options, bind->name, KIND);
 		bind->options_text = options.ToString();
+	}
+	if (KIND == DRIFT_COLUMN) {
+		// Reject an unknown test name at bind time: the FFI parses the options
+		// before it looks at the (here empty) samples.
+		auto o = ColumnDriftOptions(*bind, false);
+		AnofoxColumnDriftResult r;
+		AnofoxError error;
+		vector<double> none;
+		if (!anofox_column_drift(AsArray(none), AsArray(none), false, o, &r, &error) &&
+		    ClassifyFfiError(error.code) != FfiErrorKind::DEGENERATE) {
+			ThrowFromFfiError(bind->name.c_str(), error);
+		}
 	}
 	PostHogTelemetry::Instance().RecordFunctionCall(bind->name);
 	return std::move(bind);
@@ -557,6 +685,168 @@ static void RegisterDrift(ExtensionLoader &loader, const DriftSpec &spec) {
 	loader.RegisterFunction(std::move(info));
 }
 
+//===--------------------------------------------------------------------===//
+// dataset_drift_agg(drifted BOOLEAN [, drift_share DOUBLE]) (#300): evidently's
+// dataset drift over per-column drift flags (NULL flags are skipped).
+//===--------------------------------------------------------------------===//
+struct DatasetDriftState {
+	vector<bool> drifted;
+	bool seen;
+	DatasetDriftState() : seen(false) {
+	}
+};
+
+struct DatasetDriftBindData : public FunctionData {
+	double drift_share = 0.5;
+	unique_ptr<FunctionData> Copy() const override {
+		return make_uniq<DatasetDriftBindData>(*this);
+	}
+	bool Equals(const FunctionData &other_p) const override {
+		return drift_share == other_p.Cast<DatasetDriftBindData>().drift_share;
+	}
+};
+
+static LogicalType DatasetDriftResultType() {
+	child_list_t<LogicalType> c;
+	c.push_back(make_pair("n_columns", LogicalType::BIGINT));
+	c.push_back(make_pair("n_drifted", LogicalType::BIGINT));
+	c.push_back(make_pair("share_drifted", LogicalType::DOUBLE));
+	c.push_back(make_pair("drift_share", LogicalType::DOUBLE));
+	c.push_back(make_pair("dataset_drift", LogicalType::BOOLEAN));
+	return LogicalType::STRUCT(std::move(c));
+}
+
+static void DatasetDriftInitialize(data_ptr_t state_p) {
+	new (state_p) DatasetDriftState();
+}
+
+static void DatasetDriftDestroy(Vector &state_vector, AggregateInputData &, idx_t count) {
+	UnifiedVectorFormat sdata;
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto states = (DatasetDriftState **)sdata.data;
+	for (idx_t i = 0; i < count; i++) {
+		states[sdata.sel->get_index(i)]->~DatasetDriftState();
+	}
+}
+
+static void DatasetDriftUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
+	UnifiedVectorFormat data, sdata;
+	inputs[0].ToUnifiedFormat(count, data);
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto flags = UnifiedVectorFormat::GetData<bool>(data);
+	auto states = (DatasetDriftState **)sdata.data;
+	for (idx_t i = 0; i < count; i++) {
+		auto &state = *states[sdata.sel->get_index(i)];
+		state.seen = true;
+		auto idx = data.sel->get_index(i);
+		if (data.validity.RowIsValid(idx)) {
+			state.drifted.push_back(flags[idx]);
+		}
+	}
+}
+
+static void DatasetDriftCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+	UnifiedVectorFormat source_data, target_data;
+	source_vector.ToUnifiedFormat(count, source_data);
+	target_vector.ToUnifiedFormat(count, target_data);
+	auto sources = (DatasetDriftState **)source_data.data;
+	auto targets = (DatasetDriftState **)target_data.data;
+	for (idx_t i = 0; i < count; i++) {
+		auto &source = *sources[source_data.sel->get_index(i)];
+		auto &target = *targets[target_data.sel->get_index(i)];
+		if (!source.seen) {
+			continue;
+		}
+		target.seen = true;
+		target.drifted.insert(target.drifted.end(), source.drifted.begin(), source.drifted.end());
+	}
+}
+
+static void DatasetDriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                                 idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<DatasetDriftBindData>();
+	UnifiedVectorFormat sdata;
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto states = (DatasetDriftState **)sdata.data;
+	auto &entries = StructVector::GetEntries(result);
+	for (idx_t i = 0; i < count; i++) {
+		auto &state = *states[sdata.sel->get_index(i)];
+		idx_t row = i + offset;
+		// vector<bool> is packed: copy to a contiguous bool array for the FFI.
+		std::unique_ptr<bool[]> flags(new bool[state.drifted.size() + 1]);
+		for (idx_t k = 0; k < state.drifted.size(); k++) {
+			flags[k] = state.drifted[k];
+		}
+		AnofoxDatasetDriftResult r;
+		AnofoxError error;
+		if (!anofox_dataset_drift(flags.get(), state.drifted.size(), bind.drift_share, &r, &error)) {
+			ThrowUnlessDegenerate("dataset_drift_agg", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		FlatDataMut<int64_t>(StructEntry(entries[0]))[row] = static_cast<int64_t>(r.n_columns);
+		FlatDataMut<int64_t>(StructEntry(entries[1]))[row] = static_cast<int64_t>(r.n_drifted);
+		FlatDataMut<double>(StructEntry(entries[2]))[row] = r.share_drifted;
+		FlatDataMut<double>(StructEntry(entries[3]))[row] = bind.drift_share;
+		FlatDataMut<bool>(StructEntry(entries[4]))[row] = r.dataset_drift;
+	}
+}
+
+static unique_ptr<FunctionData> DatasetDriftBind(ClientContext &context, AggregateBindFunction &function,
+                                                 vector<unique_ptr<Expression>> &arguments) {
+	SetReturnTypeOf(function, DatasetDriftResultType());
+	auto bind = make_uniq<DatasetDriftBindData>();
+	if (arguments.size() >= 2) {
+		auto &expr = *arguments[1];
+		RequireResolvedParameters(expr);
+		if (!expr.IsFoldable()) {
+			throw InvalidInputException("dataset_drift_agg: drift_share must be a constant");
+		}
+		auto value = ExpressionExecutor::EvaluateScalar(context, expr);
+		if (!value.IsNull()) {
+			bind->drift_share = value.GetValue<double>();
+		}
+		// Validate the share upstream (one flag, so only the share can fail).
+		bool one = false;
+		AnofoxDatasetDriftResult r;
+		AnofoxError error;
+		if (!anofox_dataset_drift(&one, 1, bind->drift_share, &r, &error)) {
+			ThrowFromFfiError("dataset_drift_agg", error);
+		}
+	}
+	PostHogTelemetry::Instance().RecordFunctionCall("dataset_drift_agg");
+	return std::move(bind);
+}
+
+static void RegisterDatasetDrift(ExtensionLoader &loader) {
+	AggregateFunctionSet set("dataset_drift_agg");
+	for (bool with_share : {false, true}) {
+		vector<LogicalType> args = {LogicalType::BOOLEAN};
+		if (with_share) {
+			args.push_back(LogicalType::DOUBLE);
+		}
+		AggregateFunction f("dataset_drift_agg", args, LogicalType::ANY,
+		                    AggregateFunction::StateSize<DatasetDriftState>, ANOFOX_AGG_INIT(DatasetDriftInitialize),
+		                    ANOFOX_GUARDED_UPDATE(DatasetDriftUpdate, DatasetDriftDestroy, DatasetDriftInitialize),
+		                    DatasetDriftCombine,
+		                    ANOFOX_GUARDED_FINALIZE(DatasetDriftFinalize, DatasetDriftDestroy, DatasetDriftInitialize),
+		                    nullptr, ANOFOX_AGG_BIND(DatasetDriftBind), DatasetDriftDestroy);
+		set.AddFunction(f);
+	}
+	CreateAggregateFunctionInfo info(std::move(set));
+	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+	FunctionDescription d;
+	d.description = "evidently's dataset drift over per-column drift flags (e.g. (column_drift_agg(...)).drifted): "
+	                "the dataset drifted when the share of drifted columns is at least drift_share (default 0.5). "
+	                "NULL flags are skipped.";
+	d.examples = {"dataset_drift_agg(drifted, 0.5)"};
+	d.categories = {"distribution-comparison", "drift"};
+	d.parameter_names = {"drifted", "drift_share"};
+	d.parameter_types = {LogicalType::BOOLEAN, LogicalType::DOUBLE};
+	info.descriptions.push_back(std::move(d));
+	loader.RegisterFunction(std::move(info));
+}
+
 void RegisterDriftAggregateFunctions(ExtensionLoader &loader) {
 	RegisterDrift<ANOFOX_DRIFT_KS>(
 	    loader, {"ks_test_agg",
@@ -604,6 +894,28 @@ void RegisterDriftAggregateFunctions(ExtensionLoader &loader) {
 	             "Total variation distance between the category distributions of two groups, with a seeded "
 	             "permutation p-value (evidently 'TVD').",
 	             "{'n_permutations': 1000, 'seed': 42}", true});
+	RegisterDrift<ANOFOX_DRIFT_Z>(
+	    loader, {"z_drift_agg",
+	             "Two-proportion z test of the share of the non-smallest category, current against reference "
+	             "(evidently 'z'; R prop.test(correct = FALSE)). Drift by evidently's rule at p_value < 0.05.",
+	             "{'alternative': 'two_sided'}", true});
+	RegisterDrift<ANOFOX_DRIFT_CHISQ>(
+	    loader, {"chisq_drift_agg",
+	             "Chi-squared goodness-of-fit test of the current category counts against the reference shares "
+	             "(evidently 'chisquare'; R chisq.test(o, p = r / sum(r))).",
+	             "{'reference': 0}", true});
+	RegisterDrift<ANOFOX_DRIFT_G>(
+	    loader, {"g_drift_agg",
+	             "G (log-likelihood ratio) goodness-of-fit test of the current category counts against the reference "
+	             "shares (evidently 'g_test', expected counts scaled to the current size).",
+	             "{'reference': 0}", true});
+	RegisterDrift<DRIFT_COLUMN>(
+	    loader, {"column_drift_agg",
+	             "evidently's drift of one column: runs the named test (or evidently's default choice for 'auto', "
+	             "by reference size, number of distinct values and column type) and compares the score (a p-value or "
+	             "a distance) with the test's threshold by evidently's drift rule.",
+	             "{'test': 'auto', 'threshold': 0.05}", true});
+	RegisterDatasetDrift(loader);
 }
 
 } // namespace duckdb

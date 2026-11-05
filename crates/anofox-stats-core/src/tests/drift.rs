@@ -6,13 +6,22 @@
 //! - 1-D Wasserstein distance
 //! - Binned PSI, Kullback-Leibler, Jensen-Shannon and Hellinger divergences
 //! - Total variation distance with a permutation p-value
+//! - Two-proportion z test, chi-squared and G goodness-of-fit drift tests,
+//!   evidently's per-column drift (default test choice, thresholds, drift
+//!   rules) and the dataset drift share (#300, anofox-statistics 0.7)
 //!
 //! Categorical data reaches these wrappers as numeric category codes; the
 //! divergences then bin with [`Binning::Categorical`] (one bin per code).
 
 use super::{convert_error, UnifiedTestResult};
 use crate::StatsResult;
-pub use anofox_tests::drift::{Binning, ZeroFill};
+use anofox_tests::drift::{
+    chisq_drift_numeric, column_drift_categorical, column_drift_numeric, g_drift_numeric,
+    z_test_numeric,
+};
+pub use anofox_tests::drift::{
+    Binning, ColumnDrift, DatasetDrift, DriftOptions as ColumnDriftOptions, DriftTest, ZeroFill,
+};
 use anofox_tests::{
     ad_test_ksamp, cvm_test_2sample, epps_singleton_test, hellinger, jensen_shannon, kl_divergence,
     ks_test_2sample, psi, tvd_test_numeric, wasserstein_test_1d,
@@ -31,6 +40,12 @@ pub enum DriftKind {
     JensenShannon,
     Hellinger,
     Tvd,
+    /// Two-proportion z test (evidently "z").
+    Z,
+    /// Chi-squared goodness-of-fit drift test (evidently "chisquare").
+    ChiSquare,
+    /// G goodness-of-fit drift test (evidently "g_test").
+    GTest,
 }
 
 /// Options of [`drift_test`]; each kind reads only its own.
@@ -93,6 +108,10 @@ pub struct DriftResult {
     pub n2: usize,
     /// Bins or categories of the divergences and TVD.
     pub n_bins: usize,
+    /// Shares of the reference and the current sample that are not the
+    /// smallest category (z test).
+    pub estimate_reference: f64,
+    pub estimate_current: f64,
     /// Whether the p-value is exact (KS, Cramér-von Mises).
     pub exact: bool,
     pub method: String,
@@ -109,6 +128,8 @@ impl DriftResult {
             n1,
             n2,
             n_bins: 0,
+            estimate_reference: f64::NAN,
+            estimate_current: f64::NAN,
             exact: false,
             method: unified.method.clone(),
             unified,
@@ -193,8 +214,65 @@ pub fn drift_test(
             d.n_bins = r.n_categories;
             d
         }
+        DriftKind::Z => {
+            let r =
+                z_test_numeric(reference, current, options.alternative).map_err(convert_error)?;
+            let unified = UnifiedTestResult {
+                method: "Two-proportion z test (drift)".to_string(),
+                alternative: Some(options.alternative),
+                statistic: Some(r.statistic),
+                p_value: Some(r.p_value),
+                estimate: Some(r.estimate[0] - r.estimate[1]),
+                n: Some(m + n),
+                ..Default::default()
+            };
+            let mut d = DriftResult::new(r.statistic, m, n, unified);
+            d.n_bins = r.n_categories;
+            d.estimate_reference = r.estimate[0];
+            d.estimate_current = r.estimate[1];
+            d
+        }
+        DriftKind::ChiSquare | DriftKind::GTest => {
+            let r = if kind == DriftKind::ChiSquare {
+                chisq_drift_numeric(reference, current)
+            } else {
+                g_drift_numeric(reference, current)
+            }
+            .map_err(convert_error)?;
+            let unified = UnifiedTestResult::from(&r).with_n(n);
+            let mut d = DriftResult::new(r.statistic, m, n, unified);
+            d.df = r.df;
+            d.n_bins = r.expected.first().map_or(0, Vec::len);
+            d
+        }
     };
     Ok(r)
+}
+
+/// evidently's drift of one column of `current` against `reference`
+/// (upstream `column_drift_numeric` / `column_drift_categorical`).
+/// `categorical`: the values are category codes whose order is the label
+/// order, tested with evidently's categorical rules.
+pub fn column_drift(
+    reference: &[f64],
+    current: &[f64],
+    categorical: bool,
+    options: &ColumnDriftOptions,
+) -> StatsResult<ColumnDrift> {
+    if categorical {
+        // Category codes are small non-negative integers.
+        let codes = |v: &[f64]| v.iter().map(|&c| c as i64).collect::<Vec<i64>>();
+        column_drift_categorical(&codes(reference), &codes(current), options)
+    } else {
+        column_drift_numeric(reference, current, options)
+    }
+    .map_err(convert_error)
+}
+
+/// evidently's dataset drift: drifted when the share of drifted columns is
+/// at least `drift_share`.
+pub fn dataset_drift(drifted: &[bool], drift_share: f64) -> StatsResult<DatasetDrift> {
+    anofox_tests::drift::dataset_drift(drifted, drift_share).map_err(convert_error)
 }
 
 /// k-sample Anderson-Darling test (Scholz and Stephens). `n1` is the total
@@ -276,5 +354,47 @@ mod tests {
         let ad = anderson_darling_ksamp(&[x, y], true).unwrap();
         assert!((ad.statistic - 3.6104).abs() < 1e-4);
         assert_eq!((ad.n1, ad.n2), (90, 2));
+    }
+
+    #[test]
+    fn evidently_tests() {
+        // validation/generators/make_reference_drift_evidently.R
+        let xb: Vec<f64> = (0..50).map(|i| f64::from(i % 3 == 0)).collect();
+        let yb: Vec<f64> = (0..40).map(|i| f64::from(i % 2 == 0)).collect();
+        let z = run(DriftKind::Z, &xb, &yb);
+        assert!((z.statistic + 1.53291275669323).abs() < 1e-12);
+        assert!((z.p_value - 0.12529735230714).abs() < 1e-12);
+        assert_eq!((z.estimate_reference, z.estimate_current), (0.34, 0.5));
+        let xs: Vec<f64> = (0..50).map(|i| (i % 3) as f64).collect();
+        let ys: Vec<f64> = (0..40).map(|i| ((i * 7) % 5 % 3) as f64).collect();
+        let c = run(DriftKind::ChiSquare, &xs, &ys);
+        assert!((c.statistic - 2.64705882352941).abs() < 1e-12);
+        assert!((c.p_value - 0.266194133351106).abs() < 1e-12);
+        assert_eq!((c.df, c.n_bins), (2.0, 3));
+        let g = run(DriftKind::GTest, &xs, &ys);
+        assert!((g.statistic - 2.88115341992583).abs() < 1e-12);
+        assert!((g.p_value - 0.236791159476047).abs() < 1e-12);
+
+        let (x, y, _, _) = data();
+        let auto = column_drift(&x, &y, false, &ColumnDriftOptions::default()).unwrap();
+        assert_eq!(auto.test, DriftTest::Ks);
+        assert!((auto.score - 0.0574636491581379).abs() < 1e-9);
+        assert!(!auto.drifted);
+        let cat = column_drift(&xs, &ys, true, &ColumnDriftOptions::default()).unwrap();
+        assert_eq!(cat.test, DriftTest::ChiSquare);
+        assert!((cat.score - 0.266194133351106).abs() < 1e-12);
+        let ed = ColumnDriftOptions {
+            test: Some(DriftTest::EnergyDistance),
+            ..Default::default()
+        };
+        let ed = column_drift(&x, &y, false, &ed).unwrap();
+        assert!((ed.score - 0.435949389837772).abs() < 1e-12);
+        assert_eq!(ed.threshold, 0.1);
+        assert!(ed.drifted);
+
+        let d = dataset_drift(&[true, false, true], 0.5).unwrap();
+        assert_eq!((d.n_columns, d.n_drifted), (3, 2));
+        assert!(d.dataset_drift);
+        assert!(dataset_drift(&[], 0.5).is_err());
     }
 }

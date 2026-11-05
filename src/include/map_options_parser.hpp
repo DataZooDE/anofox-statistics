@@ -520,9 +520,10 @@ struct DriftMapOptions {
 	std::optional<uint32_t> n_bins;         // quantile binning
 	std::optional<double> base;             // kl, jensen_shannon
 	std::optional<double> epsilon;          // psi, kl: constant zero fill
-	std::optional<double> threshold;        // drift flag of the divergences
+	std::optional<double> threshold;        // drift flag of the divergences, column_drift
+	std::optional<string> test;             // column_drift: evidently's test name or 'auto'
 
-	//! kind: an AnofoxDriftKind, or -1 for ad_test_agg.
+	//! kind: an AnofoxDriftKind, -1 for ad_test_agg, -2 for column_drift_agg.
 	static DriftMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
 };
 

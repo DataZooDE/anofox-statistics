@@ -1660,6 +1660,17 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 	case 7:
 		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
 		break;
+	case 9: // z_drift_agg
+		keys = {KEY_REFERENCE, KEY_ALTERNATIVE};
+		break;
+	case 10: // chisq_drift_agg
+	case 11: // g_drift_agg
+		keys = {KEY_REFERENCE};
+		break;
+	case -2: // column_drift_agg
+		keys = {KEY_REFERENCE, {"test", {}}, KEY_THRESHOLD, KEY_BINNING, KEY_N_BINS, {"epsilon", {}}, KEY_PERMUTATIONS,
+		        KEY_SEED};
+		break;
 	default:
 		keys = {KEY_REFERENCE, KEY_PERMUTATIONS, KEY_SEED};
 		break;
@@ -1705,6 +1716,8 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 			    }
 		    } else if (key == "threshold") {
 			    result.threshold = ExtractDouble(val);
+		    } else if (key == "test") {
+			    result.test = val.ToString(); // evidently names are case-sensitive ('TVD')
 		    }
 	    });
 	if (result.n_bins && result.binning.value_or("auto") != "quantile") {

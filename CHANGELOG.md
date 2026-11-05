@@ -10,6 +10,18 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **evidently data drift (#300, anofox-statistics 0.7).** `z_drift_agg` (two-proportion
+  z test), `chisq_drift_agg` and `g_drift_agg` (goodness of fit of the current counts against
+  the reference shares) take numeric or VARCHAR categories. `column_drift_agg(value, group,
+  {'test': 'auto' | <evidently name>, 'threshold': ...})` runs evidently's column drift
+  (default test choice, thresholds and drift rules over all 18 evidently tests) and returns
+  `STRUCT(test, score, is_p_value, threshold, drifted, n1, n2)`. `dataset_drift_agg` and the
+  `dataset_drift_by(source, group_col, columns)` table macro apply evidently's
+  share-of-drifted-columns rule. Reference values: base R
+  (`validation/generators/make_reference_drift_evidently.R`), cross-checked against scipy.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

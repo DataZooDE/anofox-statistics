@@ -3607,6 +3607,9 @@ typedef enum {
 	ANOFOX_DRIFT_JENSEN_SHANNON = 6,
 	ANOFOX_DRIFT_HELLINGER = 7,
 	ANOFOX_DRIFT_TVD = 8,
+	ANOFOX_DRIFT_Z = 9,
+	ANOFOX_DRIFT_CHISQ = 10,
+	ANOFOX_DRIFT_G = 11,
 } AnofoxDriftKind;
 
 /**
@@ -3654,6 +3657,9 @@ typedef struct {
 	/** Current size (Anderson-Darling: number of groups) */
 	size_t n2;
 	size_t n_bins;
+	/** z test: shares of the non-smallest category (reference, current) */
+	double estimate_reference;
+	double estimate_current;
 	bool exact;
 	/** Unified test fields (#159); keep last */
 	AnofoxTestSummaryFFI unified;
@@ -3669,6 +3675,63 @@ bool anofox_drift_test(int32_t kind, AnofoxDataArray reference, AnofoxDataArray 
  * k-sample Anderson-Darling test of values grouped by the numeric codes in groups.
  */
 bool anofox_ad_test_ksamp(AnofoxDataArray values, AnofoxDataArray groups, bool midrank, AnofoxDriftResult *out_result,
+                          AnofoxError *out_error);
+
+/**
+ * Options of anofox_column_drift (#300). Must match ColumnDriftOptionsFFI in
+ * crates/anofox-stats-ffi/src/drift_ffi.rs.
+ */
+typedef struct {
+	/** evidently's test name; NULL or "auto" for evidently's default choice */
+	const char *test;
+	/** Drift threshold; NaN for the test's default */
+	double threshold;
+	/** Zero fill of PSI / KL; NaN for evidently's rule */
+	double epsilon;
+	/** Permutations of TVD / empirical_mmd */
+	size_t n_permutations;
+	uint64_t seed;
+	/** Bins of the quantile binning */
+	size_t n_bins;
+	/** 0 auto (evidently), 1 sturges, 2 categorical, 3 quantile */
+	int32_t binning;
+	bool has_seed;
+} AnofoxColumnDriftOptions;
+
+/** Result of anofox_column_drift. Must match ColumnDriftResultFFI. */
+typedef struct {
+	/** A p-value or a distance (is_p_value) */
+	double score;
+	double threshold;
+	size_t n1;
+	size_t n2;
+	bool drifted;
+	bool is_p_value;
+	/** evidently's name of the test that was run */
+	char test[ANOFOX_TEST_NAME_LEN];
+} AnofoxColumnDriftResult;
+
+/**
+ * evidently's drift of one column (NaN entries are dropped). categorical: the
+ * values are category codes in label order.
+ */
+bool anofox_column_drift(AnofoxDataArray reference, AnofoxDataArray current, bool categorical,
+                         AnofoxColumnDriftOptions options, AnofoxColumnDriftResult *out_result,
+                         AnofoxError *out_error);
+
+/** Result of anofox_dataset_drift. Must match DatasetDriftResultFFI. */
+typedef struct {
+	double share_drifted;
+	size_t n_columns;
+	size_t n_drifted;
+	bool dataset_drift;
+} AnofoxDatasetDriftResult;
+
+/**
+ * evidently's dataset drift: drifted when the share of drifted columns is at
+ * least drift_share.
+ */
+bool anofox_dataset_drift(const bool *drifted, size_t len, double drift_share, AnofoxDatasetDriftResult *out_result,
                           AnofoxError *out_error);
 
 /* ============================================================================

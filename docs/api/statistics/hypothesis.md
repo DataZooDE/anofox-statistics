@@ -357,6 +357,11 @@ skipped. One group, or an empty group, gives NULL. Every result also carries the
 | `jensen_shannon_agg` | `jensenshannon` | numeric or VARCHAR | Jensen-Shannon distance |
 | `hellinger_agg` | `hellinger` | numeric or VARCHAR | Hellinger distance |
 | `tvd_agg` | `TVD` | numeric or VARCHAR | Total variation distance + permutation p-value |
+| `z_drift_agg` | `z` | numeric or VARCHAR | Two-proportion z test |
+| `chisq_drift_agg` | `chisquare` | numeric or VARCHAR | Chi-squared goodness-of-fit against the reference shares |
+| `g_drift_agg` | `g_test` | numeric or VARCHAR | G goodness-of-fit against the reference shares |
+| `column_drift_agg` | all tests | numeric or VARCHAR | evidently's column drift (default test, threshold, rule) |
+| `dataset_drift_agg`, `dataset_drift_by` | dataset drift | BOOLEAN flags / table | Share of drifted columns |
 
 ```sql
 CREATE OR REPLACE TABLE drift AS
@@ -524,6 +529,143 @@ the same table. On the example data, TVD gives p ≈ 0.29, while `chisq_test_agg
 | reference | smaller label | Reference group |
 | n_permutations (alias `permutations`) | 1000 | Number of permutations |
 | seed (alias `random_state`) | 42 | Seed of the permutation draw |
+
+### z_drift_agg, chisq_drift_agg, g_drift_agg
+
+```
+z_drift_agg(category DOUBLE | VARCHAR, group, [options])     -> STRUCT(statistic, p_value, p_reference, p_current, n_categories, n1, n2, method, ...)
+chisq_drift_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(statistic, df, p_value, n_categories, n1, n2, method, ...)
+g_drift_agg(category DOUBLE | VARCHAR, group, [options])     -> STRUCT(statistic, df, p_value, n_categories, n1, n2, method, ...)
+```
+
+evidently's frequency tests for categorical (or low-cardinality numeric) columns. Every
+distinct value is a category.
+
+- `z_drift_agg` (evidently `z`): pooled two-proportion z test, without continuity
+  correction, of the share of labels other than the smallest category.
+  `p_reference` / `p_current` are these shares, and `statistic` is
+  z = (p_reference − p_current) / √(P(1 − P)(1/n1 + 1/n2)). It matches
+  R `prop.test(correct = FALSE)` with z² = X². One category gives z = 0, p = 1.
+  evidently flags drift at p < 0.05.
+- `chisq_drift_agg` (evidently `chisquare`): Pearson goodness-of-fit test of the current
+  counts against the reference shares, with expected counts e = r · n2 / n1 on k − 1 df,
+  as R `chisq.test(o, p = r / sum(r))`. The reference is the known distribution, not a
+  second sample (that is `chisq_test_agg`). A category that appears only in the current
+  sample gives `statistic = inf` and p = 0. evidently flags drift at p < 0.05.
+- `g_drift_agg` (evidently `g_test`): the same comparison with G = 2 Σ o ln(o / e).
+  evidently flags drift at p < 0.1. evidently passes the unscaled reference counts as
+  expected counts, so its value agrees only for equal sample sizes. Here the expected
+  counts are always scaled to the current size.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+| alternative | two_sided | `z_drift_agg` only: `two_sided`, `less` (p_reference < p_current) or `greater` |
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s FROM range(50) r(i)
+UNION ALL
+SELECT 1, (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1] FROM range(40) r(i);
+
+SELECT (z_drift_agg(b, grp)).p_value     AS z_p,     -- 0.125
+       (chisq_drift_agg(s, grp)).p_value AS chisq_p, -- 0.266
+       (g_drift_agg(s, grp)).statistic   AS g        -- 2.881
+FROM ev;
+```
+
+### column_drift_agg
+
+`column_drift_agg(value DOUBLE | VARCHAR, group, [options]) -> STRUCT(test, score, is_p_value, threshold, drifted, n1, n2)`
+
+evidently's per-column drift detection. It runs one of evidently's tests (by default
+evidently's choice for the column) and compares the score with the test's threshold
+using evidently's drift rule. `score` is a p-value when `is_p_value` is true, and a
+distance otherwise. Numeric values are tested as numbers. VARCHAR values are categories.
+The default test (`'test': 'auto'`) is:
+
+| Reference rows | Column | Test |
+|---|---|---|
+| ≤ 1000 | numeric, > 5 distinct values | `ks` |
+| ≤ 1000 | numeric with 3–5 distinct values, or VARCHAR with > 2 categories | `chisquare` |
+| ≤ 1000 | ≤ 2 distinct values | `z` |
+| > 1000 | numeric, > 5 distinct values | `wasserstein` (normed) |
+| > 1000 | otherwise | `jensenshannon` |
+
+Tests (evidently's names): `ks`, `anderson`, `cramer_von_mises`, `es`, `mannw`, `t_test`,
+`ed`, `empirical_mmd`, `wasserstein`, `psi`, `kl_div`, `jensenshannon`, `hellinger`,
+`chisquare`, `g_test`, `z`, `fisher_exact`, `TVD`. On VARCHAR columns only the frequency
+tests and the divergences apply (`psi`, `kl_div`, `jensenshannon`, `hellinger`,
+`chisquare`, `g_test`, `z`, `fisher_exact`, `TVD`). The default threshold is 0.05 for
+`ks`, `es`, `mannw`, `t_test`, `chisquare` and `z`, and 0.1 for the others. The drift
+rules are:
+
+- `ks` and `cramer_von_mises`: score ≤ threshold;
+- the other p-values: score < threshold;
+- `ed`: score > threshold;
+- the other distances: score ≥ threshold.
+
+The scores follow the routines of the dedicated aggregates. Where scipy and R differ,
+R is followed: `anderson` is the uncapped kSamples p-value, and `mannw` is exact for
+n < 50 without ties. The permutation p-values of `TVD` and `empirical_mmd` are seeded.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+| test | auto | evidently's test name (case-sensitive), or `auto` |
+| threshold | the test's default | Drift threshold |
+| binning, n_bins, epsilon | as `psi_agg` | Binning and zero fill of `psi`, `kl_div`, `jensenshannon`, `hellinger` (numeric columns) |
+| n_permutations | 1000 | Permutations of `TVD` / `empirical_mmd` |
+| seed (alias `random_state`) | 42 | Seed of the permutations |
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, ['a','b','c'][i % 3 + 1] AS s FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ['a','b','c'][((i*7) % 5) % 3 + 1] FROM range(40) r(i);
+
+SELECT column_drift_agg(v, grp)                   AS numeric_auto, -- ks, p = 0.0575, not drifted
+       column_drift_agg(s, grp)                   AS category_auto, -- chisquare, p = 0.266
+       column_drift_agg(v, grp, {'test': 'psi', 'threshold': 0.2}) AS psi
+FROM ev;
+```
+
+### dataset_drift_agg, dataset_drift_by
+
+```
+dataset_drift_agg(drifted BOOLEAN, [drift_share DOUBLE]) -> STRUCT(n_columns, n_drifted, share_drifted, drift_share, dataset_drift)
+dataset_drift_by(source, group_col, columns, options := NULL, drift_share := 0.5)
+```
+
+evidently's dataset drift: the dataset has drifted when the share of drifted columns is at
+least `drift_share` (default 0.5, in [0, 1]). `dataset_drift_agg` aggregates per-column
+flags, skipping NULL flags. No flags gives NULL.
+
+`dataset_drift_by` runs `column_drift_agg(column, group_col, options)` on every column
+named in `columns`. Numeric columns are tested as numbers, and all other types (VARCHAR,
+BOOLEAN, ...) as categories. It returns one row per column, in the order of `columns`:
+`column_name, test, score, is_p_value, threshold, drifted, n1, n2`, plus the dataset
+summary `n_columns, n_drifted, share_drifted, drift_share, dataset_drift`. `group_col`
+splits the reference rows from the current rows, as in the aggregates.
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c,
+       (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s
+FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ((i*3) % 5)::INTEGER,
+       (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1]
+FROM range(40) r(i);
+
+-- v: ks, c: chisquare (drifted), b: z, s: chisquare -> share 0.25, no dataset drift
+SELECT column_name, test, score, drifted, share_drifted, dataset_drift
+FROM dataset_drift_by('ev', grp, ['v', 'c', 'b', 's']);
+
+-- Per segment, from per-column flags
+SELECT (dataset_drift_agg(d, 0.5)).dataset_drift
+FROM (VALUES (true), (false), (true)) t(d);
+```
 
 ## Forecast Evaluation
 
