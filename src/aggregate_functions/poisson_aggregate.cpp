@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -39,6 +40,7 @@ struct PoissonAggregateState {
 	double confidence_level;
 	double glm_lambda;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	PoissonAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_POISSON_LINK_LOG), max_iterations(100),
@@ -67,6 +69,7 @@ struct PoissonAggregateBindData : public FunctionData {
 	double confidence_level = 0.95;
 	double glm_lambda = 0.0;
 	idx_t offset_column = 0;
+	bool profile_ci = false;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<PoissonAggregateBindData>();
@@ -79,6 +82,7 @@ struct PoissonAggregateBindData : public FunctionData {
 		result->confidence_level = confidence_level;
 		result->glm_lambda = glm_lambda;
 		result->offset_column = offset_column;
+		result->profile_ci = profile_ci;
 		return std::move(result);
 	}
 
@@ -87,7 +91,7 @@ struct PoissonAggregateBindData : public FunctionData {
 		return fit_intercept == other.fit_intercept && link == other.link && max_iterations == other.max_iterations &&
 		       tolerance == other.tolerance && compute_inference == other.compute_inference &&
 		       confidence_level == other.confidence_level && glm_lambda == other.glm_lambda &&
-		       offset_column == other.offset_column;
+		       offset_column == other.offset_column && profile_ci == other.profile_ci;
 	}
 };
 
@@ -189,6 +193,7 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 		state.confidence_level = bind_data.confidence_level;
 		state.glm_lambda = bind_data.glm_lambda;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 
 		auto y_idx = y_data.sel->get_index(i);
 		if (!y_data.validity.RowIsValid(y_idx)) {
@@ -259,6 +264,7 @@ static void PoissonAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -347,6 +353,11 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
+		if (state.profile_ci) {
+			ApplyProfileConfint("poisson_fit_agg", AnofoxLikelihoodFamily {1, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
+		}
 
 		idx_t struct_idx = 0;
 
@@ -391,7 +402,7 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 	if (arguments.size() >= 3) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "poisson_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "poisson_link", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "poisson_link", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -416,6 +427,10 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 		}
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
+		}
+		result->profile_ci = ProfileCiOption(opts, "poisson_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
 		}
 	}
 

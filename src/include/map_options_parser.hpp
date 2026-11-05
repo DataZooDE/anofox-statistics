@@ -288,6 +288,8 @@ struct RegressionMapOptions {
 	// lmDynamic (#63)
 	std::optional<int> lm_dynamic_ic;      // 'ic': mirrors AnofoxInformationCriterion
 	std::optional<double> lowess_span;     // 'span': lowess f of the weight smoothing, 0 = none
+	// GLM profile-likelihood confidence intervals (#310)
+	std::optional<bool> profile_ci;        // 'profile_ci': confint(glm) profile intervals
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

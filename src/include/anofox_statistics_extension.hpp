@@ -73,6 +73,9 @@ void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader);
 void RegisterMediationAggregateFunction(ExtensionLoader &loader);
 void RegisterOlsAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterOlsAnovaTableAggregateFunction(ExtensionLoader &loader);
+// Likelihood-ratio and score tests (#310)
+void RegisterGlmScoreTestAggregateFunction(ExtensionLoader &loader);
+void RegisterLrTestFunction(ExtensionLoader &loader);
 void RegisterGlmmAggregateFunction(ExtensionLoader &loader);
 void RegisterAftScalarFunctions(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);

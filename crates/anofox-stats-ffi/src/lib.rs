@@ -10779,3 +10779,7 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
 // After alloc_inference_arrays! (macro_rules scope is textual).
 mod ls_state_ffi;
 pub use ls_state_ffi::*;
+
+// Likelihood-ratio / score tests and profile CIs (#310).
+mod likelihood_ffi;
+pub use likelihood_ffi::*;

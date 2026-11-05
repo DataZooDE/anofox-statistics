@@ -10,6 +10,18 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Likelihood-ratio and score tests, profile-likelihood intervals (#310).** `lr_test(model_full,
+  model_reduced)` compares two nested fitted model STRUCTs (R's `anova(test = "LRT")` /
+  `lmtest::lrtest`: deviance difference for binomial / Poisson, scaled by the full model's
+  dispersion for Gamma / Tweedie, `-2 log L` otherwise) and `lr_test(model)` tests a fit against
+  its null model; incompatible models (type, family, rows, parameter count) are errors.
+  `glm_score_test_agg` / `glm_score_test_by` give Rao's score test for adding predictors to a GLM
+  (`anova(test = "Rao")`, z values of `statmod::glm.scoretest`). The GLM fit aggregates accept
+  `profile_ci := true` for profile-likelihood intervals (`confint(glm)`). All from
+  anofox-regression's `inference::likelihood`.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

@@ -3710,6 +3710,82 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/* ============================================================================
+ * Likelihood-ratio and score tests, profile-likelihood CIs (#310)
+ * ============================================================================ */
+
+/**
+ * Likelihood summary of a fitted model STRUCT. Unknown numbers are NaN, unknown
+ * names empty, an unknown n_observations is -1. Must match ModelLikelihoodFFI
+ * in crates/anofox-stats-ffi/src/likelihood_ffi.rs.
+ */
+typedef struct {
+	char model_type[ANOFOX_MODEL_NAME_LEN];
+	char family[ANOFOX_MODEL_NAME_LEN];
+	double log_likelihood;
+	double null_log_likelihood;
+	double deviance;
+	double null_deviance;
+	double dispersion;
+	uint64_t n_parameters; /* intercept included */
+	int64_t n_observations;
+} AnofoxModelLikelihood;
+
+/** Result of anofox_lr_test / anofox_glm_score_test. Must match ChiSqTestResultFFI. */
+typedef struct {
+	double statistic;
+	double df;
+	double p_value;
+	double dispersion;
+	double theta;
+	int64_t n_observations;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxChiSqTestResult;
+
+/**
+ * GLM family: kind 0 gaussian, 1 poisson, 2 binomial, 3 negative binomial,
+ * 4 gamma, 5 tweedie (the GLMM family codes); link: the AnofoxPoissonLink /
+ * AnofoxBinomialLink code; param: Negative Binomial theta (NaN: estimate) or
+ * Tweedie power. Must match LikelihoodFamilyFFI.
+ */
+typedef struct {
+	int32_t kind;
+	int32_t link;
+	double param;
+} AnofoxLikelihoodFamily;
+
+/**
+ * Likelihood-ratio test of full against reduced (R's anova(reduced, full,
+ * test = "LRT") / lmtest::lrtest), or of full against its null model when
+ * reduced is NULL. Incompatible models are INVALID_INPUT.
+ */
+bool anofox_lr_test(AnofoxModelLikelihood full, const AnofoxModelLikelihood *reduced,
+                    AnofoxChiSqTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Rao score test for adding the x_add columns to the GLM of y on x_reduced
+ * (R's anova(reduced, full, test = "Rao")), on the rows where every value is
+ * finite. offset_column: 1-based column of x_reduced (0: none). out_z receives
+ * x_add_count per-column z statistics.
+ */
+bool anofox_glm_score_test(AnofoxLikelihoodFamily family, AnofoxDataArray y, const AnofoxDataArray *x_reduced,
+                           size_t x_reduced_count, const AnofoxDataArray *x_add, size_t x_add_count,
+                           bool fit_intercept, uint64_t offset_column, double *out_z,
+                           AnofoxChiSqTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Profile-likelihood confidence intervals (R's confint(glm)) of the GLM of y on
+ * x with fitted feature coefficients `coefficients` (NaN: dropped column, NaN
+ * interval). offset_column: 1-based column of x (0: none). out_lower/out_upper
+ * get coefficients_len bounds, out_intercept 2 (NaN without intercept). An
+ * unreached bound is NaN.
+ */
+bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y, const AnofoxDataArray *x,
+                                size_t x_count, const double *coefficients, size_t coefficients_len,
+                                bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
+                                double *out_upper, double *out_intercept, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

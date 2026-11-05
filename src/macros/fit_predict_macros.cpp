@@ -606,6 +606,36 @@ FROM (
 ORDER BY group_col, method
 )"},
 
+    // glm_score_test_by: Rao score test per group (issue #310), R's
+    // anova(glm(y ~ x_reduced), glm(y ~ x_reduced + x_add), test = "Rao").
+    // C++ API: glm_score_test_by(source, group_col, y_col, x_reduced := [...], x_add := [...], options)
+    // x_reduced defaults to [] (the intercept-only model).
+    // Returns: one row per group -- the group column, id (the group as text),
+    // model_id / model_name 'glm', the contract `test` fields method, statistic,
+    // p_value, df1, then z_values, dispersion, theta and n_observations.
+    {"glm_score_test_by", {"source", "group_col", "y_col", nullptr}, {{"x_reduced", "[]"}, {"x_add", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col,
+    group_col::VARCHAR AS id,
+    'glm' AS model_id,
+    'glm' AS model_name,
+    (_t).method AS method,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).df1 AS df1,
+    (_t).z_values AS z_values,
+    (_t).dispersion AS dispersion,
+    (_t).theta AS theta,
+    (_t).n_observations AS n_observations
+FROM (
+    SELECT group_col, glm_score_test_agg(y_col, x_reduced, x_add, options) AS _t
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+) sub
+ORDER BY group_col, method
+)"},
+
     // ols_anova_table_by: per-term ANOVA table per group (issue #231), R's
     // anova(lm(y ~ x)) (type I) or car::Anova(fit, type = 2) (type II).
     // C++ API: ols_anova_table_by(source, group_col, y_col, x_cols, options)
@@ -1123,6 +1153,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},
+    {"glm_score_test_by", "Table macro: Rao score test per group of source for adding the x_add predictors to the GLM of y on x_reduced (R's anova(reduced, full, test = 'Rao')); returns one row per group with method 'Rao score', statistic, p_value, df1, the per-column z_values, dispersion, theta and n_observations. options as glm_score_test_agg (family, link, power, theta, fit_intercept, offset). x_reduced := [] (the default) is the intercept-only model.", "glm_score_test_by('claims', region, n_claims, x_reduced := [age], x_add := [bonus, urban], options := {'family': 'poisson'})", "regression"},
     {"ols_anova_table_by", "Table macro: per-term ANOVA table per group of source (R's anova(lm(y ~ x)), type I sequential sums of squares in the column order, or car::Anova(fit, type = 2) with options {'type': 'II'}); returns one row per group and term with term, method, statistic (F), p_value, df1, df2 (residual df), sum_sq, mean_sq and the residual sum of squares. options terms: one label per x column, equal labels form one term (e.g. factor dummies).", "ols_anova_table_by('sales', region, y, [price, promo, temp], options := {'type': 'II'})", "regression"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
     {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},

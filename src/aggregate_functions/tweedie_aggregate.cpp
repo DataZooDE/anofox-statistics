@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -40,6 +41,7 @@ struct TweedieAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	TweedieAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), power(1.5), max_iterations(100), tolerance(1e-8),
@@ -65,6 +67,7 @@ struct TweedieAggregateBindData : public FunctionData {
 	bool compute_inference = false;
 	double confidence_level = 0.95;
 	idx_t offset_column = 0;
+	bool profile_ci = false;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<TweedieAggregateBindData>();
@@ -77,6 +80,7 @@ struct TweedieAggregateBindData : public FunctionData {
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
 		result->offset_column = offset_column;
+		result->profile_ci = profile_ci;
 		return std::move(result);
 	}
 
@@ -84,7 +88,7 @@ struct TweedieAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<TweedieAggregateBindData>();
 		return fit_intercept == o.fit_intercept && power == o.power && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && offset_column == o.offset_column;
+		       confidence_level == o.confidence_level && offset_column == o.offset_column && profile_ci == o.profile_ci;
 	}
 };
 
@@ -166,6 +170,7 @@ static void TweedieAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 		state.glm_lambda = bind_data.glm_lambda;
 		state.confidence_level = bind_data.confidence_level;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 
 		auto y_idx = y_data.sel->get_index(i);
 		if (!y_data.validity.RowIsValid(y_idx)) {
@@ -236,6 +241,7 @@ static void TweedieAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -323,6 +329,11 @@ static void TweedieAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
+		if (state.profile_ci) {
+			ApplyProfileConfint("tweedie_fit_agg", AnofoxLikelihoodFamily {5, 0, state.power}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
+		}
 
 		idx_t struct_idx = 0;
 
@@ -366,7 +377,7 @@ static unique_ptr<FunctionData> TweedieAggBind(ClientContext &context, Aggregate
 	if (arguments.size() >= 3) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "tweedie_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -391,6 +402,10 @@ static unique_ptr<FunctionData> TweedieAggBind(ClientContext &context, Aggregate
 		}
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
+		}
+		result->profile_ci = ProfileCiOption(opts, "tweedie_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
 		}
 	}
 

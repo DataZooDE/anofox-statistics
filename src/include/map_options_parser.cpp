@@ -916,6 +916,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"variant", {"pa_variant"}},
 	    {"ic", {"information_criterion"}},
 	    {"span", {"lowess_span", "f"}},
+	    {"profile_ci", {}},
 	};
 	return table;
 }
@@ -1070,6 +1071,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 					                            val.ToString());
 				}
 			}
+		} else if (key == "profile_ci") {
+			result.profile_ci = ExtractBool(val);
 		} else if (key == "span") {
 			result.lowess_span = ExtractDouble(val);
 		} else if (key == "epsilon") {

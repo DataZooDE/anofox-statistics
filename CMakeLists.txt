@@ -194,6 +194,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
     src/aggregate_functions/ols_anova_aggregate.cpp
+    src/aggregate_functions/glm_score_test_aggregate.cpp
     src/aggregate_functions/ols_anova_table_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
@@ -251,6 +252,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/quantile_fit_predict_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp
+    src/scalar_functions/lr_test.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp

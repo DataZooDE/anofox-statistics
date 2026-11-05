@@ -39,6 +39,7 @@ passed through and the prediction columns appended.
 | `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
 | `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
 | `ols_anova_table_by` | `ols_anova_table_agg` | one row per group and term (type I / II ANOVA table, `test` schema) |
+| `glm_score_test_by` | `glm_score_test_agg` | one row per group (Rao score test of added GLM predictors, `test` schema) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
@@ -451,6 +452,26 @@ See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
 ```sql
 SELECT region, round(statistic, 2) AS f, df1, df2, round(delta_adj_r_squared, 4) AS delta_adj_r2
 FROM ols_anova_by('macro_demo', region, sales, x_reduced := [price], x_full := [price, promo]);
+```
+
+## glm_score_test_by
+
+```text
+glm_score_test_by(source VARCHAR, group_col, y_col, x_reduced := [], x_add := [...], options := NULL) -> TABLE
+```
+
+Rao score test per group for adding the `x_add` predictors to the GLM of `y`
+on `x_reduced`, as R's `anova(reduced, full, test = "Rao")`; only the reduced
+model is fitted. Returns one row per group: the group column, `id`,
+`model_id` / `model_name` (`'glm'`), `method` (`'Rao score'`), `statistic`,
+`p_value`, `df1`, `z_values`, `dispersion`, `theta` and `n_observations`.
+Options as `glm_score_test_agg` (`family`, `link`, `power`, `theta`,
+`fit_intercept`, `offset`; default family `'gaussian'`).
+See [Likelihood tests](../glm/likelihood.md#glm_score_test_agg--glm_score_test_by).
+
+```sql
+SELECT region, round(statistic, 3) AS score_chisq, round(p_value, 4) AS p_value
+FROM glm_score_test_by('macro_demo', region, sales, x_reduced := [price], x_add := [promo]);
 ```
 
 ## ols_anova_table_by
