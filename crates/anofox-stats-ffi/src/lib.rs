@@ -7649,6 +7649,10 @@ pub unsafe extern "C" fn anofox_icc(
         let icc_type_rust = match icc_type {
             IccTypeFFI::Single => anofox_tests::ICCType::ICC1,
             IccTypeFFI::Average => anofox_tests::ICCType::ICC1k,
+            IccTypeFFI::Icc2 => anofox_tests::ICCType::ICC2,
+            IccTypeFFI::Icc3 => anofox_tests::ICCType::ICC3,
+            IccTypeFFI::Icc2k => anofox_tests::ICCType::ICC2k,
+            IccTypeFFI::Icc3k => anofox_tests::ICCType::ICC3k,
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -7667,17 +7671,30 @@ pub unsafe extern "C" fn anofox_icc(
 
         match result {
             Ok(r) => {
+                let mut unified = TestSummaryFFI::from(&r.unified);
+                // Upstream (anofox-statistics 0.7.0) gives ICC2 / ICC2k the
+                // F = MS_R / MS_E interval of ICC3 / ICC3k, not the Shrout &
+                // Fleiss approximate-F interval, so it need not even contain
+                // the estimate. Pass no interval rather than a wrong one (#298).
+                let no_ci = matches!(icc_type, IccTypeFFI::Icc2 | IccTypeFFI::Icc2k);
+                let (ci_lower, ci_upper) = if no_ci {
+                    unified.conf_low = f64::NAN;
+                    unified.conf_high = f64::NAN;
+                    (f64::NAN, f64::NAN)
+                } else {
+                    (r.ci_lower, r.ci_upper)
+                };
                 (*out_result) = IccResultFFI {
                     icc: r.icc,
                     f_statistic: r.f_statistic,
-                    ci_lower: r.ci_lower,
-                    ci_upper: r.ci_upper,
+                    ci_lower,
+                    ci_upper,
                     confidence_level: 0.95,
                     n_subjects,
                     n_raters,
                     method: alloc_string(&r.icc_type),
                     p_value: r.p_value,
-                    unified: TestSummaryFFI::from(&r.unified),
+                    unified,
                 };
                 true
             }

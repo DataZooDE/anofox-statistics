@@ -2457,8 +2457,18 @@ pub enum IccModelFFI {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IccTypeFFI {
+    /// ICC1 (one-way random, single rater)
     Single = 0,
+    /// ICC1k (one-way random, average of k raters)
     Average = 1,
+    /// ICC2 (two-way random, absolute agreement, single rater)
+    Icc2 = 2,
+    /// ICC3 (two-way mixed, consistency, single rater)
+    Icc3 = 3,
+    /// ICC2k (two-way random, absolute agreement, average of k raters)
+    Icc2k = 4,
+    /// ICC3k (two-way mixed, consistency, average of k raters)
+    Icc3k = 5,
 }
 
 /// ICC options for FFI

@@ -10,6 +10,15 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`icc_agg`: all six Shrout & Fleiss types (#298).** Option `type` accepts `'icc1'`,
+  `'icc2'`, `'icc3'`, `'icc1k'`, `'icc2k'`, `'icc3k'` (case-insensitive, `psych::ICC`
+  naming); `'single'` / `'average'` stay aliases of `'icc1'` / `'icc1k'`, and the default
+  is still ICC1. ICC, F and p match `psych::ICC` for every type, and the 95% interval
+  for ICC1, ICC3, ICC1k and ICC3k. ICC2 / ICC2k return a `NULL` interval: upstream gives
+  them the ICC3 interval, which can exclude the estimate.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

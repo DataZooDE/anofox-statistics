@@ -1912,8 +1912,15 @@ IccMapOptions IccMapOptions::ParseFromValue(const Value &map_value, const string
 	return ParseTestOptions<IccMapOptions>(map_value, function_name, keys,
 	                                       [](IccMapOptions &result, const string &key, const Value &val) {
 		                                       if (key == "type" && !val.IsNull()) {
-			                                       result.average =
-			                                           ExtractChoice(val, "type", {"single", "average"}) == "average";
+			                                       auto t = ExtractChoice(val, "type",
+			                                                              {"icc1", "icc2", "icc3", "icc1k", "icc2k",
+			                                                               "icc3k", "single", "average"});
+			                                       if (t == "single") {
+				                                       t = "icc1";
+			                                       } else if (t == "average") {
+				                                       t = "icc1k";
+			                                       }
+			                                       result.type = t;
 		                                       }
 	                                       });
 }

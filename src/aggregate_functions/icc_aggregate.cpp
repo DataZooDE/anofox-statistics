@@ -252,8 +252,15 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
         FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.icc;
         FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.f_statistic;
-        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.ci_lower;
-        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.ci_upper;
+        // No interval (NaN) is NULL: the FFI passes none for ICC2 / ICC2k (#298).
+        for (double bound : {icc_result.ci_lower, icc_result.ci_upper}) {
+            auto &child = StructEntry(struct_entries[struct_idx++]);
+            if (std::isnan(bound)) {
+                SetResultNull(child, result_idx);
+            } else {
+                FlatDataMut<double>(child)[result_idx] = bound;
+            }
+        }
         FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(icc_result.n_subjects);
         FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(icc_result.n_raters);
         auto& method_vector = StructEntry(struct_entries[struct_idx++]);
@@ -282,8 +289,21 @@ static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateBind
     if (arguments.size() >= 4) {
         Value options_val = EvaluateConstantOptions(context, *arguments[3], "icc_agg");
         auto opts = IccMapOptions::ParseFromValue(options_val, "icc_agg");
-        if (opts.average.has_value()) {
-            bind_data->icc_type = opts.average.value() ? ANOFOX_ICC_AVERAGE : ANOFOX_ICC_SINGLE;
+        if (opts.type.has_value()) {
+            const auto &t = opts.type.value();
+            if (t == "icc1") {
+                bind_data->icc_type = ANOFOX_ICC_SINGLE;
+            } else if (t == "icc1k") {
+                bind_data->icc_type = ANOFOX_ICC_AVERAGE;
+            } else if (t == "icc2") {
+                bind_data->icc_type = ANOFOX_ICC_ICC2;
+            } else if (t == "icc3") {
+                bind_data->icc_type = ANOFOX_ICC_ICC3;
+            } else if (t == "icc2k") {
+                bind_data->icc_type = ANOFOX_ICC_ICC2K;
+            } else {
+                bind_data->icc_type = ANOFOX_ICC_ICC3K;
+            }
         }
     }
 
@@ -318,8 +338,10 @@ void RegisterIccAggregateFunction(ExtensionLoader &loader) {
     CreateAggregateFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
-    d1.description     = "Computes the Intraclass Correlation Coefficient (ICC) to measure rater or measurement consistency.";
-    d1.examples        = {"icc_agg(value, subject_id, rater_id, {'type': 'single'})"};
+    d1.description     = "Computes the Intraclass Correlation Coefficient (ICC) to measure rater or measurement consistency. "
+                         "Option type: 'icc1' (default, alias 'single'), 'icc2', 'icc3', 'icc1k' (alias 'average'), 'icc2k', 'icc3k' "
+                         "(Shrout & Fleiss / psych::ICC).";
+    d1.examples        = {"icc_agg(value, subject_id, rater_id, {'type': 'icc2'})"};
     d1.categories      = {"correlation"};
     d1.parameter_names = {"value", "subject_id", "rater_id", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY};
