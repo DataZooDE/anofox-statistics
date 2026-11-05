@@ -10,8 +10,19 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`gvif_agg(x[, {'terms': [...]}])`** (#307): generalized VIF (Fox & Monette 1992) per
+  term with its df and `GVIF^(1/(2 df))`, as `car::vif` reports it for factor terms;
+  columns sharing a `terms` label form one term. Computed by anofox-regression's
+  `diagnostics::generalized_vif`.
+
 ### Changed
 
+- **`vif` / `vif_agg` delegate to anofox-regression** (`diagnostics::variance_inflation_factor`,
+  #307) instead of computing the auxiliary regressions in the extension. Results are
+  unchanged except that a VIF above 10^4 (auxiliary R^2 > 0.9999) is now reported as its
+  finite value, as `car::vif` does, instead of `inf`.
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).

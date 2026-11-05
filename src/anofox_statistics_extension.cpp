@@ -107,6 +107,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTheilSenAggregateFunction(loader);
     RegisterRlsAggregateFunction(loader);
     RegisterVifAggregateFunction(loader);
+    RegisterGvifAggregateFunction(loader);
     RegisterJarqueBeraAggregateFunction(loader);
     RegisterResidualsDiagnosticsAggregateFunction(loader);
 

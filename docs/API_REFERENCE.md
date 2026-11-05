@@ -168,6 +168,7 @@ fitted model struct).
 | `ridge_nested_cv_agg`, `elasticnet_nested_cv_agg`, `<model>_nested_cv_by` | Nested CV: lambda chosen by an inner CV on each outer training set, error on the outer test rows (`curve`, `curve_type = 'nested_cv'`) | [Regularisation paths](api/regression/paths.md#ridge_nested_cv_agg--elasticnet_nested_cv_agg) |
 | `quantile_process_agg`, `quantile_process_by` | Quantile process: one quantile fit per tau with inference (`terms`, `index_name = 'tau'`) | [Quantile](api/regression/quantile.md#quantile_process_agg) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `gvif_agg` | Generalized VIF per term (car::vif) | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |

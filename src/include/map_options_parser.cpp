@@ -1522,6 +1522,28 @@ AnovaTableMapOptions AnovaTableMapOptions::ParseFromValue(const Value &map_value
 	    });
 }
 
+GvifMapOptions GvifMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"terms", {"term_names"}}};
+	return ParseTestOptions<GvifMapOptions>(
+	    map_value, function_name, keys, [&](GvifMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull() || key != "terms") {
+			    return;
+		    }
+		    if (val.type().id() != LogicalTypeId::LIST) {
+			    throw InvalidInputException("%s: terms must be a LIST of labels, one per x column, got %s",
+			                                function_name, val.type().ToString());
+		    }
+		    vector<string> labels;
+		    for (auto &child : ListValue::GetChildren(val)) {
+			    if (child.IsNull()) {
+				    throw InvalidInputException("%s: terms must not contain NULL", function_name);
+			    }
+			    labels.push_back(child.ToString());
+		    }
+		    result.terms = std::move(labels);
+	    });
+}
+
 MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {
 	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};

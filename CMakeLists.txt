@@ -176,6 +176,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/theil_sen_aggregate.cpp
     src/aggregate_functions/rls_aggregate.cpp
     src/aggregate_functions/vif_aggregate.cpp
+    src/aggregate_functions/gvif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp
     src/aggregate_functions/timeseries_diagnostics_aggregate.cpp
     src/aggregate_functions/survival_aggregate.cpp

@@ -16,4 +16,4 @@ pub use jarque_bera::{jarque_bera, JarqueBeraResult};
 pub use mcmc::{ess_bulk, ess_tail, rhat};
 pub use residuals::{compute_residuals, ResidualType, ResidualsResult};
 pub use separation::{check_binary_separation_diagnostic, check_count_sparsity_diagnostic};
-pub use vif::compute_vif;
+pub use vif::{compute_gvif, compute_vif, GvifResult, GvifTerm};

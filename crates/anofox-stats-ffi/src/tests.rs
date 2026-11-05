@@ -545,6 +545,56 @@ fn vif_round_trip_and_invalid() {
     }
 }
 
+#[test]
+fn gvif_round_trip_and_invalid() {
+    unsafe {
+        let x2: Vec<f64> = X1.iter().map(|v| (v * 1.7).sin()).collect();
+        let x3: Vec<f64> = X1.iter().map(|v| (v * 0.9).cos()).collect();
+        let x = [arr(&X1), arr(&x2), arr(&x3)];
+        let terms = [0u64, 1, 1];
+        let mut out = [GvifTermFFI {
+            df: 0,
+            gvif: 0.0,
+            gvif_adj: 0.0,
+        }; 2];
+        let mut n = 0usize;
+        let mut e = err();
+        assert!(anofox_compute_gvif(
+            x.as_ptr(),
+            3,
+            terms.as_ptr(),
+            2,
+            out.as_mut_ptr(),
+            &mut n,
+            &mut e
+        ));
+        assert_eq!(n, X1.len());
+        assert_eq!((out[0].df, out[1].df), (1, 2));
+        assert!(out.iter().all(|t| t.gvif >= 1.0));
+        assert!(!anofox_compute_gvif(
+            x.as_ptr(),
+            3,
+            ptr::null(),
+            2,
+            out.as_mut_ptr(),
+            &mut n,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+        let bad = [0u64, 2, 2];
+        assert!(!anofox_compute_gvif(
+            x.as_ptr(),
+            3,
+            bad.as_ptr(),
+            2,
+            out.as_mut_ptr(),
+            &mut n,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Poisson
 // ---------------------------------------------------------------------------
