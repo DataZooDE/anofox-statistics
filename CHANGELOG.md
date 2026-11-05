@@ -17,6 +17,12 @@ Breaking changes are called out explicitly.
   columns sharing a `terms` label form one term. Computed by anofox-regression's
   `diagnostics::generalized_vif`.
 
+### Fixed
+
+- **`vif_agg` with NaN values** (#307): a row with a NaN is now left out as a whole. Before,
+  only the NaN value was dropped, which misaligned the columns and made the aggregate fail
+  with a dimension-mismatch error.
+
 ### Changed
 
 - **`vif` / `vif_agg` delegate to anofox-regression** (`diagnostics::variance_inflation_factor`,

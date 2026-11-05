@@ -13,6 +13,7 @@
 // (diagnostics::generalized_vif); this file only collects rows, maps the labels
 // to term indices and writes the list.
 
+#include <cmath>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -137,6 +138,19 @@ void GvifCombine(Vector &source_vector, Vector &target_vector, AggregateInputDat
 	}
 }
 
+//! Number of rows where every column is finite.
+idx_t CompleteRows(const vector<vector<double>> &cols) {
+	idx_t n = 0;
+	for (idx_t i = 0; i < cols[0].size(); i++) {
+		bool ok = true;
+		for (auto &col : cols) {
+			ok = ok && std::isfinite(col[i]);
+		}
+		n += ok;
+	}
+	return n;
+}
+
 //! The term labels in first-appearance order and each column's term.
 void ResolveTerms(const vector<string> &labels, idx_t n_columns, vector<string> &term_names,
                   vector<uint64_t> &term_of_column) {
@@ -168,7 +182,7 @@ void GvifFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vec
 		auto &state = *states[sdata.sel->get_index(i)];
 		idx_t result_idx = i + offset;
 		// As vif_agg: NULL without two columns or three rows.
-		if (!state.initialized || state.x.size() < 2 || state.x[0].size() < 3) {
+		if (!state.initialized || state.x.size() < 2 || CompleteRows(state.x) < 3) {
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}

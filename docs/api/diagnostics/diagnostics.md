@@ -67,7 +67,7 @@ SELECT vif_agg([x1, x2, x3]) AS vif_values FROM diag_demo;
 a NaN in any feature are left out. A feature's VIF is `inf` when it is an exact
 linear combination of the others or constant; every VIF is `inf` when there
 are no more complete rows than features. `vif_agg` returns NULL with fewer than two
-features or three rows.
+features or three complete rows.
 
 ### gvif_agg
 
@@ -91,7 +91,7 @@ compare with the usual VIF thresholds.
 Without `terms` every column is its own term (`x1`, `x2`, ...) and `gvif` is the
 ordinary VIF. A row is skipped when the list or one of its elements is NULL;
 rows with a NaN are left out. The result is NULL with fewer than two columns
-or three rows. Every term is `inf` when the columns are exactly collinear, a
+or three complete rows. Every term is `inf` when the columns are exactly collinear, a
 column is constant, or there are no more complete rows than columns.
 
 ```sql

@@ -94,12 +94,10 @@ static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
                                         n_features);
         }
 
-        // Accumulate x values
+        // Accumulate the whole row; rows with a NaN are left out as a whole by
+        // the core (dropping single values would misalign the columns).
         for (idx_t j = 0; j < n_features; j++) {
-            double x_val = x_child_data[list_entry.offset + j];
-            if (!std::isnan(x_val)) {
-                state.x_columns[j].push_back(x_val);
-            }
+            state.x_columns[j].push_back(x_child_data[list_entry.offset + j]);
         }
     }
 }
@@ -139,6 +137,19 @@ static void VifAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
     }
 }
 
+// Number of rows where every feature is finite
+static idx_t CompleteRows(const vector<vector<double>> &cols) {
+    idx_t n = 0;
+    for (idx_t i = 0; i < cols[0].size(); i++) {
+        bool ok = true;
+        for (auto &col : cols) {
+            ok = ok && std::isfinite(col[i]);
+        }
+        n += ok;
+    }
+    return n;
+}
+
 // Helper to set a list in result
 static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t len) {
     auto &child = ListVector::GetEntry(list_vec);
@@ -162,7 +173,7 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.n_features < 2 || state.x_columns[0].size() < 3) {
+        if (!state.initialized || state.n_features < 2 || CompleteRows(state.x_columns) < 3) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

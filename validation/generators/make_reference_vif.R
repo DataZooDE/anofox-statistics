@@ -64,6 +64,20 @@ h3 <- round(cos(h1), 6)
 v_hi <- vif(lm(sin(2 * h1) ~ h1 + h2 + h3))
 vec <- function(v) paste0("[", paste(num(v), collapse = ", "), "]")
 
+# Incomplete rows: NaN / NULL in different columns of different rows. The
+# extension leaves each such row out as a whole; car::vif on the complete cases.
+dirty <- d[, c("id", "age", "income", "rb", "e2")]
+na_cells <- list(c(3, "age"), c(8, "income"), c(15, "rb"), c(22, "e2"), c(30, "age"), c(31, "income"))
+for (cell in na_cells) dirty[as.integer(cell[1]) + 1, cell[2]] <- NA
+nan_rows <- c(3, 15, 30)          # written as 'NaN'; the others as NULL
+v_cc <- vif(lm(y ~ age + income + rb + e2, data = cbind(dirty, y = d$y)[complete.cases(dirty), ]))
+n_cc <- sum(complete.cases(dirty))
+dirty_rows <- apply(dirty, 1, function(r) {
+  id <- as.integer(r[["id"]])
+  vals <- vapply(r[-1], function(v) if (is.na(v)) (if (id %in% nan_rows) "'NaN'" else "NULL") else num(as.numeric(v)), "")
+  sprintf("(%d, %s)", id, paste(vals, collapse = ", "))
+})
+
 rows <- apply(d, 1, function(r) sprintf("(%d, %s)", as.integer(r[["id"]]),
                                         paste(num(r[-1]), collapse = ", ")))
 
@@ -138,6 +152,22 @@ out <- c(
   "# A smaller model: car::vif(lm(y ~ age + income + rb))",
   checks("vif_agg vs car::vif (3 columns)", "vd",
          sprintf("(vif_agg([age, income, rb]))[%d]", 1:3), unname(v_3), 1e-8),
+  "# Incomplete rows (NaN or NULL in different columns of different rows) are left out as a whole",
+  "statement ok",
+  "CREATE TABLE vdirty (id INTEGER, age DOUBLE, income DOUBLE, rb DOUBLE, e2 DOUBLE);",
+  "",
+  "statement ok",
+  paste0("INSERT INTO vdirty VALUES\n", paste(dirty_rows, collapse = ",\n"), ";"),
+  "",
+  checks("vif_agg vs car::vif on the complete cases", "vdirty",
+         sprintf("(vif_agg([age, income, rb, e2]))[%d]", 1:4), unname(v_cc), 1e-8),
+  checks("gvif_agg vs car::vif on the complete cases", "vdirty",
+         sprintf("(gvif_agg([age, income, rb, e2]))[%d].gvif", 1:4), unname(v_cc), 1e-8),
+  "query I",
+  "SELECT (gvif_agg([age, income, rb, e2]))[1].n_observations FROM vdirty;",
+  "----",
+  as.character(n_cc),
+  "",
   "# Near-collinear features: car::vif reports a large finite VIF (> 1e4)",
   checks("vif vs car::vif (near-collinear)",
          sprintf("(SELECT vif([%s, %s, %s]) AS v)", vec(h1), vec(h2), vec(h3)),
