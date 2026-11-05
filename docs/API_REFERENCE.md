@@ -138,7 +138,7 @@ fitted model struct).
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg`, `tost_one_sample_agg`, `tost_prop_one_agg`, `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg`, `tost_bootstrap_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Forecast comparison | `diebold_mariano_agg`, `clark_west_agg`, `spa_test_agg`, `mspe_adjusted_spa_agg`, `model_confidence_set_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Survival | `log_rank_test_agg` | [Survival curves](api/survival/survival_curves.md) |
@@ -1274,6 +1274,9 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `diebold_mariano_agg` **MAP** | `(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE [, options])` | `loss` (squared; `'absolute'`), `horizon` (1), `var_estimator` (`'bartlett'`), `alternative` | `statistic, p_value, n, method` |
 | `clark_west_agg` **MAP** | `(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE [, options])` | `horizon` (1) | `statistic, p_value, n, method` |
+| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t [, options])` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
+| `mspe_adjusted_spa_agg` | `(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t [, options])` | as `spa_test_agg` | as `spa_test_agg` |
+| `model_confidence_set_agg` | `(model_losses DOUBLE[] ORDER BY t [, options])` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, elimination_steps, ...` |
 
 ```sql
 SELECT (diebold_mariano_agg(y, y + sin(id), y + 2 * cos(id))).p_value AS dm_p,

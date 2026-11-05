@@ -171,3 +171,18 @@ form) and the percentile intervals of `boot::boot` / `boot::tsboot(sim = "fixed"
 endcorr = TRUE)` with 200000 replicates. R's generator differs from the
 extension's, so the intervals are compared within a Monte Carlo tolerance (see
 the script header).
+
+## `make_reference_forecast_comparison.R`
+
+```bash
+Rscript validation/generators/make_reference_forecast_comparison.R
+```
+
+Writes `test/sql/reference/forecast_comparison_reference.test` for
+`spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg` (#295).
+No SPA package is installed, so the SPA / MSPE-adjusted statistics and best
+models are computed in base R with the upstream crate's formula, on the fixture
+data of anofox-statistics `R/generate_refs.R` (same seeds). The MCS superior set
+and elimination order come from the R package `MCS` (`MCSprocedure`), installed
+into a user library (`install.packages("MCS", lib = "~/R/userlib")`). Bootstrap
+p-values are only checked for their decision.

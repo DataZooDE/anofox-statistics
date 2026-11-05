@@ -749,6 +749,123 @@ Clark-West test for nested forecast models.
 clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
 ```
 
+### spa_test_agg
+
+Hansen's (2005) test for Superior Predictive Ability: does any of K competing
+models have a lower expected loss than the benchmark? H0: no competitor beats the
+benchmark. The arguments are **losses** (for example squared errors), one row per
+time point; `model_losses` holds the K competitors' losses of that time point.
+The stationary bootstrap resamples the series, so the aggregate needs
+`ORDER BY t`.
+
+**Signature:**
+```text
+spa_test_agg(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t, [options]) -> STRUCT
+```
+
+| Key | Default | Description |
+|---|---|---|
+| n_bootstrap (aliases `n_boot`, `bootstrap`) | 1000 | Bootstrap samples |
+| block_length (alias `block_size`) | T^(1/3) | Expected block length of the stationary bootstrap; 0 or less selects the default |
+| seed (alias `random_state`) | 42 | Seed of the bootstrap |
+
+The result has `statistic` (the largest standardized loss differential
+benchmark − model), `p_value` (= `p_value_consistent`), `p_value_upper`,
+`best_model` (1-based position in `model_losses` of the model with the largest
+standardized differential), `n_models`, `n`, `n_bootstrap`, `block_length`, `method`,
+`alternative` (`greater`) and the unified test fields. Rows with a NULL or NaN
+benchmark, a NULL list or a NULL/NaN element are skipped; every list must have the
+same length (otherwise an error). Fewer than 3 complete rows give NULL.
+
+The statistic follows the upstream crate's standardization,
+`t_k = mean(d_k) * sqrt(T) / sqrt(var(d_k) / T)`, which is `sqrt(T)` times the usual
+t-statistic; the bootstrap p-values use the same scale. The upstream crate does
+not compute Hansen's lower p-value.
+
+```sql
+CREATE TABLE fc_losses AS
+SELECT t,
+       2.0 + 0.5 * abs(sin(t * 0.7))       AS naive_loss,
+       1.0 + 0.3 * abs(sin(t * 0.7 + 1.0)) AS ets_loss,
+       3.0 + 0.4 * abs(cos(t * 0.3))       AS arima_loss
+FROM range(1, 61) r(t);
+
+SELECT r.statistic, r.p_value, r.p_value_upper, r.best_model
+FROM (SELECT spa_test_agg(naive_loss, [ets_loss, arima_loss],
+                          {'n_bootstrap': 999, 'block_length': 4} ORDER BY t) AS r
+      FROM fc_losses);
+```
+
+### mspe_adjusted_spa_agg
+
+The MSPE-adjusted SPA test (Clark and McCracken, 2012) for a benchmark that is
+nested in each alternative: the SPA bootstrap on the Clark-West adjusted
+differentials `(e_b² − e_k²) + (e_b − e_k)²`. The arguments are **forecast errors**
+(actual − forecast), not losses. Options and result are those of `spa_test_agg`.
+
+**Signature:**
+```text
+mspe_adjusted_spa_agg(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t, [options]) -> STRUCT
+```
+
+```sql
+SELECT (mspe_adjusted_spa_agg(sin(t / 4.0) + 0.2 * cos(t * 1.3),
+                              [0.1 * sin(t / 4.0) + 0.2 * cos(t * 1.3)],
+                              {'n_bootstrap': 499} ORDER BY t)).p_value
+FROM range(1, 101) r(t);
+```
+
+### model_confidence_set_agg
+
+Hansen, Lunde and Nason's (2011) Model Confidence Set: the set of models that
+contains the best model with confidence 1 − alpha. Starting from all K models, the
+worst model is eliminated while the bootstrap test of equal predictive ability
+rejects at level alpha.
+
+**Signature:**
+```text
+model_confidence_set_agg(model_losses DOUBLE[] ORDER BY t, [options]) -> STRUCT
+```
+
+| Key | Default | Description |
+|---|---|---|
+| alpha | 0.1 | Elimination level, in (0, 1) |
+| statistic | `range` | `range` (T_R = max \|t_ij\|) or `max` (T_max) |
+| n_bootstrap (aliases `n_boot`, `bootstrap`) | 1000 | Bootstrap samples |
+| block_length (alias `block_size`) | T^(1/3) | Expected block length of the stationary bootstrap |
+| seed (alias `random_state`) | 42 | Seed of the bootstrap |
+
+The result has `included_models` and `eliminated_models` (1-based positions in
+`model_losses`; eliminated in elimination order), `mcs_p_value` (the p-value at
+which elimination stopped; 1 for a single model), `elimination_steps`
+(`STRUCT(model, p_value, eliminated)[]`, one per test), `statistic_type`, `alpha`,
+`n_models`, `n`, `n_bootstrap`, `block_length` and `method`. NULL handling is that
+of `spa_test_agg`.
+
+With three or more models the MCS p-values are not bit-reproducible across
+processes even with a fixed seed: anofox-statistics 0.7.0 draws the pairwise
+bootstrap samples in hash-map order. Clear eliminations are stable; p-values near
+`alpha` can move between runs.
+
+```sql
+SELECT r.included_models, r.eliminated_models, r.elimination_steps
+FROM (SELECT model_confidence_set_agg([naive_loss, ets_loss, arima_loss],
+                                      {'alpha': 0.1, 'n_bootstrap': 999} ORDER BY t) AS r
+      FROM fc_losses);
+```
+
+Per series, group as usual:
+
+```sql
+SELECT series, (model_confidence_set_agg([naive_loss, ets_loss] ORDER BY t)).included_models
+FROM (SELECT t % 2 AS series, * FROM fc_losses)
+GROUP BY series ORDER BY series;
+```
+
+The SPA and MCS p-values come from the bootstrap: their digits depend on the
+random stream, so they agree with other implementations (e.g. R's `MCS` package)
+in the decision, not to the last digit.
+
 ## Pairwise Post-hoc Tests
 
 `pairwise_t_test_agg(value, group [, options])` (R `pairwise.t.test`; options

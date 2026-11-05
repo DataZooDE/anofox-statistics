@@ -79,6 +79,12 @@ Breaking changes are called out explicitly.
   of a random classifier, exact from the Mann-Whitney distribution: R `qwilcox` / `pwilcox`
   divided by `n_pos · n_neg`), and `ptukey(q, n_means, df [, n_ranges [, lower_tail]])` /
   `qtukey(p, ...)` (R's studentized range distribution), from anofox-statistics.
+- **Multiple-model forecast comparison (#295):** `spa_test_agg(benchmark_loss, model_losses
+  DOUBLE[] ORDER BY t [, options])` (Hansen's SPA test), `mspe_adjusted_spa_agg(benchmark_error,
+  model_errors DOUBLE[] ...)` (Clark-McCracken MSPE-adjusted SPA) and
+  `model_confidence_set_agg(model_losses DOUBLE[] ...)` (Hansen-Lunde-Nason MCS with the
+  elimination order and per-step p-values). Options `n_bootstrap`, `block_length` (default
+  T^(1/3)), `seed` (default 42) and, for the MCS, `alpha` and `statistic` (`range` / `max`).
 
 ### Changed
 
