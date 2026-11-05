@@ -35,6 +35,12 @@ Breaking changes are called out explicitly.
   `effect_size` / `effect_name`. Positive when `y` tends to be larger (the sign convention of
   `mann_whitney_u_agg`; R `effectsize` uses the opposite sign). Code that reads the whole
   STRUCT positionally sees one more field.
+- **`icc_agg`: all six Shrout & Fleiss types (#298).** Option `type` accepts `'icc1'`,
+  `'icc2'`, `'icc3'`, `'icc1k'`, `'icc2k'`, `'icc3k'` (case-insensitive, `psych::ICC`
+  naming); `'single'` / `'average'` stay aliases of `'icc1'` / `'icc1k'`, and the default
+  is still ICC1. ICC, F and p match `psych::ICC` for every type, and the 95% interval
+  for ICC1, ICC3, ICC1k and ICC3k. ICC2 / ICC2k return a `NULL` interval: upstream gives
+  them the ICC3 interval, which can exclude the estimate.
 
 ### Changed
 

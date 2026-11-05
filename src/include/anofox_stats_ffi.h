@@ -2354,11 +2354,15 @@ bool anofox_distance_cor_test_seeded(AnofoxDataArray x, AnofoxDataArray y, size_
                                      bool has_seed, AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
- * ICC type codes
+ * ICC type codes (Shrout & Fleiss 1979; psych::ICC naming)
  */
 typedef enum {
-	ANOFOX_ICC_SINGLE = 0,
-	ANOFOX_ICC_AVERAGE = 1,
+	ANOFOX_ICC_SINGLE = 0,  /* ICC1: one-way random, single rater */
+	ANOFOX_ICC_AVERAGE = 1, /* ICC1k: one-way random, average of k raters */
+	ANOFOX_ICC_ICC2 = 2,    /* two-way random, absolute agreement, single rater */
+	ANOFOX_ICC_ICC3 = 3,    /* two-way mixed, consistency, single rater */
+	ANOFOX_ICC_ICC2K = 4,   /* two-way random, absolute agreement, average of k raters */
+	ANOFOX_ICC_ICC3K = 5,   /* two-way mixed, consistency, average of k raters */
 } AnofoxIccType;
 
 /**
@@ -2393,7 +2397,7 @@ typedef struct {
  * @param data Data matrix in row-major order (n_subjects x n_raters)
  * @param n_subjects Number of subjects
  * @param n_raters Number of raters/measurements per subject
- * @param icc_type ICC type (single or average)
+ * @param icc_type ICC type (ICC1, ICC1k, ICC2, ICC3, ICC2k, ICC3k)
  * @param out_result Output: ICC result
  * @param out_error Output: error information
  * @return true on success, false on error

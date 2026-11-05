@@ -295,7 +295,7 @@ Invalid method: 'kendall'. Valid values are 'pearson', 'spearman'
 statement error
 SELECT icc_agg(rating, subject, rater, {'type': 'double'}) FROM rt;
 ----
-Invalid type: 'double'. Valid values are 'single', 'average'
+Invalid type: 'double'. Valid values are 'icc1', 'icc2', 'icc3', 'icc1k', 'icc2k', 'icc3k', 'single', 'average'
 
 statement error
 SELECT t_test_agg(v, g, {'alternative': 'sideways'}) FROM tg;

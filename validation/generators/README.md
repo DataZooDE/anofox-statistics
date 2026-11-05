@@ -122,6 +122,10 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_icc.R` (needs `psych`) (re)writes `icc_reference.test`: `icc_agg`
+with all six Shrout & Fleiss types against `psych::ICC(lmer = FALSE)`, each ICC
+also recomputed from the two-way ANOVA mean squares in base R.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

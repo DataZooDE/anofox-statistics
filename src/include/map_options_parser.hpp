@@ -661,7 +661,9 @@ struct PropTestTwoMapOptions {
  * Options for the intraclass correlation coefficient
  */
 struct IccMapOptions {
-	std::optional<bool> average; // 'type': 'single' (false) | 'average' (true)
+	// 'type', lower-cased: 'icc1' | 'icc2' | 'icc3' | 'icc1k' | 'icc2k' | 'icc3k'
+	// ('single' / 'average' are normalised to 'icc1' / 'icc1k')
+	std::optional<string> type;
 
 	static IccMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
