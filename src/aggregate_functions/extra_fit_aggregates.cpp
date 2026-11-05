@@ -40,6 +40,8 @@ struct ExtraFitBindData : public FunctionData {
 	double tau = 0.5;
 	uint32_t max_iterations = 1000;
 	double tolerance = 1e-6;
+	//! L1 penalty on the quantile-regression slopes (#305)
+	double alpha = 0.0;
 	bool increasing = true;
 	// Quantile inference (#157)
 	bool compute_inference = false;
@@ -56,7 +58,7 @@ struct ExtraFitBindData : public FunctionData {
 		return fit_intercept == o.fit_intercept && n_components == o.n_components && tau == o.tau &&
 		       max_iterations == o.max_iterations && tolerance == o.tolerance && increasing == o.increasing &&
 		       compute_inference == o.compute_inference && se_type == o.se_type &&
-		       confidence_level == o.confidence_level && n_boot == o.n_boot && seed == o.seed;
+		       confidence_level == o.confidence_level && n_boot == o.n_boot && seed == o.seed && alpha == o.alpha;
 	}
 };
 
@@ -193,6 +195,7 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		options.fit_intercept = bind.fit_intercept;
 		options.max_iterations = bind.max_iterations;
 		options.tolerance = bind.tolerance;
+		options.alpha = bind.alpha;
 		AnofoxQuantileFitResultCore fit;
 		AnofoxError error;
 		if (!anofox_quantile_fit(y, x.data(), x.size(), options, &fit, &error)) {
@@ -358,7 +361,7 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateBindFunct
 		static const vector<string> pls_keys = {"fit_intercept", "n_components"};
 		static const vector<string> quantile_keys = {"fit_intercept", "tau",    "max_iterations", "tolerance",
 		                                             "compute_inference", "confidence_level", "se", "n_boot",
-		                                             "random_state"};
+		                                             "random_state", "alpha"};
 		static const vector<string> isotonic_keys = {"increasing"};
 		const vector<string> &keys =
 		    name == "pls_fit_agg" ? pls_keys : (name == "quantile_fit_agg" ? quantile_keys : isotonic_keys);
@@ -383,7 +386,20 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateBindFunct
 		if (opts.increasing.has_value()) {
 			bind->increasing = opts.increasing.value();
 		}
+		if (opts.alpha.has_value()) {
+			bind->alpha = opts.alpha.value();
+		}
 		ApplyQuantileInferenceOptions(opts, *bind);
+	}
+	if (!(std::isfinite(bind->alpha) && bind->alpha >= 0.0)) {
+		throw InvalidInputException("%s: alpha must be a finite number >= 0, got %g", name, bind->alpha);
+	}
+	if (bind->alpha > 0.0 && bind->compute_inference) {
+		// quantreg's summary.rq inference (upstream quantile_inference) is for the
+		// unpenalized fit; there is none for the L1-penalized one.
+		throw InvalidInputException("%s: coefficient inference ('se', 'compute_inference') is not available with "
+		                            "alpha > 0",
+		                            name);
 	}
 	if (!(bind->tau > 0.0 && bind->tau < 1.0)) {
 		throw InvalidInputException("%s: tau must be in (0, 1), got %g", name, bind->tau);

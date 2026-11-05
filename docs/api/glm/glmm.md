@@ -57,13 +57,17 @@ glmm_fit_agg(y DOUBLE, x DOUBLE[], group ANY [, options MAP]) -> STRUCT
 | compute_inference | BOOLEAN | false | Fixed-effect standard errors, tests and intervals |
 | ddf | VARCHAR | family default | Degrees of freedom of the fixed-effect tests: `'satterthwaite'` (t tests with lmerTest's Satterthwaite df; gaussian only, the gaussian default) or `'wald'` (z tests; the default for every other family) |
 | confidence_level | DOUBLE | 0.95 | Interval level (fixed effects and BLUPs) |
+| n_agq (alias `nagq`) | INTEGER | 0 | Integration of the random effects for the non-gaussian families, lme4's `nAGQ`: `0` Laplace with the fixed effects in the PIRLS step (`glmer(nAGQ = 0)`), `1` Laplace with the fixed effects optimised jointly with θ (`glmer`'s default), `k > 1` adaptive Gauss–Hermite quadrature with `k` nodes (a single scalar random intercept only). At most 25; single grouping factor only; ignored by the gaussian family |
 
 > The solver lives upstream in `anofox-regression`; this extension is a wrapper.
-> Non-gaussian families maximise the Laplace approximation with the fixed effects
-> inside the penalised conditional mode, so they match lme4 with `nAGQ = 0`
-> (`glmer(..., nAGQ = 0)`, `glmer.nb(..., nAGQ = 0)`), not lme4's default
-> `nAGQ = 1` (tracked upstream in
-> [anofox-regression#67](https://github.com/sipemu/anofox-regression/issues/67)).
+> By default non-gaussian families maximise the Laplace approximation with the fixed
+> effects inside the penalised conditional mode, so they match lme4 with `nAGQ = 0`
+> (`glmer(..., nAGQ = 0)`, `glmer.nb(..., nAGQ = 0)`). `{'n_agq': 1}` gives lme4's
+> default `nAGQ = 1` fit and `{'n_agq': k}` adaptive Gauss–Hermite quadrature; their
+> standard errors come from the Hessian of the deviance in (θ, β), as lme4's. For
+> `k > 1`, `log_likelihood` is the full log-likelihood (as for `k <= 1`), whereas
+> lme4's Poisson `logLik` with `nAGQ > 1` leaves out the saturated-model constant
+> `Σ log dpois(y, y)`.
 > For `gamma` and `tweedie`, `var_residual` is lme4's `sigma()^2 = pwrss / n`, which
 > also scales the fixed-effect standard errors, and the log-likelihood uses the
 > dispersion `deviance / n` (R's `Gamma()$aic`). `aic`/`bic` count the fixed effects,
@@ -120,6 +124,10 @@ SELECT (glmm_fit_agg(qty, [promo, region], sku, {'groups': [2]})).factors FROM d
 
 -- Overdispersed counts: negative binomial with theta estimated (as glmer.nb)
 SELECT (glmm_fit_agg(qty, [promo], sku, {'family': 'negbinom'})).nb_theta FROM demand;
+
+-- lme4's default Laplace fit (glmer nAGQ = 1), or 7-node adaptive Gauss-Hermite quadrature
+SELECT (glmm_fit_agg(qty, [promo], sku, {'family': 'poisson', 'n_agq': 1})).coefficients FROM demand;
+SELECT (glmm_fit_agg(qty, [promo], sku, {'family': 'poisson', 'n_agq': 7})).coefficients FROM demand;
 
 -- Gaussian LMM: Satterthwaite t tests (lmerTest), or Wald z tests on request
 SELECT (fit).df, (fit).p_values, (fit).intercept_df
@@ -322,7 +330,8 @@ Random intercept and random slopes over one grouping factor, or several crossed 
 nested random-intercept factors (random slopes on the first one), for the gaussian,
 poisson, binomial, negative binomial, Gamma and Tweedie families, with an optional
 offset. Validated against `lme4::lmer` and `lme4::glmer` / `glmer.nb` with
-`nAGQ = 0` (`test/sql/reference/glm_glmm.test`), and the inference and macros
+`nAGQ = 0` (`test/sql/reference/glm_glmm.test`), `glmer(nAGQ = 1)` and
+`glmer(nAGQ = 5)` (`test/sql/reference/option_passthroughs_r.test`), and the inference and macros
 against lmerTest and broom.mixed (`test/sql/reference/glmm_inference.test`);
 Tweedie has no lme4 family and is validated upstream. Not yet available: random
 slopes on the additional `groups` factors and their BLUPs.

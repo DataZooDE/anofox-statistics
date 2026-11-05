@@ -76,6 +76,7 @@ FROM huber_demo;
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
 | `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add standard errors, t-values, p-values, confidence intervals and the F-test |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Confidence level for intervals |
+| `scale_method` (alias `scale`) | VARCHAR | `'mad'` | `'mad'`: IRLS with the scale re-estimated by the MAD of the residuals (`MASS::rlm`); `'joint'`: coefficients and scale estimated jointly, as scikit-learn's `HuberRegressor` |
 
 The window, fit-predict aggregate and table-macro forms also accept
 `null_policy` (see [Fit-predict aggregates](fit_predict_agg.md#null_policy));
@@ -85,6 +86,24 @@ support raise an error.
 ```sql
 -- More aggressive down-weighting of outliers, with inference
 SELECT (huber_fit_agg(y, [x], {'epsilon': 1.1, 'compute_inference': true})).p_values AS p_values
+FROM huber_demo;
+```
+
+### Joint scale (`scale_method`)
+
+With `{'scale_method': 'joint'}` the coefficients and the scale `σ` jointly
+minimise Owen's concomitant-scale objective
+`n σ + Σ_{|rᵢ| ≤ εσ} rᵢ²/σ + Σ_{|rᵢ| > εσ} (2ε|rᵢ| − ε²σ) + alpha ‖β‖²`, the
+estimator of scikit-learn's `HuberRegressor(epsilon, alpha)` (anofox-regression's
+`HuberScale::Joint`, a Newton method started from the IRLS fit; `max_iterations`
+and `tolerance` apply to it). `scale` and `n_outliers` are then sklearn's
+`scale_` and `outliers_`. The default `'mad'` keeps the `MASS::rlm`-style fit.
+
+```sql
+SELECT
+    (huber_fit_agg(y, [x], {'scale_method': 'joint'})).coefficients AS coefficients,
+    round((huber_fit_agg(y, [x], {'scale_method': 'joint'})).scale, 4) AS joint_scale,
+    round((huber_fit_agg(y, [x])).scale, 4) AS mad_scale
 FROM huber_demo;
 ```
 
@@ -112,7 +131,7 @@ SELECT * FROM huber_fit_predict_by('huber_demo', grp, y, [x]) LIMIT 5;
 | `residual_std_error` | `DOUBLE` | Residual standard error |
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
-| `scale` | `DOUBLE` | MAD-based robust scale estimate of the residuals |
+| `scale` | `DOUBLE` | Robust scale estimate of the residuals: MAD-based, or the joint estimate with `scale_method = 'joint'` |
 | `n_outliers` | `BIGINT` | Observations with \|residual\| > `epsilon` × `scale` |
 
 With `compute_inference = true` these fields are added: `std_errors`,

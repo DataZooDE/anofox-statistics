@@ -288,6 +288,12 @@ struct RegressionMapOptions {
 	// lmDynamic (#63)
 	std::optional<int> lm_dynamic_ic;      // 'ic': mirrors AnofoxInformationCriterion
 	std::optional<double> lowess_span;     // 'span': lowess f of the weight smoothing, 0 = none
+	// Option pass-throughs (#305)
+	std::optional<bool> huber_joint_scale; // 'scale_method': 'mad' (false) | 'joint' (true), Huber
+	std::optional<uint32_t> n_agq;         // GLMM nAGQ: 0 = PIRLS Laplace, 1 = joint Laplace, > 1 = AGQ
+	std::optional<bool> conditioning;      // Ridge conditioning-aware lambda
+	std::optional<double> lambda_small;    // Ridge: lambda on a well-conditioned design (implies conditioning)
+	std::optional<double> cond_threshold;  // Ridge: kappa(X'X) threshold (implies conditioning)
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

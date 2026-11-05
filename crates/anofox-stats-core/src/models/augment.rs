@@ -258,6 +258,7 @@ pub fn augment_ridge(
     if options.alpha < 0.0 {
         return Err(StatsError::InvalidAlpha(options.alpha));
     }
+    crate::models::ridge::validate_conditioning(options)?;
     let Design { used, valid, kept } = prepare(y, x, None, options.fit_intercept)?;
     let n_obs = y.len();
     let y_col = Col::from_fn(valid.len(), |i| y[valid[i]]);

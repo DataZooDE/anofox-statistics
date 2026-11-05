@@ -241,6 +241,8 @@ typedef struct {
 	uint32_t max_iterations;
 	/** Convergence tolerance */
 	double tolerance;
+	/** Joint coefficient / scale estimate (sklearn HuberRegressor, #305); false = MAD scale (MASS::rlm) */
+	bool joint_scale;
 } AnofoxHuberOptions;
 
 /**
@@ -428,6 +430,12 @@ typedef struct {
 	AnofoxLambdaScaling lambda_scaling;
 	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#235). Zero-initialise the struct. */
 	bool compute_loo;
+	/** Conditioning-aware lambda (#305): lambda_small when kappa(X'X) <= cond_threshold, alpha otherwise */
+	bool conditioning;
+	/** Lambda on a well-conditioned design; NaN = upstream default */
+	double lambda_small;
+	/** kappa(X'X) threshold; NaN = upstream default */
+	double cond_threshold;
 } AnofoxRidgeOptions;
 
 /**
@@ -1588,6 +1596,8 @@ typedef struct {
 	uint32_t max_iterations;
 	/** Convergence tolerance */
 	double tolerance;
+	/** L1 penalty on the slopes (sklearn QuantileRegressor(alpha), #305); 0 = unpenalized */
+	double alpha;
 } AnofoxQuantileOptions;
 
 /**
@@ -2801,6 +2811,9 @@ typedef struct {
 	const size_t *random_slopes;
 	size_t random_slopes_len;
 	AnofoxGlmmDdf ddf;
+	/** lme4 nAGQ (#305): 0 = Laplace at the PIRLS fixed effects (default), 1 = joint Laplace,
+	    > 1 = adaptive Gauss-Hermite quadrature (scalar random intercept only) */
+	uint32_t n_agq;
 } AnofoxGlmmOptions;
 
 typedef struct {
@@ -3709,6 +3722,35 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             const uint64_t *term_of_column, size_t n_terms, bool fit_intercept, int32_t anova_type,
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
+
+/* ============================================================================
+ * Option pass-throughs -- issue #305
+ * ============================================================================ */
+
+/**
+ * The lambda anofox_ridge_fit uses on (y, x) with these options: options.alpha,
+ * or with options.conditioning upstream's conditioning-aware choice
+ * (lambda_small when kappa(X'X) <= cond_threshold) for the rows and columns the
+ * fit uses. Same scale as options.alpha.
+ */
+bool anofox_ridge_selected_lambda(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                  AnofoxRidgeOptions options, double *out_lambda, AnofoxError *out_error);
+
+/**
+ * Poisson / Tweedie / Gamma fits with prior (case) weights w, as R's
+ * glm(weights = w) (anofox-regression's PoissonRegressor / TweedieRegressor
+ * with weights). Same results as the unweighted anofox_*_fit; a row with a
+ * non-finite y, x or w is dropped. glm_lambda and priors are rejected.
+ */
+bool anofox_poisson_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                                 AnofoxPoissonOptions options, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_tweedie_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                                 AnofoxTweedieOptions options, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_gamma_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                               AnofoxGammaOptions options, AnofoxGlmFitResultCore *out_result,
+                               AnofoxFitResultInference *out_inference, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

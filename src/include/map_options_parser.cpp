@@ -916,6 +916,11 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"variant", {"pa_variant"}},
 	    {"ic", {"information_criterion"}},
 	    {"span", {"lowess_span", "f"}},
+	    {"scale_method", {"scale"}},
+	    {"n_agq", {"nagq"}},
+	    {"conditioning", {"conditioning_aware"}},
+	    {"lambda_small", {}},
+	    {"cond_threshold", {"condition_threshold"}},
 	};
 	return table;
 }
@@ -1308,6 +1313,36 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 					                            function_name, val.ToString());
 				}
 			}
+		} else if (key == "scale_method") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v != "mad" && v != "joint") {
+					throw InvalidInputException("%s: scale_method must be 'mad' or 'joint', got '%s'", function_name,
+					                            val.ToString());
+				}
+				result.huber_joint_scale = v == "joint";
+			}
+		} else if (key == "n_agq") {
+			auto v = ExtractUInt32(val);
+			if (v.has_value() && v.value() > 25) {
+				throw InvalidInputException("%s: n_agq must be in [0, 25], got %u", function_name, v.value());
+			}
+			result.n_agq = v;
+		} else if (key == "conditioning") {
+			result.conditioning = ExtractBool(val);
+		} else if (key == "lambda_small") {
+			auto v = ExtractDouble(val);
+			if (v.has_value() && !(std::isfinite(v.value()) && v.value() >= 0.0)) {
+				throw InvalidInputException("%s: lambda_small must be a finite number >= 0, got %s", function_name,
+				                            val.ToString());
+			}
+			result.lambda_small = v;
+		} else if (key == "cond_threshold") {
+			auto v = ExtractDouble(val);
+			if (v.has_value() && !(v.value() > 0.0)) {
+				throw InvalidInputException("%s: cond_threshold must be > 0, got %s", function_name, val.ToString());
+			}
+			result.cond_threshold = v;
 		} else {
 			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}

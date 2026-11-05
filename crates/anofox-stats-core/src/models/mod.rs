@@ -9,6 +9,7 @@ mod bls;
 mod eb_shrink;
 mod elasticnet;
 mod glm;
+mod glm_weighted;
 mod glmm;
 mod huber;
 mod interval;
@@ -55,6 +56,9 @@ pub use glm::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie, GlmResult,
     LogisticResult,
 };
+pub use glm_weighted::{
+    fit_gamma_weighted, fit_poisson_weighted, fit_tweedie_weighted, WeightedGlmFit,
+};
 pub use glmm::{
     fit_glmm, fit_glmm_crossed, FactorVariance, GlmmDdf, GlmmFamily, GlmmObservations, GlmmOptions,
     GlmmResult, RandomEffect,
@@ -92,7 +96,7 @@ pub use predict_se::{
 };
 pub use quantile::{fit_quantile, quantile_process, QuantileProcessRow, QuantileSeType};
 pub use ransac::{fit_ransac, RansacResult};
-pub use ridge::fit_ridge;
+pub use ridge::{fit_ridge, ridge_selected_lambda, DEFAULT_COND_THRESHOLD, DEFAULT_LAMBDA_SMALL};
 pub use rls::{fit_rls, RlsOptions};
 pub use theil_sen::{fit_theilsen, TheilSenResult};
 pub use wls::fit_wls;

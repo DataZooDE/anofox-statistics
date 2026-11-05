@@ -10,6 +10,24 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Option pass-throughs (#305)** for options anofox-regression 0.11 added; every default is
+  unchanged, so existing results do not move:
+  - `quantile_fit_agg` / `quantile_fit_predict_agg` / `quantile_*_by`: `alpha`, the L1 penalty
+    on the slopes of scikit-learn's `QuantileRegressor(alpha)` (no inference with `alpha > 0`).
+  - `huber_fit` / `huber_fit_agg` / `huber_fit_predict[_agg]` / `huber_*_by`:
+    `scale_method := 'joint'`, scikit-learn's `HuberRegressor` joint coefficient / scale
+    estimate (default `'mad'`, the `MASS::rlm`-style fit).
+  - `poisson_fit_agg`, `gamma_fit_agg`, `tweedie_fit_agg`: prior weights as a third argument,
+    `f(y, x, w [, options])`, as R's `glm(weights = w)` (anofox-regression's weighted
+    `PoissonRegressor` / `TweedieRegressor`; not combinable with `glm_lambda` / priors).
+  - `glmm_fit_agg` / `glmm_*_by`: `n_agq`, lme4's `nAGQ` (1 = glmer's default Laplace fit,
+    `k > 1` adaptive Gauss-Hermite quadrature; default 0 as before).
+  - `ridge_fit[_agg]`, `ridge_fit_predict[_agg]`, `ridge_augment_agg`, `ridge_*_by`:
+    conditioning-aware lambda (`conditioning`, `lambda_small`, `cond_threshold`): `lambda_small`
+    when `kappa(X'X) <= cond_threshold`, `alpha` otherwise.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

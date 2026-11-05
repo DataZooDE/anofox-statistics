@@ -12,6 +12,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ridge_conditioning.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
@@ -42,6 +43,7 @@ struct RidgePredictAggState {
     bool use_split_col;  // True if using split column instead of y NULL
     SolverType solver;
     LambdaScaling lambda_scaling;
+    RidgeConditioningOpt conditioning; // #305
 
     RidgePredictAggState()
         : n_features(0), initialized(false), alpha(1.0), fit_intercept(true), confidence_level(0.95),
@@ -71,6 +73,7 @@ struct RidgePredictAggBindData : public FunctionData {
     bool use_split_col = false;  // True if split column is provided
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
+    RidgeConditioningOpt conditioning; // conditioning-aware lambda (#305)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgePredictAggBindData>();
@@ -81,6 +84,7 @@ struct RidgePredictAggBindData : public FunctionData {
         result->use_split_col = use_split_col;
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
+        result->conditioning = conditioning;
         return std::move(result);
     }
 
@@ -89,7 +93,7 @@ struct RidgePredictAggBindData : public FunctionData {
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                confidence_level == other.confidence_level && null_policy == other.null_policy &&
                use_split_col == other.use_split_col && solver == other.solver &&
-               lambda_scaling == other.lambda_scaling;
+               lambda_scaling == other.lambda_scaling && conditioning == other.conditioning;
     }
 };
 
@@ -173,6 +177,7 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.use_split_col = bind_data.use_split_col;
         state.solver = bind_data.solver;
         state.lambda_scaling = bind_data.lambda_scaling;
+        state.conditioning = bind_data.conditioning;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -299,6 +304,7 @@ static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector,
             target.use_split_col = source.use_split_col;
             target.solver = source.solver;
             target.lambda_scaling = source.lambda_scaling;
+            target.conditioning = source.conditioning;
             PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
@@ -358,6 +364,7 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
+        state.conditioning.ToFFI(options);
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -390,9 +397,13 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &yhat_upper_vec = StructEntry(struct_entries[3]);
         auto &is_training_vec = StructEntry(struct_entries[4]);
 
+        // The lambda the fit used (conditioning-aware lambda, #305).
+
+        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict_agg");
+
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
-                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha));
+                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? ridge_lambda * (double)core_result.n_observations : ridge_lambda));
         // Every row's prediction in one batched call (#268).
         const auto preds = PredictAllRows(intervals, state);
         for (idx_t row = 0; row < n_rows; row++) {
@@ -434,7 +445,8 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+            RidgeConditioningOpt::WithKeys(
+                {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"}));
         if (opts.GetRegularizationStrength().has_value()) {
             result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
@@ -453,6 +465,7 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
         if (opts.lambda_scaling.has_value()) {
             result->lambda_scaling = opts.lambda_scaling.value();
         }
+        result->conditioning.Apply(opts, "ridge_fit_predict_agg");
     }
 
     SetReturnTypeOf(function, GetRidgePredictAggResultType());
@@ -470,7 +483,8 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "ridge_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+            RidgeConditioningOpt::WithKeys(
+                {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"}));
         if (opts.GetRegularizationStrength().has_value()) {
             result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
@@ -489,6 +503,7 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
         if (opts.lambda_scaling.has_value()) {
             result->lambda_scaling = opts.lambda_scaling.value();
         }
+        result->conditioning.Apply(opts, "ridge_fit_predict_agg");
     }
 
     SetReturnTypeOf(function, GetRidgePredictAggResultType());

@@ -45,6 +45,7 @@ struct HuberFitBindData : public FunctionData {
     bool compute_inference = false;
     double confidence_level = 0.95;
     double epsilon = 1.35;
+    bool joint_scale = false; // scale_method = joint (#305)
     double alpha = 0.0001;
     uint32_t max_iterations = 100;
     double tolerance = 1e-5;
@@ -55,6 +56,7 @@ struct HuberFitBindData : public FunctionData {
         result->compute_inference = compute_inference;
         result->confidence_level = confidence_level;
         result->epsilon = epsilon;
+        result->joint_scale = joint_scale;
         result->alpha = alpha;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
@@ -64,7 +66,7 @@ struct HuberFitBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<HuberFitBindData>();
         return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level && epsilon == other.epsilon && alpha == other.alpha &&
+               confidence_level == other.confidence_level && epsilon == other.epsilon && joint_scale == other.joint_scale && alpha == other.alpha &&
                max_iterations == other.max_iterations && tolerance == other.tolerance;
     }
 };
@@ -76,7 +78,7 @@ static unique_ptr<FunctionData> HuberFitBind(ClientContext &context, ScalarBindF
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "huber_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon"});
+            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "scale_method"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -88,6 +90,9 @@ static unique_ptr<FunctionData> HuberFitBind(ClientContext &context, ScalarBindF
         }
         if (opts.epsilon.has_value()) {
             result->epsilon = opts.epsilon.value();
+        }
+        if (opts.huber_joint_scale.has_value()) {
+            result->joint_scale = opts.huber_joint_scale.value();
         }
         if (opts.alpha.has_value()) {
             result->alpha = opts.alpha.value();
@@ -177,6 +182,7 @@ static void HuberFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
 
         AnofoxHuberOptions options;
         options.epsilon = bind_data.epsilon;
+        options.joint_scale = bind_data.joint_scale;
         options.alpha = bind_data.alpha;
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;

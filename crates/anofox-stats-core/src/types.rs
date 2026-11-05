@@ -329,6 +329,11 @@ pub struct RidgeOptions {
     /// SVD of the design, so only the fit entry points that report them turn
     /// it on.
     pub compute_loo: bool,
+    /// Conditioning-aware λ (#305): `Some((lambda_small, cond_threshold))` fits
+    /// with `lambda_small` when `κ(XᵀX) ≤ cond_threshold` and with `alpha`
+    /// otherwise (upstream `RidgeRegressorBuilder::conditioning_aware`). `None`
+    /// (the default) always uses `alpha`.
+    pub conditioning: Option<(f64, f64)>,
 }
 
 impl Default for RidgeOptions {
@@ -341,6 +346,7 @@ impl Default for RidgeOptions {
             solver: SolverType::Qr,
             lambda_scaling: LambdaScaling::Raw,
             compute_loo: false,
+            conditioning: None,
         }
     }
 }
@@ -425,6 +431,10 @@ pub struct HuberOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals.
     pub confidence_level: f64,
+    /// Estimate the scale jointly with the coefficients (scikit-learn's
+    /// `HuberRegressor`, upstream `HuberScale::Joint`, #305) instead of the
+    /// default MAD re-estimation of `MASS::rlm`.
+    pub joint_scale: bool,
 }
 
 impl Default for HuberOptions {
@@ -437,6 +447,7 @@ impl Default for HuberOptions {
             tolerance: 1e-5,
             compute_inference: false,
             confidence_level: 0.95,
+            joint_scale: false,
         }
     }
 }
@@ -957,6 +968,9 @@ pub struct QuantileOptions {
     pub max_iterations: u32,
     /// Convergence tolerance
     pub tolerance: f64,
+    /// L1 penalty on the slopes (scikit-learn's `QuantileRegressor(alpha)`,
+    /// #305); 0 (the default) is the unpenalized `quantreg::rq` fit.
+    pub alpha: f64,
 }
 
 impl Default for QuantileOptions {
@@ -966,6 +980,7 @@ impl Default for QuantileOptions {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            alpha: 0.0,
         }
     }
 }

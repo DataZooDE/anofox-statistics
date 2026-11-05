@@ -103,6 +103,25 @@ needs `greybox` and (re)writes `lowess_reference.test` (`lowess_agg`, `lowess_by
 against `stats::lowess`) and `lm_dynamic_reference.test` (`lm_dynamic_fit_agg`
 against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 
+## `make_reference_option_passthroughs.py` and `make_reference_option_passthroughs.R`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_option_passthroughs.py
+Rscript validation/generators/make_reference_option_passthroughs.R
+```
+
+The option pass-throughs of #305. The first (re)writes
+`option_passthroughs_sklearn.test`: `quantile_fit_agg` / `quantile_fit_predict_agg`
+with `alpha` against `QuantileRegressor(alpha, solver="highs")`, and
+`huber_fit_agg` / `huber_fit` / `huber_fit_predict_agg` with
+`scale_method = 'joint'` against `HuberRegressor` (`coef_`, `intercept_`, `scale_`,
+`outliers_`). The second needs `statmod`, `lme4` and `tweedie` and (re)writes
+`option_passthroughs_r.test`: `poisson_fit_agg` / `gamma_fit_agg` /
+`tweedie_fit_agg` with prior weights against `glm(weights = w)` (Tweedie via
+`statmod::tweedie`), `glmm_fit_agg` with `n_agq` 1 and 5 against
+`glmer(nAGQ = k)`, and `ridge_fit_agg` with conditioning-aware lambda against
+closed-form ridge on the centred design.
+
 ## Other generators
 
 `make_reference_tests.R` / `make_reference_tests.py` produce the

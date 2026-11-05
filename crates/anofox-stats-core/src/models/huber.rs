@@ -7,7 +7,7 @@
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{FitResult, FitResultCore, HuberOptions, ModelSummary};
 use anofox_regression::core::HasModelInfo;
-use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
+use anofox_regression::solvers::{FittedRegressor, HuberRegressor, HuberScale, Regressor};
 use faer::{Col, Mat};
 
 /// Huber regression fit, bundling the standard `FitResult` with the
@@ -90,6 +90,11 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
         .tolerance(options.tolerance)
         .compute_inference(options.compute_inference)
         .confidence_level(options.confidence_level)
+        .scale_method(if options.joint_scale {
+            HuberScale::Joint
+        } else {
+            HuberScale::Mad
+        })
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
