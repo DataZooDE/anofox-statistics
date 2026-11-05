@@ -107,13 +107,13 @@ SELECT 'clark_west_agg', typeof(clark_west_agg(v, x, y)) FROM tt UNION ALL
 SELECT 'tost_t_test_agg', typeof(tost_t_test_agg(v, g2)) FROM tt UNION ALL
 SELECT 'tost_paired_agg', typeof(tost_paired_agg(x, y)) FROM tt UNION ALL
 SELECT 'tost_correlation_agg', typeof(tost_correlation_agg(x, y)) FROM tt UNION ALL
-SELECT 'tost_one_sample_agg', typeof(tost_one_sample_agg(v)) FROM tt UNION ALL
-SELECT 'tost_prop_one_agg', typeof(tost_prop_one_agg(b1)) FROM tt UNION ALL
-SELECT 'tost_prop_two_agg', typeof(tost_prop_two_agg(b1, g2)) FROM tt UNION ALL
-SELECT 'tost_wilcoxon_paired_agg', typeof(tost_wilcoxon_paired_agg(x, y)) FROM tt UNION ALL
-SELECT 'tost_wilcoxon_agg', typeof(tost_wilcoxon_agg(v, g2)) FROM tt UNION ALL
-SELECT 'tost_yuen_agg', typeof(tost_yuen_agg(v, g2)) FROM tt UNION ALL
-SELECT 'tost_bootstrap_agg', typeof(tost_bootstrap_agg(v, g2)) FROM tt UNION ALL
+SELECT 'tost_one_sample_agg', typeof(tost_one_sample_agg(v, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_prop_one_agg', typeof(tost_prop_one_agg(b1, {'delta': 0.1})) FROM tt UNION ALL
+SELECT 'tost_prop_two_agg', typeof(tost_prop_two_agg(b1, g2, {'delta': 0.1})) FROM tt UNION ALL
+SELECT 'tost_wilcoxon_paired_agg', typeof(tost_wilcoxon_paired_agg(x, y, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_wilcoxon_agg', typeof(tost_wilcoxon_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_yuen_agg', typeof(tost_yuen_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_bootstrap_agg', typeof(tost_bootstrap_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
 SELECT 'binom_test_agg', typeof(binom_test_agg(b1)) FROM tt UNION ALL
 SELECT 'prop_test_one_agg', typeof(prop_test_one_agg(b1)) FROM tt UNION ALL
 SELECT 'prop_test_two_agg', typeof(prop_test_two_agg(b1, g2)) FROM tt UNION ALL

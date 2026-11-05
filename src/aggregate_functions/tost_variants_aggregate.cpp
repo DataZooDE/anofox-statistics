@@ -40,8 +40,6 @@ enum TostVariant : int {
 
 struct TostVariantSpec {
 	const char *name;
-	//! Symmetric bound used when the options give none (the core's default).
-	double default_delta;
 	//! Option keys beyond the bounds / alpha / confidence_level.
 	vector<string> extra_keys;
 	//! Smallest sample (per group / pairs) that the core accepts; smaller is NULL.
@@ -52,28 +50,28 @@ struct TostVariantSpec {
 
 const TostVariantSpec &Spec(int kind) {
 	static const TostVariantSpec specs[] = {
-	    {"tost_one_sample_agg", 0.5, {"mu"}, 2,
+	    {"tost_one_sample_agg", {"mu"}, 2,
 	     "Tests whether a mean is equivalent to mu using the Two One-Sided Tests (TOST) procedure with a one-sample "
 	     "t-test.",
 	     "tost_one_sample_agg(value, {'mu': 0.0, 'delta': 0.5})"},
-	    {"tost_wilcoxon_paired_agg", 0.5, {}, 3,
+	    {"tost_wilcoxon_paired_agg", {}, 3,
 	     "Tests whether the pseudo-median of paired differences is equivalent to zero using TOST with shifted "
 	     "Wilcoxon signed-rank tests.",
 	     "tost_wilcoxon_paired_agg(x, y, {'delta': 0.5})"},
-	    {"tost_wilcoxon_agg", 0.5, {}, 3,
+	    {"tost_wilcoxon_agg", {}, 3,
 	     "Tests whether the location shift of two groups is equivalent to zero using TOST with shifted Wilcoxon "
 	     "rank-sum tests.",
 	     "tost_wilcoxon_agg(value, group_id, {'delta': 0.5})"},
-	    {"tost_yuen_agg", 0.5, {"trim"}, 4,
+	    {"tost_yuen_agg", {"trim"}, 4,
 	     "Tests whether two trimmed means are equivalent using TOST with Yuen's test.",
 	     "tost_yuen_agg(value, group_id, {'delta': 0.5, 'trim': 0.2})"},
-	    {"tost_bootstrap_agg", 0.5, {"n_bootstrap", "seed"}, 3,
+	    {"tost_bootstrap_agg", {"n_bootstrap", "seed"}, 3,
 	     "Tests whether two means are equivalent using a percentile-bootstrap TOST.",
 	     "tost_bootstrap_agg(value, group_id, {'delta': 0.5, 'n_bootstrap': 2000, 'seed': 42})"},
-	    {"tost_prop_one_agg", 0.1, {"p0"}, 1,
+	    {"tost_prop_one_agg", {"p0"}, 1,
 	     "Tests whether a proportion is equivalent to p0 using TOST with z-tests (normal approximation).",
 	     "tost_prop_one_agg(success, {'p0': 0.5, 'delta': 0.1})"},
-	    {"tost_prop_two_agg", 0.1, {}, 1,
+	    {"tost_prop_two_agg", {}, 1,
 	     "Tests whether two proportions are equivalent using TOST with z-tests (normal approximation).",
 	     "tost_prop_two_agg(success, group_id, {'delta': 0.1})"},
 	};
@@ -160,17 +158,26 @@ unique_ptr<FunctionData> TostVariantBind(ClientContext &context, AggregateBindFu
 	const auto &spec = Spec(KIND);
 	SetReturnTypeOf(function, GetTostVariantResultType());
 	auto bind_data = make_uniq<TostVariantBindData>();
-	bind_data->bound_lower = -spec.default_delta;
-	bind_data->bound_upper = spec.default_delta;
 	if (KIND == TOST_PROP_ONE) {
 		bind_data->mu = 0.5;
 	}
 
 	// The options are the last argument: (value [, group | y], options).
 	const idx_t n_data_args = (KIND == TOST_ONE_SAMPLE || KIND == TOST_PROP_ONE) ? 1 : 2;
-	if (arguments.size() > n_data_args) {
+	// Equivalence bounds are a substantive choice: no default (#293).
+	const auto require_bounds = [&]() {
+		throw InvalidInputException(
+		    "%s: equivalence bounds are required: set 'delta' or 'bound_lower'/'bound_upper'", spec.name);
+	};
+	if (arguments.size() <= n_data_args) {
+		require_bounds();
+	}
+	{
 		Value options_val = EvaluateConstantOptions(context, *arguments[n_data_args], spec.name);
 		auto opts = TostVariantMapOptions::ParseFromValue(options_val, spec.name, spec.extra_keys);
+		if (!opts.delta.has_value() && !(opts.bound_lower.has_value() && opts.bound_upper.has_value())) {
+			require_bounds();
+		}
 		if (opts.bound_lower.has_value()) {
 			bind_data->bound_lower = opts.bound_lower.value();
 		}
@@ -465,6 +472,8 @@ void RegisterTostVariant(ExtensionLoader &loader, const vector<LogicalType> &dat
 		if (with_options) {
 			args.push_back(LogicalType::ANY);
 		}
+		// The overload without options exists only to raise the "bounds are
+		// required" error instead of a generic binder error.
 		func_set.AddFunction(MakeTostVariant<KIND>(args));
 		if (group_arg >= 0) {
 			args[group_arg] = LogicalType::VARCHAR;
@@ -487,14 +496,6 @@ void RegisterTostVariant(ExtensionLoader &loader, const vector<LogicalType> &dat
 	d1.parameter_types = doc_types;
 	d1.parameter_types.push_back(LogicalType::ANY);
 	info.descriptions.push_back(std::move(d1));
-	FunctionDescription d2;
-	d2.description = string(spec.description) + " Uses default options.";
-	string bare = spec.example;
-	d2.examples = {bare.substr(0, bare.find(", {")) + ")"};
-	d2.categories = {"hypothesis-testing", "equivalence"};
-	d2.parameter_names = data_names;
-	d2.parameter_types = doc_types;
-	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(std::move(info));
 }
 

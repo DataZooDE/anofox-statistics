@@ -1248,13 +1248,13 @@ FROM reg_data;
 | `tost_t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `delta` (symmetric bound), `bound_lower`, `bound_upper`, `confidence_level`, `kind` | `t_lower, t_upper, p_lower, p_upper, p_value, df, estimate, ci_lower, ci_upper, bound_lower, bound_upper, equivalent, n, method` |
 | `tost_paired_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `delta`, `bound_lower` (-0.5), `bound_upper` (0.5), `alpha` (0.05) | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
 | `tost_correlation_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `rho_null` (0), `delta`, `bound_lower` (-0.1), `bound_upper` (0.1), `alpha`, `method` ('pearson' or 'spearman') | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
-| `tost_one_sample_agg` | `(value DOUBLE [, options])` | `mu` (0), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_prop_one_agg` | `(success BIGINT [, options])` | `p0` (0.5), `delta` (0.1), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_prop_two_agg` | `(success BIGINT, group_id BIGINT\|VARCHAR [, options])` | `delta` (0.1), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_wilcoxon_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_wilcoxon_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_yuen_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `trim` (0.2), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
-| `tost_bootstrap_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `n_bootstrap` (10000), `seed` (42), `delta` (0.5), `bound_lower`, `bound_upper`, `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_one_sample_agg` | `(value DOUBLE [, options])` | `mu` (0), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_one_agg` | `(success BIGINT [, options])` | `p0` (0.5), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_two_agg` | `(success BIGINT, group_id BIGINT\|VARCHAR [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_yuen_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `trim` (0.2), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_bootstrap_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `n_bootstrap` (10000), `seed` (42), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
 
 ```sql
 SELECT (tost_t_test_agg(y, grp2, {'delta': 2.0})).equivalent AS equivalent_means,

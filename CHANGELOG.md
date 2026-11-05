@@ -15,8 +15,9 @@ Breaking changes are called out explicitly.
 - **The remaining TOST equivalence tests (#293):** `tost_one_sample_agg`, `tost_prop_one_agg`,
   `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg` and
   `tost_bootstrap_agg` (anofox-statistics `equivalence`), with the `tost_t_test_agg` result
-  STRUCT. Two-group variants take any two BIGINT or VARCHAR labels; the bootstrap is seeded
-  (default 42) and independent of row order.
+  STRUCT. The equivalence bounds are required (`delta` or both `bound_lower` / `bound_upper`;
+  no default, unlike the older TOST aggregates). Two-group variants take any two BIGINT or
+  VARCHAR labels; the bootstrap is seeded (default 42) and independent of row order.
 
 ### Fixed
 

@@ -341,8 +341,8 @@ Yuen < 4 per group, bootstrap < 3 per group, no trials) gives NULL.
 **Options:**
 | Key | Applies to | Default | Description |
 |-----|-----------|---------|-------------|
-| delta (alias `equivalence_bound`) | all | 0.5 (proportions 0.1) | Symmetric bounds `[-delta, delta]`; overrides the explicit bounds |
-| bound_lower / bound_upper (aliases `lower`/`low`, `upper`/`high`) | all | `-delta`, `delta` | Asymmetric bounds (raw units; proportions within [-1, 1]) |
+| delta (alias `equivalence_bound`) | all | required* | Symmetric bounds `[-delta, delta]`; overrides the explicit bounds |
+| bound_lower / bound_upper (aliases `lower`/`low`, `upper`/`high`) | all | required* | Asymmetric bounds (raw units; proportions within [-1, 1]); give both |
 | alpha | all | 0.05 | Level of each one-sided test, in (0, 0.5) |
 | confidence_level | all | 0.95 | Alternative to alpha: `alpha = 1 - confidence_level` |
 | mu | `tost_one_sample_agg` | 0.0 | Hypothesised mean |
@@ -350,6 +350,11 @@ Yuen < 4 per group, bootstrap < 3 per group, no trials) gives NULL.
 | trim (aliases `trim_proportion`, `tr`) | `tost_yuen_agg` | 0.2 | Proportion trimmed from each tail, in [0, 0.5) |
 | n_bootstrap (aliases `bootstrap_samples`, `n_boot`) | `tost_bootstrap_agg` | 10000 | Resamples (at least 100) |
 | seed (alias `random_state`) | `tost_bootstrap_agg` | 42 | RNG seed; the result is reproducible and independent of row order |
+
+\* The equivalence bounds have no default: these seven functions raise an error
+unless `delta` or both `bound_lower` and `bound_upper` are given. (The older
+`tost_t_test_agg`, `tost_paired_agg` and `tost_correlation_agg` keep their
+default bounds.)
 
 **Example:**
 ```sql
