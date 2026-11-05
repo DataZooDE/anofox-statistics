@@ -267,6 +267,7 @@ WHERE function_name LIKE '%\_augment\_by' ESCAPE '\'
 ORDER BY function_name
 ----
 binomial_augment_by	obs	1
+cox_augment_by	obs	1
 gamma_augment_by	obs	1
 glmm_augment_by	obs	1
 logistic_augment_by	obs	1

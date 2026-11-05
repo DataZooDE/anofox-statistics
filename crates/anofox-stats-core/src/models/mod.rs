@@ -7,6 +7,7 @@ mod augment;
 mod bayesian;
 mod bls;
 mod cluster;
+mod cox;
 mod eb_shrink;
 mod elasticnet;
 mod glm;
@@ -53,6 +54,10 @@ pub use bayesian::{
 };
 pub use bls::{fit_bls, fit_nnls};
 pub use cluster::{fit_ols_cluster, fit_wls_cluster, ClusterFit, ClusterSpec};
+pub use cox::{
+    cox_survival_curve, fit_cox, CoxAugment, CoxModel, CoxRows, CoxSpec, CoxSummary, CoxTies,
+    ZphTransform,
+};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};
 pub use elasticnet::fit_elasticnet;
 pub use glm::{

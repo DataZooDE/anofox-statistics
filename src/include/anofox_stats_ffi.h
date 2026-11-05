@@ -4559,6 +4559,119 @@ bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y
                                 bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
                                 double *out_upper, double *out_intercept, AnofoxError *out_error);
 
+/* ============================================================================
+ * Cox proportional hazards regression -- issue #312 (crates/anofox-stats-ffi/src/cox_ffi.rs)
+ * ============================================================================ */
+
+/** Options of a Cox fit. ties: 0 Efron, 1 Breslow. zph_transform (anofox_cox_zph only):
+ * 0 km, 1 rank, 2 identity, 3 log. */
+typedef struct {
+	double tolerance;
+	double ridge;
+	double confidence_level;
+	uint32_t max_iterations;
+	int32_t ties;
+	int32_t zph_transform;
+	bool timefix;
+	bool robust;
+} AnofoxCoxOptions;
+
+/** Rows of a Cox fit; x column-major (n_rows * n_features), optional columns NULL when absent.
+ * Rows with a non-finite value in any column are left out. */
+typedef struct {
+	const double *time;
+	const double *event;
+	const double *x;
+	const double *weights;
+	const double *entry;
+	const double *offset;
+	const double *strata;
+	const double *cluster;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxCoxData;
+
+/** A fitted Cox model (release with anofox_free_cox_fit_result). vcov is n_features^2, row-major;
+ * the baseline is the cumulative hazard at covariates 0 per stratum (stratum NaN unstratified). */
+typedef struct {
+	double *coefficients;
+	double *std_errors;
+	double *naive_std_errors;
+	double *z_values;
+	double *p_values;
+	double *conf_low;
+	double *conf_high;
+	double *hazard_ratios;
+	double *hr_conf_low;
+	double *hr_conf_high;
+	double *vcov;
+	size_t n_features;
+	double *baseline_stratum;
+	double *baseline_time;
+	double *baseline_cumhaz;
+	size_t n_baseline;
+	double log_likelihood;
+	double null_log_likelihood;
+	double lr_statistic;
+	double lr_p_value;
+	double wald_statistic;
+	double wald_p_value;
+	double score_statistic;
+	double score_p_value;
+	double concordance;
+	double r_squared;
+	double aic;
+	double bic;
+	double confidence_level;
+	size_t df;
+	size_t n_observations;
+	size_t n_events;
+	size_t n_strata;
+	size_t iterations;
+	bool converged;
+	bool robust;
+	AnofoxModelSummaryFFI summary;
+} AnofoxCoxFitResult;
+
+/** Proportional-hazards tests, one per covariate and the global test last (len = n_features + 1). */
+typedef struct {
+	double *chisq;
+	double *df;
+	double *p_value;
+	size_t len;
+} AnofoxCoxZphResult;
+
+/** Per-input-row results (NaN for rows left out); *_mat are n_rows * n_features, row-major. */
+typedef struct {
+	double *linear_predictor;
+	double *risk;
+	double *martingale;
+	double *deviance;
+	double *stratum;
+	double *score_mat;
+	double *dfbeta_mat;
+	double *dfbetas_mat;
+	double *schoenfeld_mat;
+	double *scaled_schoenfeld_mat;
+	bool *is_training;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxCoxAugmentResult;
+
+bool anofox_cox_fit(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxFitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_cox_fit_result(AnofoxCoxFitResult *result);
+bool anofox_cox_zph(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxZphResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_cox_zph_result(AnofoxCoxZphResult *result);
+bool anofox_cox_augment(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxAugmentResult *out_result,
+                        AnofoxError *out_error);
+void anofox_free_cox_augment_result(AnofoxCoxAugmentResult *result);
+/** S(t | x) at n_times times from the stored baseline (exp(-H0(t) exp(x'beta))). */
+bool anofox_cox_survival(const double *coefficients, size_t n_coefficients, const double *base_time,
+                         const double *base_cumhaz, size_t n_baseline, const double *x, const double *times,
+                         size_t n_times, double *out_survival);
+
 #ifdef __cplusplus
 }
 #endif

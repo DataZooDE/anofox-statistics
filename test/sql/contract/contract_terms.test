@@ -71,7 +71,7 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms' AND tags['anofox.contract'] = '1'
 ----
-32
+33
 
 query I
 SELECT list(function_name ORDER BY function_name) FROM (SELECT DISTINCT function_name FROM duckdb_functions()

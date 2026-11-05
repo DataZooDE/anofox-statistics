@@ -1,0 +1,178 @@
+# name: test/sql/survival/test_cox_edge.test
+# description: Cox PH (#312): NULL handling, degenerate data, invalid options and the scalar's errors
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE c AS SELECT i, (1 + (i * 37 % 50))::DOUBLE AS t, ((i * 13) % 3 <> 0)::DOUBLE AS ev,
+    (i % 5)::DOUBLE AS x1, ((i * 7) % 11)::DOUBLE / 3 AS x2, (i % 2)::DOUBLE AS s
+FROM range(60) r(i);
+
+# ==== Degenerate data: NULL, never NaN ====
+# every row censored
+query I
+SELECT cox_fit_agg(t, [x1], 0.0) IS NULL FROM c;
+----
+true
+
+# empty input
+query I
+SELECT cox_fit_agg(t, [x1], ev) IS NULL FROM c WHERE false;
+----
+true
+
+# a constant covariate: singular information
+query I
+SELECT cox_fit_agg(t, [1.0], ev) IS NULL FROM c;
+----
+true
+
+query I
+SELECT cox_zph_agg(t, [x1], 0.0) IS NULL FROM c;
+----
+true
+
+# empty groups of a GROUP BY: one NULL per group whose rows are all censored
+query II
+SELECT s, cox_fit_agg(t, [x1], CASE WHEN s = 0 THEN 0.0 ELSE ev END) IS NULL FROM c GROUP BY s ORDER BY s;
+----
+0.0	true
+1.0	false
+
+# ==== NULL handling: rows with a NULL / non-finite time, event, x list or x element are left out ====
+query II
+SELECT (cox_fit_agg(t, x, ev)).n_observations, (cox_fit_agg(t, x, ev)).coefficients = (SELECT (cox_fit_agg(t, [x1], ev)).coefficients FROM c)
+FROM (SELECT t, [x1] AS x, ev FROM c
+      UNION ALL SELECT NULL, [1.0], 1.0
+      UNION ALL SELECT 3.0, NULL, 1.0
+      UNION ALL SELECT 3.0, [NULL::DOUBLE], 1.0
+      UNION ALL SELECT 3.0, [1.0], NULL
+      UNION ALL SELECT 'nan'::DOUBLE, [1.0], 1.0);
+----
+60	true
+
+# a NULL case weight drops the row
+query I
+SELECT (cox_fit_agg(t, [x1], ev, w)).n_observations
+FROM (SELECT t, x1, ev, CASE WHEN i < 5 THEN NULL ELSE 1.0 END AS w FROM c);
+----
+55
+
+# augment keeps every row: dropped rows get NULLs and is_training = false
+query III
+SELECT count(*), count(fitted), count(*) FILTER (WHERE NOT is_training)
+FROM cox_augment_by('c', s, t, [x1], CASE WHEN i < 3 THEN NULL ELSE ev END);
+----
+60	57	3
+
+# ==== Invalid input: errors ====
+statement error
+SELECT cox_fit_agg(t, [x1], 2.0) FROM c;
+----
+must be 0 (censored) or 1 (event)
+
+statement error
+SELECT cox_fit_agg(t, x, ev) FROM (SELECT 1.0 t, [1.0] x, 1.0 ev UNION ALL SELECT 2.0, [1.0, 2.0], 1.0);
+----
+nconsistent feature count
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'ties': 'exact'}) FROM c;
+----
+unknown ties 'exact'
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'bogus': 1}) FROM c;
+----
+unknown option 'bogus'
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'ridge': -1}) FROM c;
+----
+ridge must be finite and >= 0
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'confidence_level': 1.5}) FROM c;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'max_iterations': 0}) FROM c;
+----
+max_iterations must be between 1 and 1000000
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'offset': 3}) FROM c;
+----
+option column 3 is beyond the 1 columns of x
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'offset': 0.5}) FROM c;
+----
+must be a 1-based position in x
+
+statement error
+SELECT cox_fit_agg(t, [x1, s], ev, {'offset': 2, 'strata': 2}) FROM c;
+----
+must name different columns of x
+
+statement error
+SELECT cox_fit_agg(t, [s], ev, {'strata': 1}) FROM c;
+----
+needs at least one covariate
+
+statement error
+SELECT cox_fit_agg(t, [x1, t], ev, {'entry': 2}) FROM c;
+----
+entry must be finite and before the stop time
+
+statement error
+SELECT cox_fit_agg(t, [x1], ev, MAP {'ties': x1::VARCHAR}) FROM c;
+----
+options must be a constant
+
+# transform is a cox_zph_agg option only
+statement error
+SELECT cox_fit_agg(t, [x1], ev, {'transform': 'km'}) FROM c;
+----
+unknown option 'transform'
+
+statement error
+SELECT cox_zph_agg(t, [x1], ev, {'transform': 'sqrt'}) FROM c;
+----
+unknown transform 'sqrt'
+
+# ==== cox_survival ====
+query I
+SELECT cox_survival(NULL, [1.0], [1.0]) IS NULL;
+----
+true
+
+statement error
+SELECT cox_survival({'a': 1}, [1.0], [1.0]);
+----
+model has no 'coefficients' field
+
+statement error
+SELECT cox_survival(m, [1.0, 2.0], [1.0]) FROM (SELECT cox_fit_agg(t, [x1], ev) m FROM c);
+----
+x has 2 values but the model has 1 coefficients
+
+statement error
+SELECT cox_survival(m, [1.0], [1.0]) FROM (SELECT cox_fit_agg(t, [x1, s], ev, {'strata': 2}) m FROM c);
+----
+the model is stratified; pass the stratum
+
+statement error
+SELECT cox_survival(m, [1.0], [1.0], 7) FROM (SELECT cox_fit_agg(t, [x1, s], ev, {'strata': 2}) m FROM c);
+----
+the model has no stratum 7
+
+# S = 1 before the first time, a NULL time gives a NULL, the last value is carried forward
+query III
+SELECT r[1].surv, r[2].surv IS NULL, r[3].surv = r[4].surv
+FROM (SELECT cox_survival(m, [1.0], [0.5, NULL, 1e6, 1e9], 1) AS r
+      FROM (SELECT cox_fit_agg(t, [x1, s], ev, {'strata': 2}) m FROM c));
+----
+1.0	true	true

@@ -121,6 +121,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterOlsAnovaTableAggregateFunction(loader);
     RegisterGlmmAggregateFunction(loader);
     RegisterAftScalarFunctions(loader);
+    RegisterCoxFunctions(loader);
     RegisterBinomialAggregateFunction(loader);
     RegisterNegBinomAggregateFunction(loader);
     RegisterTweedieAggregateFunction(loader);

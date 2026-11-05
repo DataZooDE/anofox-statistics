@@ -121,6 +121,7 @@ fitted model struct).
 | Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
+| Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_augment_agg` | `cox_fit_by`, `cox_tidy_by` (`terms`), `cox_glance_by` (`summary`), `cox_augment_by` (`obs`), scalar `cox_survival` | [Cox](api/survival/cox.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
@@ -2302,7 +2303,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 - **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [Bayesian Ridge / ARD](api/regression/bayesian.md) | [Passive-Aggressive / lmDynamic / LOWESS](api/regression/online_dynamic.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md) | [LS states](api/regression/ls_state.md)
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
-- **Survival:** [AFT](api/survival/aft.md)
+- **Survival:** [AFT](api/survival/aft.md) | [Cox PH](api/survival/cox.md)
 - **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md) | [Mediation](api/statistics/mediation.md)
 - **Demand:** [AID](api/aid/aid.md)
 - **Diagnostics:** [Model diagnostics](api/diagnostics/diagnostics.md)
