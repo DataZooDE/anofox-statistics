@@ -103,6 +103,12 @@ Breaking changes are called out explicitly.
 
 - The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
   (it had no SQL caller before #293).
+- **`wls_fit_agg` with `hc_type` and no cluster ignored the weights (behaviour change).** The
+  heteroskedasticity-consistent standard errors came from the unweighted residuals; they are
+  now `sandwich::vcovHC(lm(..., weights = w), type = "HC0".."HC3")`, computed by
+  anofox-regression's weighted sandwich (`FittedWls::cluster_vcov` with one cluster per
+  row). The F test stays the classical one. Reference values in
+  `test/sql/reference/wls_hc.test`. The `wls_fit` table function shares the fix.
 ### Added
 
 - **`two_way_anova_agg` and `repeated_measures_anova_agg`** (#297). `two_way_anova_agg(y,
@@ -110,11 +116,12 @@ Breaking changes are called out explicitly.
   factor B, interaction) with Type III sums of squares, matching R's `car::Anova(type = 3)`
   with sum contrasts (= `aov()` for balanced designs). `repeated_measures_anova_agg(y,
   subject, condition[, {'sphericity': ...}])` returns the within-subjects F test (R's
-  `aov(y ~ condition + Error(subject / condition))`), Mauchly's sphericity test and the
-  Greenhouse-Geisser correction; subjects missing a condition are excluded and counted.
+  `aov(y ~ condition + Error(subject / condition))`), Mauchly's sphericity test (p-value as
+  `stats::mauchly.test`) and the Greenhouse-Geisser (`gg_*`) and Huynh-Feldt (`hf_*`:
+  Lecoutre-corrected epsilon capped at 1, df, p-value, as car / afex) corrections; subjects
+  missing a condition are excluded and counted.
   Labels can be BIGINT or VARCHAR. Both are computed by anofox-statistics
-  (`two_way_anova`, `repeated_measures_anova`). The Huynh-Feldt correction is not exposed
-  yet: the upstream epsilon disagrees with car / afex / ez.
+  (`two_way_anova`, `repeated_measures_anova`).
 
 ### Added
 
@@ -212,12 +219,31 @@ Breaking changes are called out explicitly.
 - **anofox-statistics 0.8.1** (from 0.7.0). Besides the fixes above (SPA / MCS, ICC2
   intervals, one-sided t intervals, joint residualization in the semi-partial correlation,
   `qwilcox` boundaries), the exact Wilcoxon / Mann-Whitney quantile behind the
-  Hodges-Lehmann intervals is exact at p = 0 / 1. Upstream's repeated-measures ANOVA
-  changes (Huynh-Feldt epsilon, Mauchly p-value) are not exposed in SQL.
+  Hodges-Lehmann intervals is exact at p = 0 / 1.
 - **`vif` / `vif_agg` delegate to anofox-regression** (`diagnostics::variance_inflation_factor`,
   #307) instead of computing the auxiliary regressions in the extension. Results are
   unchanged except that a VIF above 10^4 (auxiliary R^2 > 0.9999) is now reported as its
   finite value, as `car::vif` does, instead of `inf`.
+- **anofox-regression 0.11.1 and anofox-statistics 0.8.2** (patch releases; the
+  extension's workarounds for the upstream bugs are removed):
+  - **VIF / GVIF of aliased designs (behaviour change).** `vif`, `vif_agg` and `gvif_agg`
+    now report `inf` only for the aliased columns / terms (a constant column, an exact
+    linear dependency, every column when there are no more complete rows than columns);
+    the others keep their finite VIF on the span of the remaining columns, equal to
+    `car::vif` on the design without the aliased columns. Before, a constant column made
+    every GVIF `inf`. The extension's own small-design `inf` guard and its
+    `GVIF^(1/(2 df))` computation are gone (upstream `diagnostics::generalized_vif_terms`).
+  - **`val_prob_agg` with probabilities of exactly 0 or 1 (behaviour change).** `u`,
+    `u_chisq`, `u_p` and `q` are no longer NULL: they match `rms::val.prob` (a
+    probability of 0 for an event gives `u = inf`, `u_p = 0`, `q = -inf`). `lrm_stats_agg`
+    takes its `ess` from upstream `LrmStats::effective_sample_size` (same value).
+  - **`spa_test_agg` / `mspe_adjusted_spa_agg` when no model beats the benchmark
+    (behaviour change).** With `statistic = 0` all three p-values are now 1
+    (`P(T* >= T_SPA)`); before, `p_value_lower` / `p_value_consistent` came out near 0.
+  - **`repeated_measures_anova_agg`** gains the Huynh-Feldt fields `hf_epsilon`, `hf_df1`,
+    `hf_df2`, `hf_p_value` (after `gg_p_value`), and `mauchly_p_value` now includes the
+    second-order term of the chi-square approximation, as `stats::mauchly.test`
+    (anofox-statistics 0.8.1).
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).

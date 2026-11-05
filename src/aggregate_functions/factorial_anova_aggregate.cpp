@@ -11,7 +11,8 @@
 //   repeated_measures_anova_agg(y, subject, condition[, options])
 //     STRUCT of the within-subjects F test (R's aov(y ~ condition +
 //     Error(subject / condition))), Mauchly's sphericity test and the
-//     Greenhouse-Geisser correction. Options: sphericity (default true).
+//     Greenhouse-Geisser and Huynh-Feldt corrections. Options: sphericity
+//     (default true).
 //
 // Factors, subjects and conditions are BIGINT or VARCHAR labels. A row is
 // skipped when y is NULL or NaN or a label is NULL. The statistics are computed
@@ -295,7 +296,9 @@ const char *const RM_OWN_FIELDS[] = {"ss_condition", "ss_subjects",
                                      "mauchly_w",    "mauchly_statistic",
                                      "mauchly_df",   "mauchly_p_value",
                                      "gg_epsilon",   "gg_df1",
-                                     "gg_df2",       "gg_p_value"};
+                                     "gg_df2",       "gg_p_value",
+                                     "hf_epsilon",   "hf_df1",
+                                     "hf_df2",       "hf_p_value"};
 
 LogicalType RmAnovaResultType() {
 	child_list_t<LogicalType> c;
@@ -459,7 +462,8 @@ void RmFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vecto
 		SetBigint(StructEntry(fields[k++]), result_idx, static_cast<int64_t>(res.n_conditions));
 		SetBigint(StructEntry(fields[k++]), result_idx, static_cast<int64_t>(n_excluded));
 		for (double v : {res.mauchly_w, res.mauchly_chi_square, res.mauchly_df, res.mauchly_p_value, res.gg_epsilon,
-		                 res.gg_df1, res.gg_df2, res.gg_p_value}) {
+		                 res.gg_df1, res.gg_df2, res.gg_p_value, res.hf_epsilon, res.hf_df1, res.hf_df2,
+		                 res.hf_p_value}) {
 			SetDouble(StructEntry(fields[k++]), result_idx, v);
 		}
 	}

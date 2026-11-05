@@ -141,9 +141,9 @@ pub struct RmAnovaResult {
     /// None when fewer than 3 conditions or sphericity was not requested.
     pub mauchly: Option<MauchlyTest>,
     pub greenhouse_geisser: Option<SphericityCorrection>,
-    // The Huynh-Feldt correction is not passed on: anofox-statistics 0.7.0
-    // computes its epsilon with (n - 1) instead of n in the numerator, so it
-    // disagrees with car / afex / ez (see the PR of #297).
+    /// Huynh-Feldt correction (Lecoutre-corrected epsilon, capped at 1, as
+    /// car / afex / ez report it). None like `greenhouse_geisser`.
+    pub huynh_feldt: Option<SphericityCorrection>,
     /// Unified result of the uncorrected F test (n = number of subjects).
     pub unified: UnifiedTestResult,
 }
@@ -177,6 +177,7 @@ pub fn repeated_measures_anova(data: &[&[f64]], sphericity: bool) -> StatsResult
             .greenhouse_geisser
             .as_ref()
             .map(SphericityCorrection::from),
+        huynh_feldt: r.huynh_feldt.as_ref().map(SphericityCorrection::from),
         unified,
     })
 }

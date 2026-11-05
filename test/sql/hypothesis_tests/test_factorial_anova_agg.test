@@ -124,15 +124,20 @@ FROM (SELECT repeated_measures_anova_agg(y, subject, cond) AS r FROM rm WHERE st
 ----
 Repeated measures ANOVA	2.0	22.0	12	12	3	0
 
-# The sums of squares partition the total; the GG test uses epsilon-scaled df.
-query IIII
+# The sums of squares partition the total; the GG and HF tests use epsilon-scaled df,
+# and the HF epsilon lies between the GG epsilon and 1 (afex::aov_ez on this data:
+# HF eps 0.763479017954471, Pr(>F[HF]) 0.451675105995583).
+query IIIII
 SELECT abs(r.ss_condition + r.ss_subjects + r.ss_error - (SELECT var_samp(y) * 35 FROM rm WHERE study = 0)) < 1e-9,
        abs(r.statistic - r.ms_condition / r.ms_error) < 1e-9,
        abs(r.gg_df1 - r.gg_epsilon * r.df1) < 1e-9 AND abs(r.gg_df2 - r.gg_epsilon * r.df2) < 1e-9,
-       r.gg_epsilon BETWEEN 0.5 AND 1 AND r.mauchly_w BETWEEN 0 AND 1 AND r.mauchly_df = 2
+       r.gg_epsilon BETWEEN 0.5 AND 1 AND r.mauchly_w BETWEEN 0 AND 1 AND r.mauchly_df = 2,
+       abs(r.hf_df1 - r.hf_epsilon * r.df1) < 1e-9 AND abs(r.hf_df2 - r.hf_epsilon * r.df2) < 1e-9
+           AND r.hf_epsilon BETWEEN r.gg_epsilon AND 1
+           AND abs(r.hf_epsilon - 0.763479017954471) < 1e-9 AND abs(r.hf_p_value - 0.451675105995583) < 1e-9
 FROM (SELECT repeated_measures_anova_agg(y, subject, cond) AS r FROM rm WHERE study = 0);
 ----
-true	true	true	true
+true	true	true	true	true
 
 # All label types agree (labels are ordered by value, so up to rounding).
 query I
@@ -156,10 +161,11 @@ SELECT (SELECT repeated_measures_anova_agg(y, subject_label, cond_label) FROM (S
 ----
 true
 
-# sphericity := false drops Mauchly and Greenhouse-Geisser, the F test is unchanged.
+# sphericity := false drops Mauchly, Greenhouse-Geisser and Huynh-Feldt, the F test is unchanged.
 query III
-SELECT r0.mauchly_w IS NULL AND r0.mauchly_p_value IS NULL AND r0.gg_epsilon IS NULL AND r0.gg_p_value IS NULL,
-       r0.statistic = r1.statistic, r1.gg_p_value IS NOT NULL
+SELECT r0.mauchly_w IS NULL AND r0.mauchly_p_value IS NULL AND r0.gg_epsilon IS NULL AND r0.gg_p_value IS NULL
+           AND r0.hf_epsilon IS NULL AND r0.hf_df1 IS NULL AND r0.hf_df2 IS NULL AND r0.hf_p_value IS NULL,
+       r0.statistic = r1.statistic, r1.gg_p_value IS NOT NULL AND r1.hf_p_value IS NOT NULL
 FROM (SELECT repeated_measures_anova_agg(y, subject, cond, {'sphericity': false}) AS r0,
              repeated_measures_anova_agg(y, subject, cond, {'sphericity': true}) AS r1 FROM rm WHERE study = 0);
 ----

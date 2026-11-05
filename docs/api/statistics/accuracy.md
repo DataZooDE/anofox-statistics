@@ -70,8 +70,9 @@ The ROC area alone is also `auc_agg`, the Brier score alone `brier_agg`
   `logit P(y = 1) = intercept + slope · logit(prob)`, `emax` / `e90` / `eavg` of
   `|prob - lowess calibration curve|` and Spiegelhalter's `s_z` / `s_p`.
   Probabilities of exactly 0 or 1 are left out of the logistic calibration (as
-  R); `u`, `u_chisq`, `u_p` and `q` are then NULL (R keeps those rows in the
-  deviance of `U`, which gives `U = Inf` for a probability of 0 with outcome 1).
+  R) and kept in the deviance of `U` as R does: a probability of 0 for an event
+  gives `u = inf`, `u_chisq = inf`, `u_p = 0` and `q = -inf`, while a
+  probability of 1 for an event and 0 or 1 for a non-event drop out.
   Constant probabilities give `c = 0.5` and `slope = 0`, as R.
 - **`r2_measures`** is `1 - exp(-lr / n)` (Maddala / Cox-Snell) and the version
   adjusted for the `p` model d.f., `1 - exp(-max(lr - p, 0) / n)`; with `ess`,

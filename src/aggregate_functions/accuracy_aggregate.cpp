@@ -364,15 +364,6 @@ static void AccuracyFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			AnofoxValProbResult r;
 			ok = anofox_val_prob(b, a, &r, &error);
 			if (ok) {
-				// With a probability of exactly 0 or 1, upstream's U (and so Q) leaves those rows out of
-				// the deviance of the uncalibrated predictions while rms::val.prob keeps them (U = Inf
-				// for p = 0, y = 1). Withheld (NULL) until upstream follows R.
-				for (double p : state.b) {
-					if (p == 0.0 || p == 1.0) {
-						r.u = r.u_chisq = r.u_p = r.q = NAN;
-						break;
-					}
-				}
 				auto out = w();
 				for (double v : {r.dxy, r.c, r.r2, r.d, r.d_chisq, r.d_p, r.u, r.u_chisq, r.u_p, r.q, r.brier,
 				                 r.intercept, r.slope, r.emax, r.e90, r.eavg, r.s_z, r.s_p}) {

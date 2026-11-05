@@ -4,8 +4,8 @@
 
 use super::*;
 use anofox_stats_core::diagnostics::accuracy::{
-    concordance, effective_sample_size, gini_md, lrm_stats, r2_measures, rcorr_cens, somers2,
-    val_prob, CensoredConcordance, Concordance, LrmStats, R2Measures, Somers2, ValProb,
+    concordance, gini_md, lrm_stats, r2_measures, rcorr_cens, somers2, val_prob,
+    CensoredConcordance, Concordance, LrmStats, R2Measures, Somers2, ValProb,
 };
 
 /// Pair counts and rank indexes of `anofox_concordance`.
@@ -136,8 +136,8 @@ pub struct LrmStatsFFI {
     pub n: usize,
 }
 
-impl LrmStatsFFI {
-    fn new(r: &LrmStats, ess: f64) -> Self {
+impl From<&LrmStats> for LrmStatsFFI {
+    fn from(r: &LrmStats) -> Self {
         Self {
             sum_weights: r.sum_weights,
             model_lr: r.model_lr,
@@ -149,7 +149,7 @@ impl LrmStatsFFI {
             tau_a: r.tau_a,
             r2: r.r2,
             r2_measures: R2MeasuresFFI::from(&r.r2_measures),
-            ess,
+            ess: r.effective_sample_size,
             brier: r.brier,
             g: r.g,
             gr: r.gr,
@@ -377,19 +377,9 @@ pub unsafe extern "C" fn anofox_lrm_stats(
         if !check_out(out_result, out_error) {
             return false;
         }
-        let y = y.to_vec();
         let w = optional_weights(&weights);
-        let r = lrm_stats(&y, &lp.to_vec(), w.as_deref(), df);
-        // The effective sample size of R2(m) from the (weighted) class
-        // frequencies; on success the lengths are known to match.
-        let ess = |s: &LrmStats| {
-            let sw1: f64 = match &w {
-                Some(w) => y.iter().zip(w).map(|(y, w)| y * w).sum(),
-                None => y.iter().sum(),
-            };
-            effective_sample_size(s.sum_weights, &[s.sum_weights - sw1, sw1])
-        };
-        write_out(r, |s| LrmStatsFFI::new(&s, ess(&s)), out_result, out_error)
+        let r = lrm_stats(&y.to_vec(), &lp.to_vec(), w.as_deref(), df);
+        write_out(r, |s| LrmStatsFFI::from(&s), out_result, out_error)
     })
 }
 

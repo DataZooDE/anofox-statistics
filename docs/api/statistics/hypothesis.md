@@ -248,8 +248,9 @@ FROM (SELECT unnest(two_way_anova_agg(yield, fertilizer, irrigation,
 One-way repeated-measures ANOVA: compares the means of conditions measured on the same
 subjects (long format, one row per subject and condition). The F test is R's
 `summary(aov(y ~ condition + Error(subject / condition)))`. With three or more
-conditions it adds Mauchly's test of sphericity and the Greenhouse-Geisser corrected
-test (`gg_*`), as `afex::aov_ez` / `car::Anova` on the wide matrix report them.
+conditions it adds Mauchly's test of sphericity and the Greenhouse-Geisser (`gg_*`) and
+Huynh-Feldt (`hf_*`) corrected tests, as `afex::aov_ez` / `car::Anova` on the wide
+matrix report them.
 
 **Signature:**
 ```text
@@ -259,7 +260,7 @@ repeated_measures_anova_agg(y DOUBLE, subject BIGINT | VARCHAR, condition BIGINT
 **Options:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| sphericity | BOOLEAN | true | Compute Mauchly's test and the Greenhouse-Geisser correction |
+| sphericity | BOOLEAN | true | Compute Mauchly's test and the Greenhouse-Geisser and Huynh-Feldt corrections |
 
 **Returns:**
 ```
@@ -285,6 +286,10 @@ STRUCT(
     gg_df1 DOUBLE,
     gg_df2 DOUBLE,
     gg_p_value DOUBLE,           -- Greenhouse-Geisser corrected p-value
+    hf_epsilon DOUBLE,           -- Huynh-Feldt epsilon (Lecoutre-corrected, capped at 1)
+    hf_df1 DOUBLE,
+    hf_df2 DOUBLE,
+    hf_p_value DOUBLE,           -- Huynh-Feldt corrected p-value
     ... unified fields: effect_size is partial eta squared, n is n_subjects
 )
 ```
@@ -292,11 +297,12 @@ STRUCT(
 Subjects that lack a value for some condition are excluded (listwise, like afex and
 ez) and counted in `n_excluded_subjects`; a second value for the same subject and
 condition is an error (aggregate replicates first). The result is NULL with fewer than
-two complete subjects or two conditions. `mauchly_p_value` uses the chi-square
-approximation with Bartlett's correction factor; R's `mauchly.test` adds a
-second-order term, so its p-value differs slightly (W and the chi-square agree). The
-Huynh-Feldt correction is not reported yet: anofox-statistics 0.7.0 computes its
-epsilon differently from car / afex / ez.
+two complete subjects or two conditions. `mauchly_statistic` is the chi-square
+approximation with Bartlett's correction factor and `mauchly_p_value` includes its
+second-order term, as R's `mauchly.test`. `hf_epsilon` is the Huynh-Feldt epsilon with
+the Lecoutre (1991) correction, `(n p ε_GG - 2) / (p (n - 1 - p ε_GG))` with
+`p = k - 1`, capped at 1: car and afex print the uncapped value but compute the
+corrected p-value with the capped one, which `hf_p_value` matches.
 
 **Example:**
 ```sql
@@ -304,7 +310,8 @@ epsilon differently from car / afex / ez.
 -- (the spread grows with the condition, so sphericity is doubtful)
 SELECT round(r.statistic, 4) AS f, r.df1, r.df2, r.p_value,
        round(r.mauchly_w, 4) AS mauchly_w, round(r.mauchly_p_value, 4) AS mauchly_p,
-       round(r.gg_epsilon, 4) AS gg_epsilon, r.gg_p_value
+       round(r.gg_epsilon, 4) AS gg_epsilon, r.gg_p_value,
+       round(r.hf_epsilon, 4) AS hf_epsilon, r.hf_p_value
 FROM (SELECT repeated_measures_anova_agg(rt, participant, 'c' || condition) AS r
       FROM (SELECT i // 4 AS participant, i % 4 AS condition,
                    300 + (i % 4) * 6 + (i // 4) * 5 + (hash(i) % 1000) / 100.0 * (1 + i % 4) AS rt
@@ -1182,11 +1189,9 @@ worse) and `p_value_upper` (every model, White's Reality Check), so
 `p_value_lower <= p_value_consistent <= p_value_upper`. They match a base-R
 implementation of Hansen (2005) within Monte Carlo error.
 
-When no competitor has a lower average loss than the benchmark, `statistic` is 0
-and the test cannot reject; the lower and consistent p-values
-(`#{T* > T_SPA} / B`) are then degenerate (close to 0 when every model is clearly
-worse) and should not be read as a rejection. Check `statistic > 0` before
-reporting them; `p_value_upper` stays valid.
+The p-values are `P(T* >= T_SPA)` over the bootstrap replicates. When no
+competitor has a lower average loss than the benchmark, `statistic` is 0 and all
+three p-values are 1: the test does not reject.
 
 ```sql
 CREATE TABLE fc_losses AS

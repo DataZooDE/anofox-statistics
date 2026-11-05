@@ -65,7 +65,7 @@ pub unsafe extern "C" fn anofox_compute_gvif(
                     *dst = GvifTermFFI {
                         df: t.df as u64,
                         gvif: t.gvif,
-                        gvif_adj: t.gvif_adj,
+                        gvif_adj: t.adjusted_gvif,
                     };
                 }
                 *out_n_observations = r.n_observations;

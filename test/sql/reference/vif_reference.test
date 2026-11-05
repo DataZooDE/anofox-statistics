@@ -284,6 +284,59 @@ SELECT (gvif_agg([age, income, rb, e2]))[1].n_observations FROM vdirty;
 ----
 34
 
+# Aliased columns: inf for those, car::vif without them for the others
+# vif_agg with a constant column: car::vif(lm(y ~ age + income + rb)) and inf
+# vif_agg (constant column) vs car::vif without it
+query III
+SELECT
+    abs(((vif_agg([age, income, rb, 2.0]))[1]) - (6.8314535472876479)) <= 1e-08 * (1 + abs(6.8314535472876479)),
+    abs(((vif_agg([age, income, rb, 2.0]))[2]) - (6.8322536676901029)) <= 1e-08 * (1 + abs(6.8322536676901029)),
+    abs(((vif_agg([age, income, rb, 2.0]))[3]) - (1.000314149607239)) <= 1e-08 * (1 + abs(1.000314149607239))
+FROM vd;
+----
+true	true	true
+
+query II
+SELECT isinf((vif_agg([age, income, rb, 2.0]))[4]), isinf((vif([[1.0, 2.0, 3.0, 4.0], [5.0, 5.0, 5.0, 5.0]]))[2]) FROM vd;
+----
+true	true
+
+# Exact dependency dep = age + 2 rb: age, rb, dep inf; income = car::vif(lm(y ~ age + income + rb))
+# vif_agg (exact dependency) income vs car::vif without the aliased column
+query I
+SELECT
+    abs(((vif_agg([age, income, rb, age + 2 * rb]))[2]) - (6.8322536676901029)) <= 1e-08 * (1 + abs(6.8322536676901029))
+FROM vd;
+----
+true
+
+query III
+SELECT isinf(v[1]), isinf(v[3]), isinf(v[4]) FROM (SELECT vif_agg([age, income, rb, age + 2 * rb]) AS v FROM vd);
+----
+true	true	true
+
+# gvif_agg with a constant term: car::vif(lm(y ~ age + income + region)) and inf for k
+statement ok
+CREATE TABLE g_const AS SELECT gvif_agg([age, income, rb, rc, 2.0], {'terms': ['age', 'income', 'region', 'region', 'k']}) AS g FROM vd;
+
+# gvif_agg (constant term) GVIF vs car::vif without it
+query IIIIII
+SELECT
+    abs((g[1].gvif) - (6.8923691453606173)) <= 1e-08 * (1 + abs(6.8923691453606173)),
+    abs((g[2].gvif) - (6.9139219999017687)) <= 1e-08 * (1 + abs(6.9139219999017687)),
+    abs((g[3].gvif) - (1.2732619446043802)) <= 1e-08 * (1 + abs(1.2732619446043802)),
+    abs((g[1].gvif_adj) - (2.6253321971439383)) <= 1e-08 * (1 + abs(2.6253321971439383)),
+    abs((g[2].gvif_adj) - (2.629433779333826)) <= 1e-08 * (1 + abs(2.629433779333826)),
+    abs((g[3].gvif_adj) - (1.0622566039971093)) <= 1e-08 * (1 + abs(1.0622566039971093))
+FROM g_const;
+----
+true	true	true	true	true	true
+
+query TIII
+SELECT g[4].term, g[4].df, isinf(g[4].gvif), isinf(g[4].gvif_adj) FROM g_const;
+----
+k	1	true	true
+
 # Near-collinear features: car::vif reports a large finite VIF (> 1e4)
 # vif vs car::vif (near-collinear)
 query III

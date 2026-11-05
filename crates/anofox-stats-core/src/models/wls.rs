@@ -18,16 +18,6 @@ fn convert_solver(solver: SolverType) -> anofox_regression::SolverType {
     }
 }
 
-/// Convert our HcType to anofox_regression's HcType
-fn convert_hc_type(hc: HcType) -> anofox_regression::HcType {
-    match hc {
-        HcType::HC0 => anofox_regression::HcType::HC0,
-        HcType::HC1 => anofox_regression::HcType::HC1,
-        HcType::HC2 => anofox_regression::HcType::HC2,
-        HcType::HC3 => anofox_regression::HcType::HC3,
-    }
-}
-
 /// Fit a Weighted Least Squares regression model
 ///
 /// # Arguments
@@ -205,42 +195,45 @@ pub(crate) fn fit_wls_impl(
         clustered = Some((vcov, n_clusters));
         Some(inf)
     } else if let Some(hc_type) = options.hc_type {
-        match anofox_regression::inference::compute_hc_inference(
-            &x_mat,
-            &result.coefficients,
-            result.intercept,
-            &result.residuals,
-            &result.aliased,
-            options.fit_intercept,
-            convert_hc_type(hc_type),
-            options.confidence_level,
-        ) {
-            Ok(hc) => {
-                if let Some(i) = &hc.intercept {
-                    summary.set_intercept_inference(
-                        Some(i.std_error),
-                        Some(i.t_statistic),
-                        Some(i.p_value),
-                        Some(i.conf_interval),
-                    );
-                }
-                Some(FitResultInference {
-                    std_errors: expand(Some(&hc.std_errors)),
-                    t_values: expand(Some(&hc.t_statistics)),
-                    p_values: expand(Some(&hc.p_values)),
-                    ci_lower: expand(Some(&hc.conf_interval_lower)),
-                    ci_upper: expand(Some(&hc.conf_interval_upper)),
-                    confidence_level: hc.confidence_level,
-                    f_statistic: Some(result.f_statistic),
-                    f_pvalue: Some(result.f_pvalue),
-                })
-            }
-            // Fall back to classical inference if HC fails; the intercept
-            // inference then is the classical one too.
-            Err(_) => {
-                summary = ModelSummary::from_result(fitted.model_info(), result, true);
-                Some(classical())
-            }
+        // Heteroskedasticity-consistent SEs of the *weighted* fit
+        // (sandwich::vcovHC(lm(..., weights = w), type = hc_type)), from
+        // upstream's weighted sandwich `FittedWls::cluster_vcov` with every
+        // fitted row its own cluster: with G = n singleton clusters vcovCL
+        // equals vcovHC for HC0 without `cadjust` and for HC1 - HC3 with it
+        // (G/(G-1) cancels the (n-1)/(n-k) of HC1 and the (G-1)/G of HC2 /
+        // HC3). `compute_hc_inference` takes no weights, so it gave the HC
+        // SEs of the unweighted residuals. The F test stays the classical one,
+        // as with `ols_fit_agg(hc_type)`.
+        let rows = ClusterSpec {
+            codes: vec![(0..y.len()).collect()],
+            cadjust: hc_type != HcType::HC0,
+        };
+        let input = LmClusterInput {
+            spec: &rows,
+            valid_indices: &valid_indices,
+            kept: &kept,
+            n_features,
+            result,
+            hc_type: Some(hc_type),
+            confidence_level: options.confidence_level,
+        };
+        let mut hc_summary = summary;
+        let (inf, vcov, _) = lm_cluster_inference(&input, &mut hc_summary, |codes, opts| {
+            fitted.cluster_vcov(&x_mat, codes, opts)
+        });
+        if vcov.is_some() {
+            summary = hc_summary;
+            Some(FitResultInference {
+                f_statistic: Some(result.f_statistic),
+                f_pvalue: Some(result.f_pvalue),
+                ..inf
+            })
+        } else {
+            // Fall back to classical inference if HC fails (e.g. a row with
+            // leverage 1 for HC2 / HC3); the intercept inference then is the
+            // classical one too.
+            summary = ModelSummary::from_result(fitted.model_info(), result, true);
+            Some(classical())
         }
     } else {
         Some(classical())
@@ -434,5 +427,31 @@ mod tests {
         let inf = no_int.inference.unwrap();
         assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
         assert!(inf.ci_lower[0] < b0 && b0 < inf.ci_upper[0]);
+    }
+
+    #[test]
+    fn test_wls_hc_uses_the_weights() {
+        // R: sqrt(diag(sandwich::vcovHC(lm(y ~ x1, weights = w), type = t)))
+        let x1 = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let y = vec![2.3, 3.9, 6.8, 7.2, 10.9, 11.1, 15.2, 15.0, 19.9, 18.7];
+        let w = vec![1.0, 2.0, 1.0, 3.0, 1.0, 2.0, 1.0, 3.0, 1.0, 2.0];
+        let cases = [
+            (HcType::HC0, 0.429959251233901, 0.0885272074455763),
+            (HcType::HC1, 0.480709056656957, 0.0989764268532671),
+            (HcType::HC2, 0.490611034256085, 0.101923272316287),
+            (HcType::HC3, 0.565324842199749, 0.118861951834527),
+        ];
+        for (hc, se0, se1) in cases {
+            let opts = WlsOptions {
+                compute_inference: true,
+                hc_type: Some(hc),
+                ..Default::default()
+            };
+            let r = fit_wls(&y, std::slice::from_ref(&x1), &w, &opts).unwrap();
+            let inf = r.inference.unwrap();
+            assert!((inf.std_errors[0] - se1).abs() < 1e-9 * se1, "{hc:?}");
+            let i_se = r.summary.intercept_std_error;
+            assert!((i_se - se0).abs() < 1e-9 * se0, "{hc:?}: {i_se}");
+        }
     }
 }

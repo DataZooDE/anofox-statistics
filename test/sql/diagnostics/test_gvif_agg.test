@@ -101,11 +101,12 @@ true
 # Degenerate designs: infinite GVIF
 # -----------------------------------------------------------------------------
 
-# Perfect collinearity
-query I
-SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, 2 * a + 1, c])) AS e FROM t);
+# Perfect collinearity: only the aliased terms are inf; c keeps its GVIF on the span of the others
+query III
+SELECT isinf(g[1].gvif), isinf(g[2].gvif), abs(g[3].gvif - v[2]) < 1e-9
+FROM (SELECT gvif_agg([a, 2 * a + 1, c]) AS g, vif_agg([a, c]) AS v FROM t);
 ----
-true
+true	true	true
 
 # No more complete rows than columns
 query I
@@ -113,11 +114,19 @@ SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, b, c])) AS e FRO
 ----
 true
 
-# A constant column makes the correlation matrix undefined: every term is inf
-query I
-SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, b, k])) AS e FROM t);
+# A constant column is aliased with the intercept: only its term is inf, the others
+# are their GVIF without it (car::vif on the design without the constant column)
+query IIII
+SELECT isinf(g[3].gvif), isinf(g[3].gvif_adj), abs(g[1].gvif - v[1]) < 1e-9, abs(g[2].gvif - v[2]) < 1e-9
+FROM (SELECT gvif_agg([a, b, k]) AS g, vif_agg([a, b]) AS v FROM t);
 ----
-true
+true	true	true	true
+
+query II
+SELECT isinf(g[2].gvif), isfinite(g[1].gvif)
+FROM (SELECT gvif_agg([a, b, k], {'terms': ['ab', 'ab', 'k']}) AS g FROM t);
+----
+true	true
 
 # -----------------------------------------------------------------------------
 # Invalid input

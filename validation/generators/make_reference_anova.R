@@ -9,10 +9,11 @@
 # Packages: stats and car (Type III sums of squares). afex is used for the
 # repeated-measures cross-check when it is installed; the reference values
 # themselves come from base R: aov(y ~ cond + Error(subject/cond)) for the F
-# test, mauchly.test() on the wide matrix for Mauchly's W and the
+# test, mauchly.test() on the wide matrix for Mauchly's W and p-value (incl.
+# the second-order term of the chi-square approximation) and the
 # Greenhouse-Geisser / Huynh-Feldt epsilons from their textbook formulas
-# (Greenhouse & Geisser 1959; Huynh & Feldt 1976, the one-group form also used
-# by car::Anova and afex).
+# (Greenhouse & Geisser 1959; Huynh & Feldt 1976 with the Lecoutre 1991
+# correction, as car::Anova and afex report it, capped at 1).
 
 options(digits = 17)
 if (dir.exists("~/R/userlib")) .libPaths(c(path.expand("~/R/userlib"), .libPaths()))
@@ -71,6 +72,21 @@ wide <- matrix(c(
   44, 49, 56, 68,
   40, 41, 48, 55,
   48, 52, 56, 74), ncol = 4, byrow = TRUE)
+# 10 subjects x 3 conditions, nearly spherical: the Huynh-Feldt epsilon
+# (1.127) is capped at 1. Generated once with set.seed(1);
+# round(matrix(rnorm(10, 20, 3), 10, 3) + matrix(rnorm(30), 10, 3) +
+# rep(c(0, 0.6, 1.1), each = 10), 1).
+wide3 <- matrix(c(
+  19.6, 19.6, 20.6,
+  20.9, 21.9, 21.5,
+  16.9, 18.2, 19.0,
+  22.6, 23.4, 25.8,
+  22.1, 22.2, 20.7,
+  17.5, 18.1, 18.2,
+  21.4, 21.9, 22.2,
+  23.2, 21.3, 23.3,
+  22.5, 21.8, 23.9,
+  19.7, 20.1, 20.9), ncol = 3, byrow = TRUE)
 # 6 subjects x 2 conditions (no sphericity test)
 wide2 <- matrix(c(
   10.2, 11.9,
@@ -100,12 +116,11 @@ rm_anova <- function(tag, w) {
   # Mauchly: sphericity of the within-subject contrasts
   mt <- mauchly.test(lm(w ~ 1), X = ~1)
   out(paste0(tag, ".mauchly_w"), mt$statistic)
-  out(paste0(tag, ".mauchly_p_value_r"), mt$p.value)  # R adds a second-order term
+  out(paste0(tag, ".mauchly_p_value"), mt$p.value)  # stats::mauchly.test, second-order term
   p <- k - 1
   chisq <- -(n - 1 - (2 * p^2 + p + 2) / (6 * p)) * log(mt$statistic)
   out(paste0(tag, ".mauchly_chisq"), chisq)
   out(paste0(tag, ".mauchly_df"), p * (p + 1) / 2 - 1)
-  out(paste0(tag, ".mauchly_p_value"), pchisq(chisq, p * (p + 1) / 2 - 1, lower.tail = FALSE))
   # epsilons from the covariance of orthonormal contrasts
   C <- contr.poly(k)
   S <- t(C) %*% cov(w) %*% C
@@ -118,6 +133,8 @@ rm_anova <- function(tag, w) {
   out(paste0(tag, ".gg_p_value"), pf(f, gg * df1, gg * df2, lower.tail = FALSE))
   out(paste0(tag, ".hf_epsilon"), hf)
   out(paste0(tag, ".hf_epsilon_capped"), min(hf, 1))
+  out(paste0(tag, ".hf_df1"), min(hf, 1) * df1)
+  out(paste0(tag, ".hf_df2"), min(hf, 1) * df2)
   out(paste0(tag, ".hf_p_value"), pf(f, min(hf, 1) * df1, min(hf, 1) * df2, lower.tail = FALSE))
   if (requireNamespace("afex", quietly = TRUE)) {
     a <- suppressMessages(afex::aov_ez("subject", "y", long, within = "cond",
@@ -134,4 +151,5 @@ rm_anova <- function(tag, w) {
 }
 cat("## repeated_measures_anova_agg  aov(y ~ cond + Error(subject/cond)), mauchly.test\n")
 rm_anova("rm4", wide)
+rm_anova("rm3", wide3)
 rm_anova("rm2", wide2)

@@ -1181,7 +1181,7 @@ FROM reg_data;
 | `t_test_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
 | `one_way_anova_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
 | `two_way_anova_agg` **MAP** | `(y DOUBLE, factor_a BIGINT \| VARCHAR, factor_b BIGINT \| VARCHAR [, options])` | `terms` (['factor_a', 'factor_b']) | LIST of `term, method, statistic, df1, df2, p_value, sum_sq, mean_sq, residual_sum_sq, residual_mean_sq, n_observations` (Type III) |
-| `repeated_measures_anova_agg` **MAP** | `(y DOUBLE, subject BIGINT \| VARCHAR, condition BIGINT \| VARCHAR [, options])` | `sphericity` (true) | `method, statistic, df1, df2, p_value, ss_condition, ss_subjects, ss_error, ms_condition, ms_error, n_subjects, n_conditions, n_excluded_subjects, mauchly_*, gg_*` |
+| `repeated_measures_anova_agg` **MAP** | `(y DOUBLE, subject BIGINT \| VARCHAR, condition BIGINT \| VARCHAR [, options])` | `sphericity` (true) | `method, statistic, df1, df2, p_value, ss_condition, ss_subjects, ss_error, ms_condition, ms_error, n_subjects, n_conditions, n_excluded_subjects, mauchly_*, gg_*, hf_*` |
 | `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `brown_forsythe_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
 
