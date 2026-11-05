@@ -23,8 +23,8 @@ FROM range(45) r(i);
 # category_proportions_agg. R: table(factor(x, lv)) / length(x), lv the sorted labels
 # ---------------------------------------------------------------------------
 query IIIIII
-SELECT r.categories, list_transform(r.p_reference, x -> round(x, 12)),
-       list_transform(r.p_current, x -> round(x, 12)), r.n_categories, r.n1, r.n2
+SELECT r.categories, list_transform(r.p_reference, lambda x: round(x, 12)),
+       list_transform(r.p_current, lambda x: round(x, 12)), r.n_categories, r.n1, r.n2
 FROM (SELECT category_proportions_agg(s, grp, {'reference': 'ref'}) r FROM cat);
 ----
 [amber, blue, green, red, violet]	[0.2, 0.283333333333, 0.25, 0.266666666667, 0.0]	[0.0, 0.244444444444, 0.222222222222, 0.311111111111, 0.222222222222]	5	60	45

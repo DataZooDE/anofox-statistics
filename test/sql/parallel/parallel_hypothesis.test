@@ -87,9 +87,9 @@ CREATE VIEW results AS
     UNION ALL
     SELECT 'one_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(one_way_anova_agg(y, c1)).f_statistic, (one_way_anova_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
     UNION ALL
-    SELECT 'two_way_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), t -> t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM big GROUP BY g
+    SELECT 'two_way_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), lambda t: t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM big GROUP BY g
     UNION ALL
-    SELECT 'two_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), t -> t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM small
+    SELECT 'two_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), lambda t: t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM small
     UNION ALL
     SELECT 'repeated_measures_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).statistic, (repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).gg_p_value]::DOUBLE[] AS vals FROM big GROUP BY g
     UNION ALL

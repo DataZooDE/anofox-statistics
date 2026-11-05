@@ -67,7 +67,7 @@ true
 
 # terms option labels the rows.
 query I
-SELECT list_transform(two_way_anova_agg(y, a, b, {'terms': ['dose', 'soil']}), x -> x.term) FROM fx;
+SELECT list_transform(two_way_anova_agg(y, a, b, {'terms': ['dose', 'soil']}), lambda x: x.term) FROM fx;
 ----
 [dose, soil, 'dose:soil']
 
