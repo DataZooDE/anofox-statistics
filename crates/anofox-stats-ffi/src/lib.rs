@@ -10783,3 +10783,5 @@ pub use ls_state_ffi::*;
 // Percentile bootstrap CI of the mean (#294).
 mod bootstrap_ffi;
 pub use bootstrap_ffi::*;
+mod diagnostics_ffi;
+pub use diagnostics_ffi::*;

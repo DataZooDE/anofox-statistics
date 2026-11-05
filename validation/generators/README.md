@@ -72,6 +72,19 @@ Requires `survival` and `lmtest`. It (re)writes:
 | `timeseries_diagnostics.test` | `acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `breusch_pagan_agg`, `white_test_agg` | `acf`, `pacf`, `Box.test`, `lmtest::dwtest` (statistic), `lmtest::bptest` |
 | `survival_curves.test` | `kaplan_meier_agg` (log / log-log / plain), `kaplan_meier_by`, `log_rank_test_agg`, `aft_survival` | `survival::survfit`, `survdiff`, `survreg` + `psurvreg` |
 
+## `make_reference_collinearity_separation.R`
+
+```bash
+Rscript validation/generators/make_reference_collinearity_separation.R
+```
+
+Requires `detectseparation` (not in the default library; install it into a
+user library, e.g. `R_LIBS_USER=~/R/library`). It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `collinearity_separation.test` | `condition_diagnostic_agg` (longley, with / without intercept), `detect_separation_agg` (complete, combination, quasi, overlap, endometrial) | `kappa(X, exact = TRUE)` and the BKW condition indices / variance-decomposition proportions from `svd` of the unit-length design (the definition of `perturb::colldiag`, which is archived on CRAN), `detectseparation::detect_separation` |
+
 ## `make_reference_bayesian.py`
 
 ```bash

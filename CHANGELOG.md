@@ -21,6 +21,12 @@ Breaking changes are called out explicitly.
   block_length, method`. The stationary bootstrap is not offered yet (upstream runs it only
   with expected block length 1). Reference values: exact bootstrap SE and
   `boot::boot` / `boot::tsboot` intervals (`validation/generators/make_reference_bootstrap.R`).
+- **Collinearity and separation diagnostics (#306).** `condition_diagnostic_agg(x [, options])`
+  returns the Belsley-Kuh-Welsch condition indices and variance-decomposition proportions
+  (`perturb::colldiag`) with `kappa(X, exact = TRUE)`; `detect_separation_agg(y, x [, options])`
+  is the exact linear-programming separation check of `detectseparation`;
+  `separation_check_agg(y, x)` and `count_sparsity_agg(y, x)` are the per-predictor checks for
+  binary and count responses. All computed by anofox-regression's diagnostics.
 
 ### Changed
 

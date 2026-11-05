@@ -3733,6 +3733,66 @@ typedef struct {
 bool anofox_bootstrap_mean_ci(AnofoxDataArray data, int32_t method, size_t n_bootstrap, double confidence_level,
                               size_t block_length, uint64_t seed, bool has_seed,
                               AnofoxBootstrapMeanResult *out_result, AnofoxError *out_error);
+/* ===========================================================================
+ * Collinearity and separation diagnostics (#306). Must match
+ * crates/anofox-stats-ffi/src/diagnostics_ffi.rs.
+ * ======================================================================== */
+
+/** Result of anofox_condition_diagnostic; free with anofox_free_condition_diagnostic. */
+typedef struct {
+	double condition_number;
+	double condition_number_xtx;
+	double scaled_condition_number;
+	/** 0 well_conditioned, 1 moderate, 2 high, 3 severe */
+	int32_t severity;
+	double *singular_values;
+	double *condition_indices;
+	/** n_components * n_terms, component-major: [k * n_terms + j] */
+	double *variance_proportions;
+	size_t n_components;
+	size_t n_terms;
+	/** Warning text or NULL */
+	char *warning;
+} AnofoxConditionDiagnostic;
+
+/** Result of anofox_separation_check; free with anofox_free_separation_check. */
+typedef struct {
+	bool has_separation;
+	/** 0-based indices into x of the flagged predictors */
+	uint64_t *separated_predictors;
+	/** Per flagged predictor: 1 complete, 2 quasi, 3 monotonic_response */
+	int32_t *separation_types;
+	size_t n_separated;
+	char *warning;
+} AnofoxSeparationCheck;
+
+/** Result of anofox_detect_separation; free with anofox_free_linear_separation. */
+typedef struct {
+	bool separated;
+	/** n_terms values: +inf / -inf for diverging coefficients, 0 otherwise */
+	double *infinite;
+	double *direction;
+	size_t n_terms;
+} AnofoxLinearSeparation;
+
+/**
+ * Belsley-Kuh-Welsch collinearity diagnostics of [1, x] (fit_intercept) or x:
+ * kappa(X, exact = TRUE), condition indices and variance-decomposition
+ * proportions of the unit-column-length design (perturb::colldiag).
+ */
+bool anofox_condition_diagnostic(const AnofoxDataArray *x, size_t x_count, bool fit_intercept,
+                                 AnofoxConditionDiagnostic *out_result, AnofoxError *out_error);
+void anofox_free_condition_diagnostic(AnofoxConditionDiagnostic *result);
+
+/** Per-predictor separation check; kind 0: binary y (0/1), 1: count y (sparsity). */
+bool anofox_separation_check(int32_t kind, AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                             AnofoxSeparationCheck *out_result, AnofoxError *out_error);
+void anofox_free_separation_check(AnofoxSeparationCheck *result);
+
+/** Exact separation check of a binary y by the linear program of Konis (2007). */
+bool anofox_detect_separation(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, bool fit_intercept,
+                              AnofoxLinearSeparation *out_result, AnofoxError *out_error);
+void anofox_free_linear_separation(AnofoxLinearSeparation *result);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,237 @@
+# name: test/sql/diagnostics/test_collinearity_separation_agg.test
+# description: #306 condition_diagnostic_agg, separation_check_agg, count_sparsity_agg, detect_separation_agg: shape, GROUP BY, NULL handling, degenerate input, invalid options
+# group: [diagnostics]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT * FROM (VALUES
+    ('a', 1.0, 5.0, 2.1, 0.0, 0.0),
+    ('a', 2.0, 3.0, 4.0, 0.0, 0.0),
+    ('a', 3.0, 8.0, 6.1, 0.0, 0.0),
+    ('a', 4.0, 1.0, 7.9, 0.0, 0.0),
+    ('a', 5.0, 9.0, 10.0, 0.0, 0.0),
+    ('a', 6.0, 2.0, 12.1, 1.0, 0.0),
+    ('a', 7.0, 7.0, 13.9, 1.0, 0.0),
+    ('a', 8.0, 4.0, 16.0, 1.0, 0.0),
+    ('a', 9.0, 6.0, 18.1, 1.0, 0.0),
+    ('a', 10.0, 10.0, 19.9, 1.0, 3.0),
+    ('b', 1.0, 2.0, 7.0, 0.0, 1.0),
+    ('b', 2.0, 9.0, 1.0, 1.0, 2.0),
+    ('b', 3.0, 4.0, 5.0, 0.0, 0.0),
+    ('b', 4.0, 7.0, 3.0, 1.0, 4.0),
+    ('b', 5.0, 1.0, 9.0, 1.0, 1.0),
+    ('b', 6.0, 8.0, 2.0, 0.0, 0.0),
+    ('b', 7.0, 3.0, 8.0, 1.0, 3.0),
+    ('b', 8.0, 6.0, 4.0, 0.0, 2.0)
+) AS t(g, x1, x2, x3, yb, yc);
+
+# =============================================================================
+# condition_diagnostic_agg
+# =============================================================================
+
+query I
+SELECT typeof(condition_diagnostic_agg([x1, x2])) FROM d;
+----
+STRUCT(condition_number DOUBLE, condition_number_xtx DOUBLE, scaled_condition_number DOUBLE, singular_values DOUBLE[], condition_indices DOUBLE[], variance_proportions DOUBLE[][], severity VARCHAR, warning VARCHAR, n_observations BIGINT)
+
+# x3 is almost 2 * x1 in group a (high); in group b x2 + x3 is almost constant,
+# a dependency with the intercept (moderate).
+query IIIII
+SELECT g, r.severity, r.scaled_condition_number > 100, len(r.variance_proportions), r.n_observations
+FROM (SELECT g, condition_diagnostic_agg([x1, x2, x3]) AS r FROM d GROUP BY g) s ORDER BY g;
+----
+a	high	true	4	10
+b	moderate	false	4	8
+
+# The proportions of each coefficient sum to 1 over the components; the condition
+# indices start at 1 and increase.
+query III
+SELECT
+    bool_and(abs(list_sum(list_transform(r.variance_proportions, p -> p[j])) - 1) < 1e-10),
+    r.condition_indices[1] = 1,
+    list_sort(r.condition_indices) = r.condition_indices
+FROM (SELECT condition_diagnostic_agg([x1, x2, x3]) AS r FROM d WHERE g = 'a') s, range(1, 5) t(j)
+GROUP BY r;
+----
+true	true	true
+
+# fit_intercept := false drops the intercept column.
+query II
+SELECT len(r.singular_values), len(r.variance_proportions[1])
+FROM (SELECT condition_diagnostic_agg([x1, x2, x3], {'fit_intercept': false}) AS r FROM d) s;
+----
+3	3
+
+# MAP and STRUCT options are equivalent; 'intercept' is an alias.
+query I
+SELECT condition_diagnostic_agg([x1, x2], MAP {'fit_intercept': false}) = condition_diagnostic_agg([x1, x2], {'intercept': false}) FROM d;
+----
+true
+
+# An exactly collinear design: a huge condition number (rounding keeps the
+# smallest singular value off zero); a zero column makes it infinite.
+query III
+SELECT r.condition_number > 1e12, r.scaled_condition_number > 1e12, r.severity
+FROM (SELECT condition_diagnostic_agg([x1, 2 * x1]) AS r FROM d) s;
+----
+true	true	severe
+
+query III
+SELECT r.condition_number, r.scaled_condition_number, r.severity
+FROM (SELECT condition_diagnostic_agg([x1, 0 * x1]) AS r FROM d) s;
+----
+inf	inf	severe
+
+# Rows with a NULL list, a NULL element or a non-finite value are skipped.
+query I
+SELECT condition_diagnostic_agg(x).n_observations FROM (VALUES
+    ([1.0, 2.0]), ([2.0, 1.0]), ([3.0, 5.0]), (NULL), ([NULL, 1.0]), (['nan'::DOUBLE, 1.0]), ([4.0, 'inf'::DOUBLE]), ([5.0, 2.0])
+) t(x);
+----
+4
+
+# Degenerate input is NULL: no rows, a single row, an empty list.
+query III
+SELECT
+    (SELECT condition_diagnostic_agg([x1, x2]) FROM d WHERE false),
+    (SELECT condition_diagnostic_agg([x1, x2]) FROM d WHERE g = 'a' AND x1 = 1),
+    (SELECT condition_diagnostic_agg([]::DOUBLE[]) FROM d);
+----
+NULL	NULL	NULL
+
+statement error
+SELECT condition_diagnostic_agg(x) FROM (VALUES ([1.0, 2.0]), ([1.0, 2.0, 3.0])) t(x);
+----
+Inconsistent feature count
+
+statement error
+SELECT condition_diagnostic_agg([x1, x2], {'tau': 0.5}) FROM d;
+----
+condition_diagnostic_agg
+
+statement error
+SELECT condition_diagnostic_agg([x1, x2], {'fit_intercept': x1 > 3}) FROM d;
+----
+must be a constant
+
+# =============================================================================
+# separation_check_agg (binary y, per predictor)
+# =============================================================================
+
+query I
+SELECT typeof(separation_check_agg(yb, [x1, x2])) FROM d;
+----
+STRUCT(has_separation BOOLEAN, separated_predictors BIGINT[], separation_types VARCHAR[], warning VARCHAR, n_observations BIGINT)
+
+# Group a: x1 (position 1) and x3 separate y; x2 does not. Positions are 1-based.
+query IIIII
+SELECT g, r.has_separation, r.separated_predictors, r.separation_types, r.warning IS NOT NULL
+FROM (SELECT g, separation_check_agg(yb, [x2, x1, x3]) AS r FROM d GROUP BY g) s ORDER BY g;
+----
+a	true	[2, 3]	[complete, complete]	true
+b	false	[]	[]	false
+
+statement error
+SELECT separation_check_agg(yc, [x1, x2]) FROM d;
+----
+y must be 0 or 1
+
+query I
+SELECT separation_check_agg(yb, [x1]) FROM d WHERE false;
+----
+NULL
+
+# NULL y and NULL x rows are skipped.
+query I
+SELECT separation_check_agg(y, x).n_observations FROM (VALUES
+    (0.0, [1.0]), (0.0, [2.0]), (1.0, [3.0]), (NULL, [4.0]), (1.0, NULL), (1.0, [NULL]), (1.0, [5.0])
+) t(y, x);
+----
+4
+
+# =============================================================================
+# count_sparsity_agg (count y)
+# =============================================================================
+
+# 20 counts, 19 zeros (> 90% zeros); the indicator is active only on zero counts.
+statement ok
+CREATE TABLE sparse AS
+SELECT i, CASE WHEN i = 0 THEN 4.0 ELSE 0.0 END AS y,
+       CASE WHEN i >= 15 THEN 1.0 ELSE 0.0 END AS ind,
+       (i % 7)::DOUBLE AS z
+FROM range(20) t(i);
+
+query IIII
+SELECT r.has_separation, r.separated_predictors, r.separation_types, r.n_observations
+FROM (SELECT count_sparsity_agg(y, [z, ind]) AS r FROM sparse) s;
+----
+true	[2]	[monotonic_response]	20
+
+query II
+SELECT r.has_separation, r.separated_predictors
+FROM (SELECT count_sparsity_agg(yc, [x1, x2]) AS r FROM d) s;
+----
+false	[]
+
+statement error
+SELECT count_sparsity_agg(y, [x]) FROM (VALUES (-1.0, 1.0), (2.0, 2.0)) t(y, x);
+----
+non-negative count
+
+# =============================================================================
+# detect_separation_agg (exact LP)
+# =============================================================================
+
+query I
+SELECT typeof(detect_separation_agg(yb, [x1, x2])) FROM d;
+----
+STRUCT(separated BOOLEAN, infinite DOUBLE[], direction DOUBLE[], n_observations BIGINT)
+
+query IIII
+SELECT g, r.separated, len(r.infinite), r.n_observations
+FROM (SELECT g, detect_separation_agg(yb, [x1, x2]) AS r FROM d GROUP BY g) s ORDER BY g;
+----
+a	true	3	10
+b	false	3	8
+
+# Without separation every coefficient is finite and the direction is zero.
+query II
+SELECT list_sum(list_transform(r.infinite, v -> abs(v))), list_sum(list_transform(r.direction, v -> abs(v)))
+FROM (SELECT detect_separation_agg(yb, [x1, x2]) AS r FROM d WHERE g = 'b') s;
+----
+0.0	0.0
+
+query I
+SELECT len(detect_separation_agg(yb, [x1, x2], {'fit_intercept': false}).infinite) FROM d;
+----
+2
+
+statement error
+SELECT detect_separation_agg(yc, [x1, x2]) FROM d;
+----
+y must be 0 or 1
+
+statement error
+SELECT detect_separation_agg(yb, [x1, x2], {'alpha': 1}) FROM d;
+----
+detect_separation_agg
+
+query II
+SELECT
+    (SELECT detect_separation_agg(yb, [x1]) FROM d WHERE false),
+    (SELECT detect_separation_agg(yb, []::DOUBLE[]) FROM d);
+----
+NULL	NULL
+
+# The result does not depend on the row order or the thread count.
+statement ok
+SET threads = 4;
+
+query II
+SELECT
+    detect_separation_agg(yb, [x1, x2]) = (SELECT detect_separation_agg(yb, [x1, x2]) FROM (SELECT * FROM d ORDER BY x2 DESC, x1)),
+    condition_diagnostic_agg([x1, x2, x3]) = (SELECT condition_diagnostic_agg([x1, x2, x3]) FROM (SELECT * FROM d ORDER BY x3, x2))
+FROM d;
+----
+true	true
