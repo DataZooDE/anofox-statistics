@@ -1,0 +1,263 @@
+# name: test/sql/reference/accuracy_reference.test
+# description: #308 predictive accuracy indexes (concordance_agg, somers2_agg, rcorr_cens_agg, lrm_stats_agg, val_prob_agg, gini_md_agg, r2_measures) vs R rms / Hmisc / survival
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_accuracy.R (rms 8.1.1,
+# Hmisc 5.2.6, survival): lrm()$stats, somers2, survival::concordance,
+# rcorr.cens, val.prob(pl = FALSE), GiniMd, R2Measures. lp / lpw are the linear
+# predictors of lrm(y ~ x1 + x2) and lrm(y ~ x1 + x2, weights = w).
+# rms prints the lrm p-value as 1 - pchisq(); the reference is the upper tail
+# pchisq(lower.tail = FALSE), which keeps its digits below 1e-12.
+
+require anofox_statistics
+
+statement ok
+CREATE MACRO close(a, b) AS abs(a - b) <= 1e-9 * (1 + abs(b));
+
+statement ok
+CREATE TABLE d AS SELECT * FROM (VALUES
+ (0, 0, 1, 1, 1, 0, 0.55, 4.5, 0, 1.4758140192869569, 0.82008573559157194),
+ (1, 1.17, 0.92, 1, 2, 1, 0.74, 5, 1, 5.1526123642948569, 4.2897161698404354),
+ (2, 1.46, 0.7, 1, 3, 0, 0.78, 2.1, 1, 6.0351949624915626, 5.2060238085016195),
+ (3, 0.64, 0.36, 1, 1, 1, 0.66, 1.9, 1, 3.40138641316257, 2.8857422909958963),
+ (4, -0.66, -0.03, 1, 2, 0, 0.43, 2.1, 0, -0.75275188625262279, -0.83467759101460937),
+ (5, -1.47, -0.42, 0, 3, -1, 0.29, 1.5, 1, -3.3622205710540638, -3.1114300888384832),
+ (6, -1.16, -0.74, 0, 1, -1, 0.34, 2.9, 1, -2.4309582438022512, -2.1080644108135989),
+ (7, 0.03, -0.94, 1, 2, 0, 0.55, 5.2, 1, 1.2916462281973762, 1.4542506308007934),
+ (8, 1.19, -1, 1, 3, 1, 0.75, 3.4, 0, 4.9397943055826588, 4.8887918973705506),
+ (9, 1.45, -0.9, 1, 1, 1, 0.78, 3.7, 1, 5.7737829277354109, 5.6266866489706402),
+ (10, 0.62, -0.65, 1, 2, 0, 0.66, 3.2, 1, 3.1932217695900436, 3.1109587757336903),
+ (11, -0.69, -0.31, 1, 3, 0, 0.42, 1.4, 1, -0.88755392419788492, -0.84429343802084156),
+ (12, -1.47, 0.09, 0, 1, -1, 0.29, 1.7, 0, -3.2889437184379511, -3.254907572885116),
+ (13, -1.14, 0.47, 0, 2, -1, 0.35, 2.6, 1, -2.1940575795959552, -2.389546575569681),
+ (14, 0.05, 0.78, 1, 3, 0, 0.56, 2.3, 1, 1.601823745019785, 1.0292909819980789),
+ (15, 1.21, 0.96, 1, 1, 1, 0.75, 4.3, 1, 5.28445504716559, 4.3963134325458917),
+ (16, 1.45, 0.99, 1, 2, 1, 0.78, 5.7, 0, 6.0453383227245343, 5.0949759727978243),
+ (17, 0.6, 0.87, 1, 3, 0, 0.65, 2.7, 1, 3.3485677870347028, 2.6244144082401508),
+ (18, -0.71, 0.61, 1, 1, 0, 0.42, 2.5, 1, -0.81841596865453425, -1.1620407654595195),
+ (19, -1.48, 0.25, 0, 2, -1, 0.29, 2.2, 1, -3.2974787716169298, -3.3293827165770238),
+ (20, -1.13, -0.15, 0, 3, -1, 0.35, 1.3, 0, -2.2516153738746461, -2.1856603678357116),
+ (21, 0.08, -0.52, 1, 1, 0, 0.56, 2.2, 1, 1.5096112199582672, 1.4834057011487811),
+ (22, 1.22, -0.81, 1, 2, 1, 0.75, 4, 1, 5.0616651342427232, 4.9237273003850124),
+ (23, 1.44, -0.97, 1, 3, 1, 0.78, 3.2, 1, 5.7322014508275974, 5.6169170372997623),
+ (24, 0.57, -0.98, 1, 1, 0, 0.65, 4.5, 0, 2.9881879871143489, 3.0564841493774733),
+ (25, -0.73, -0.84, 0, 2, 0, 0.42, 4.2, 1, -1.0897998576213541, -0.81303978468149296),
+ (26, -1.48, -0.56, 0, 3, 0, 0.29, 1.7, 1, -3.4138596551836966, -3.1015067125029607),
+ (27, -1.11, -0.19, 0, 1, -1, 0.35, 1.8, 1, -2.1943148386294111, -2.1154820324774986),
+ (28, 0.1, 0.2, 0, 2, 0, 0.57, 2.2, 0, 1.6761086336118278, 1.3397744524375033),
+ (29, 1.23, 0.57, 1, 3, 1, 0.75, 1.7, 1, 5.29146754630173, 4.5649567079361084),
+ (30, 1.43, 0.84, 1, 1, 1, 0.78, 3.5, 1, 5.9607385678772182, 5.0782500334569836),
+ (31, 0.55, 0.99, 1, 2, 0, 0.65, 5.5, 1, 3.2081900509849901, 2.4433420018427872),
+ (32, -0.75, 0.97, 0, 3, -1, 0.41, 3.2, 0, -0.89278661025772887, -1.3811693882015499),
+ (33, -1.48, 0.81, 0, 1, -1, 0.29, 3.3, 1, -3.2170179138423749, -3.4869266206282288),
+ (34, -1.09, 0.51, 0, 2, -1, 0.35, 2.7, 1, -2.0306910270392273, -2.2534867131869478),
+ (35, 0.13, 0.14, 0, 3, 0, 0.57, 1.3, 1, 1.7620594364796816, 1.4450419554748239),
+ (36, 1.25, -0.26, 1, 1, 1, 0.75, 1.9, 0, 5.2352608000435756, 4.8573844793665568),
+ (37, 1.43, -0.62, 1, 2, 1, 0.78, 3, 1, 5.7509656172506993, 5.4889894975904809),
+ (38, 0.52, -0.87, 1, 3, 0, 0.64, 2.7, 1, 2.8463734500329476, 2.8782250269810246),
+ (39, -0.77, -0.99, 0, 1, -1, 0.41, 4.7, 1, -1.2374473518406615, -0.88869092337689048)
+) t(i, x1, x2, y, w, yo, p, tm, ev, lp, lpw);
+
+# ---------------------------------------------------------------------------
+# lrm_stats_agg — rms::lrm(y ~ x1 + x2)$stats
+# ---------------------------------------------------------------------------
+query II
+SELECT r.n, r.df FROM (SELECT lrm_stats_agg(y, lp, 2) r FROM d);
+----
+40	2.0
+
+query IIIIIIIIIIIIIIII
+SELECT close(r.sum_weights, 40),
+       close(r.model_lr, 32.8356356117274),
+       close(r.p_value, 7.41024081987806e-08),
+       close(r.c, 0.962666666666667),
+       close(r.dxy, 0.925333333333333),
+       close(r.gamma, 0.925333333333333),
+       close(r.tau_a, 0.444871794871795),
+       close(r.r2, 0.763202434550781),
+       close(r.r2_n, 0.559960547049591),
+       close(r.r2_adj_n, 0.537399241848118),
+       close(r.r2_ess, 0.688852830900714),
+       close(r.r2_adj_ess, 0.665921122959832),
+       close(r.brier, 0.0822474725574736),
+       close(r.g, 3.85621929020954),
+       close(r.gr, 47.2862374524455),
+       close(r.gp, 0.438079278331159)
+FROM (SELECT lrm_stats_agg(y, lp, 2) r FROM d);
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# The effective sample size 3 n1 n0 / n of R2(28.1): n1 = 25, n0 = 15.
+query I
+SELECT close(r.ess, 3 * 25 * 15 / 40) FROM (SELECT lrm_stats_agg(y, lp, 2) r FROM d);
+----
+true
+
+# Weighted: lrm(y ~ x1 + x2, weights = w)$stats (Sum of Weights 79, R2(79), R2(55.8))
+query I
+SELECT r.n FROM (SELECT lrm_stats_agg(y, lpw, 2, w) r FROM d);
+----
+40
+
+query IIIIIIIIIIIIIIII
+SELECT close(r.sum_weights, 79),
+       close(r.model_lr, 62.0483237632296),
+       close(r.p_value, 3.36029719280041e-14),
+       close(r.c, 0.957142857142857),
+       close(r.dxy, 0.914285714285714),
+       close(r.gamma, 0.914285714285714),
+       close(r.tau_a, 0.443710795642126),
+       close(r.r2, 0.740273704241329),
+       close(r.r2_n, 0.544072657956716),
+       close(r.r2_adj_n, 0.532382845642475),
+       close(r.r2_ess, 0.670942660812494),
+       close(r.r2_adj_ess, 0.658939567420083),
+       close(r.brier, 0.0910031292243255),
+       close(r.g, 3.61052879937046),
+       close(r.gr, 36.9856056095766),
+       close(r.gp, 0.437396468716996)
+FROM (SELECT lrm_stats_agg(y, lpw, 2, w) r FROM d);
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# The effective sample size 3 n1 n0 / n with weighted class sizes (R2(55.8))
+query I
+SELECT close(r.ess, 3 * (SELECT sum(w * y) FROM d) * (SELECT sum(w * (1 - y)) FROM d) / 79.0)
+FROM (SELECT lrm_stats_agg(y, lpw, 2, w) r FROM d);
+----
+true
+
+# ---------------------------------------------------------------------------
+# somers2_agg — Hmisc::somers2(p, y [, weights = w])
+# ---------------------------------------------------------------------------
+query III
+SELECT close(r.c, 0.96),
+       close(r.dxy, 0.92),
+       close(r.n, 40)
+FROM (SELECT somers2_agg(y, p) r FROM d);
+----
+true	true	true
+
+query III
+SELECT close(r.c, 0.953061224489796),
+       close(r.dxy, 0.906122448979592),
+       close(r.n, 79)
+FROM (SELECT somers2_agg(y, p, w) r FROM d);
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# concordance_agg — survival::concordance(yo ~ x1 [, weights = w])$count
+# C = (concordant + tied_x / 2) / (concordant + discordant + tied_x)
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT r.concordant, r.discordant, r.tied_x, r.tied_y, r.tied_xy FROM (SELECT concordance_agg(yo, x1) r FROM d);
+----
+500.0	21.0	2.0	253.0	4.0
+
+query IIIII
+SELECT r.concordant, r.discordant, r.tied_x, r.tied_y, r.tied_xy FROM (SELECT concordance_agg(yo, x1, w) r FROM d);
+----
+1868.0	117.0	9.0	1026.0	9.0
+
+query IIII
+SELECT close(r.c, 501.0 / 523), close(r.dxy, 479.0 / 523), close(r.gamma, 479.0 / 521), close(r.tau_a, 479.0 / 780)
+FROM (SELECT concordance_agg(yo, x1) r FROM d);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# rcorr_cens_agg — Hmisc::rcorr.cens(x1, Surv(tm, ev))
+# ---------------------------------------------------------------------------
+query III
+SELECT r.n, r.missing, r.uncensored FROM (SELECT rcorr_cens_agg(tm, ev, x1) r FROM d);
+----
+40	0	30
+
+query IIIIII
+SELECT close(r.c, 0.591766723842196),
+       close(r.dxy, 0.183533447684391),
+       close(r.sd, 0.111949763956394),
+       close(r.relevant_pairs, 1166),
+       close(r.concordant, 690),
+       close(r.uncertain, 382)
+FROM (SELECT rcorr_cens_agg(tm, ev, x1) r FROM d);
+----
+true	true	true	true	true	true
+
+# ---------------------------------------------------------------------------
+# val_prob_agg — rms::val.prob(p, y, pl = FALSE)
+# ---------------------------------------------------------------------------
+query IIIIIIIIIIIIIIIIII
+SELECT close(r.dxy, 0.92),
+       close(r.c, 0.96),
+       close(r.r2, 0.475865259350264),
+       close(r.d, 0.40446327628372),
+       close(r.d_chisq, 17.1785310513488),
+       close(r.d_p, 3.40260134067405e-05),
+       close(r.u, 0.338378076603335),
+       close(r.u_chisq, 15.5351230641334),
+       close(r.u_p, 0.000423244076608764),
+       close(r.q, 0.0660851996803855),
+       close(r.brier, 0.13443),
+       close(r.intercept, 0.487046835446526),
+       close(r.slope, 4.28157681439405),
+       close(r.emax, 0.348084817466114),
+       close(r.e90, 0.348084817466114),
+       close(r.eavg, 0.214829478504524),
+       close(r.s_z, -3.13127244001682),
+       close(r.s_p, 0.00174050614466801)
+FROM (SELECT val_prob_agg(y, p) r FROM d);
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# Probabilities of exactly 1 (i = 0, y = 1) and 0 (i = 2, y = 1) are left out of the
+# logistic calibration. R keeps them in the deviance of U (U = Inf, U:p = 0, Q = -Inf
+# here), upstream does not, so u, u_chisq, u_p and q are NULL until upstream follows R.
+query IIIIIIIIIIIIII
+SELECT close(r.dxy, 0.92463768115942),
+       close(r.c, 0.96231884057971),
+       close(r.r2, 0.486723083289803),
+       close(r.d, 0.419167812953069),
+       close(r.d_chisq, 16.9283768922166),
+       close(r.d_p, 3.88169487208767e-05),
+       close(r.brier, 0.1531575),
+       close(r.intercept, 0.395683601353857),
+       close(r.slope, 4.15441363534747),
+       close(r.emax, 0.552927884127489),
+       close(r.e90, 0.268772011030087),
+       close(r.eavg, 0.204561531237979),
+       close(r.s_z, -2.05888392029457),
+       close(r.s_p, 0.039505359815515)
+FROM (SELECT val_prob_agg(y, CASE i WHEN 0 THEN 1.0 WHEN 2 THEN 0.0 ELSE p END) r FROM d);
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+query IIII
+SELECT r.u IS NULL, r.u_chisq IS NULL, r.u_p IS NULL, r.q IS NULL FROM (SELECT val_prob_agg(y, CASE i WHEN 0 THEN 1.0 WHEN 2 THEN 0.0 ELSE p END) r FROM d);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# gini_md_agg — Hmisc::GiniMd; GiniMd(lp) is the lrm g-index
+# ---------------------------------------------------------------------------
+query II
+SELECT close(gini_md_agg(x1), 1.22002564102564), close(gini_md_agg(lp), 3.85621929020954) FROM d;
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# r2_measures — Hmisc::R2Measures(10, 2, 100 [, 60])
+# ---------------------------------------------------------------------------
+query IIII
+SELECT close(r.r2, 0.0951625819640405), close(r.r2_adj, 0.0768836536133642),
+       close(r.r2_ess, 0.153518275109386), close(r.r2_adj_ess, 0.124826680957053)
+FROM (SELECT r2_measures(10, 2, 100, 60) r);
+----
+true	true	true	true
+
+query IIII
+SELECT close(r.r2, 0.0951625819640405), close(r.r2_adj, 0.0768836536133642), r.r2_ess IS NULL, r.r2_adj_ess IS NULL
+FROM (SELECT r2_measures(10, 2, 100) r);
+----
+true	true	true	true

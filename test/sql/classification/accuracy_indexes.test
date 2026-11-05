@@ -1,0 +1,214 @@
+# name: test/sql/classification/accuracy_indexes.test
+# description: #308 predictive accuracy indexes: input types, result types, NULLs, degenerate input, errors, grouping
+# group: [classification]
+#
+# Values are validated against R rms / Hmisc in test/sql/reference/accuracy_reference.test.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT * FROM (VALUES
+ (1, 1, 0.9, 1.0, 5.0, true), (2, 0, 0.1, 2.0, 3.0, false), (3, 1, 0.8, 1.0, 4.5, true),
+ (4, 1, 0.65, 3.0, 2.0, true), (5, 0, 0.4, 1.0, 1.5, true), (6, 0, 0.3, 2.0, 6.0, false),
+ (7, 1, 0.55, 1.0, 2.5, true), (8, 0, 0.55, 2.0, 2.5, true), (9, 1, 0.7, 1.0, 7.0, false),
+ (10, 0, 0.2, 3.0, 1.0, true), (11, 1, 0.35, 1.0, 3.5, true), (12, 1, 0.95, 2.0, 8.0, true)
+) t(id, y, s, w, tm, ev);
+
+# y_true as BOOLEAN, INTEGER and DOUBLE gives the same result
+query IIII
+SELECT somers2_agg(y::BOOLEAN, s) = somers2_agg(y, s), val_prob_agg(y::BOOLEAN, s) = val_prob_agg(y::DOUBLE, s),
+       lrm_stats_agg(y::BOOLEAN, s, 1) = lrm_stats_agg(y, s, 1), somers2_agg(y::BOOLEAN, s, w) = somers2_agg(y, s, w)
+FROM d;
+----
+true	true	true	true
+
+# event as BOOLEAN or numeric
+query I
+SELECT rcorr_cens_agg(tm, ev, s) = rcorr_cens_agg(tm, ev::INTEGER, s) FROM d;
+----
+true
+
+# The ROC area agrees with auc_agg, Somers' Dxy is 2 (C - 1/2), concordance_agg on a 0/1 y is somers2
+query IIII
+SELECT abs(somers2_agg(y, s).c - auc_agg(y, s)) < 1e-12, abs(somers2_agg(y, s).dxy - (2 * auc_agg(y, s) - 1)) < 1e-12,
+       abs(concordance_agg(y, s).c - somers2_agg(y, s).c) < 1e-12, abs(val_prob_agg(y, s).brier - brier_agg(y, s)) < 1e-12
+FROM d;
+----
+true	true	true	true
+
+# Result types
+query I
+SELECT typeof(somers2_agg(y, s)) FROM d;
+----
+STRUCT(c DOUBLE, dxy DOUBLE, n DOUBLE)
+
+query I
+SELECT typeof(concordance_agg(y, s)) FROM d;
+----
+STRUCT(concordant DOUBLE, discordant DOUBLE, tied_x DOUBLE, tied_y DOUBLE, tied_xy DOUBLE, c DOUBLE, dxy DOUBLE, gamma DOUBLE, tau_a DOUBLE)
+
+query I
+SELECT typeof(rcorr_cens_agg(tm, ev, s)) FROM d;
+----
+STRUCT(c DOUBLE, dxy DOUBLE, sd DOUBLE, n BIGINT, missing BIGINT, uncensored BIGINT, relevant_pairs DOUBLE, concordant DOUBLE, uncertain DOUBLE)
+
+query I
+SELECT typeof(lrm_stats_agg(y, s, 1)) FROM d;
+----
+STRUCT(n BIGINT, sum_weights DOUBLE, model_lr DOUBLE, df DOUBLE, p_value DOUBLE, c DOUBLE, dxy DOUBLE, gamma DOUBLE, tau_a DOUBLE, r2 DOUBLE, r2_n DOUBLE, r2_adj_n DOUBLE, ess DOUBLE, r2_ess DOUBLE, r2_adj_ess DOUBLE, brier DOUBLE, g DOUBLE, gr DOUBLE, gp DOUBLE)
+
+query I
+SELECT typeof(val_prob_agg(y, s)) FROM d;
+----
+STRUCT(dxy DOUBLE, c DOUBLE, r2 DOUBLE, d DOUBLE, d_chisq DOUBLE, d_p DOUBLE, u DOUBLE, u_chisq DOUBLE, u_p DOUBLE, q DOUBLE, brier DOUBLE, intercept DOUBLE, slope DOUBLE, emax DOUBLE, e90 DOUBLE, eavg DOUBLE, s_z DOUBLE, s_p DOUBLE)
+
+query II
+SELECT typeof(gini_md_agg(s)), typeof(r2_measures(10, 2, 100))
+FROM d;
+----
+DOUBLE	STRUCT(r2 DOUBLE, r2_adj DOUBLE, r2_ess DOUBLE, r2_adj_ess DOUBLE)
+
+# Unit weights equal no weights
+query III
+SELECT somers2_agg(y, s, 1.0) = somers2_agg(y, s), concordance_agg(y, s, 1.0) = concordance_agg(y, s),
+       lrm_stats_agg(y, s, 1, 1.0) = lrm_stats_agg(y, s, 1)
+FROM d;
+----
+true	true	true
+
+# Integer weights equal replicated rows
+query II
+SELECT abs(a.c - b.c) < 1e-12, a.n = b.n
+FROM (SELECT somers2_agg(y, s, w) AS a FROM d),
+     (SELECT somers2_agg(y, s) AS b FROM d, range(3) r(k) WHERE k < w);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# NULL handling: a row with a NULL in any argument is skipped
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE dn AS SELECT * FROM d UNION ALL SELECT * FROM (VALUES
+ (13, NULL, 0.5, 1.0, 2.0, true), (14, 1, NULL, 1.0, 2.0, true), (15, 0, 0.5, NULL, NULL, NULL)
+) t(id, y, s, w, tm, ev);
+
+query IIIII
+SELECT (SELECT somers2_agg(y, s) FROM dn) = (SELECT somers2_agg(y, s) FROM dn WHERE id NOT IN (13, 14)),
+       (SELECT somers2_agg(y, s, w) FROM dn) = (SELECT somers2_agg(y, s, w) FROM d),
+       (SELECT rcorr_cens_agg(tm, ev, s) FROM dn) = (SELECT rcorr_cens_agg(tm, ev, s) FROM dn WHERE id NOT IN (14, 15)),
+       (SELECT lrm_stats_agg(y, s, 1, w) FROM dn) = (SELECT lrm_stats_agg(y, s, 1, w) FROM d),
+       (SELECT gini_md_agg(s) FROM dn) = (SELECT gini_md_agg(s) FROM dn WHERE s IS NOT NULL);
+----
+true	true	true	true	true
+
+# No rows gives NULL
+query IIIIII
+SELECT somers2_agg(y, s), concordance_agg(y, s), rcorr_cens_agg(tm, ev, s), lrm_stats_agg(y, s, 1),
+       val_prob_agg(y, s), gini_md_agg(s)
+FROM d WHERE id < 0;
+----
+NULL	NULL	NULL	NULL	NULL	NULL
+
+query I
+SELECT r2_measures(NULL, 2, 100) IS NULL;
+----
+true
+
+# ---------------------------------------------------------------------------
+# Degenerate input gives NULL (or NULL fields)
+# ---------------------------------------------------------------------------
+# One class: C and Dxy undefined
+query III
+SELECT r.c IS NULL, r.dxy IS NULL, r.n FROM (SELECT somers2_agg(y, s) AS r FROM d WHERE y = 1);
+----
+true	true	7.0
+
+# One row
+query II
+SELECT somers2_agg(y, s) IS NULL, gini_md_agg(s) IS NULL FROM d WHERE id = 1;
+----
+true	true
+
+# All censored: no usable pair
+query I
+SELECT rcorr_cens_agg(tm, false, s) IS NULL FROM d;
+----
+true
+
+# A NaN prediction is dropped by the rank indexes
+query I
+SELECT (SELECT somers2_agg(y, CASE WHEN id = 3 THEN 'nan'::DOUBLE ELSE s END) FROM d)
+     = (SELECT somers2_agg(y, s) FROM d WHERE id <> 3);
+----
+true
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+statement error
+SELECT somers2_agg(2, s) FROM d;
+----
+somers2_agg: y_true must be BOOLEAN or 0/1
+
+statement error
+SELECT val_prob_agg(y + 1, s) FROM d;
+----
+val_prob_agg: y_true must be BOOLEAN or 0/1
+
+statement error
+SELECT somers2_agg(y, s, -1.0) FROM d;
+----
+weights must be finite and non-negative
+
+statement error
+SELECT concordance_agg(y, s, w - 2) FROM d;
+----
+weights must be finite and non-negative
+
+statement error
+SELECT lrm_stats_agg(y, s, id) FROM d;
+----
+df must be a constant
+
+statement error
+SELECT lrm_stats_agg(y, s, -1) FROM d;
+----
+df must be a finite number >= 0
+
+statement error
+SELECT lrm_stats_agg(y, s, NULL) FROM d;
+----
+df must not be NULL
+
+# ---------------------------------------------------------------------------
+# GROUP BY and windows
+# ---------------------------------------------------------------------------
+query II
+SELECT g, abs(somers2_agg(y, s).c - auc_agg(y, s)) < 1e-12 FROM (SELECT *, id % 2 AS g FROM d) GROUP BY g ORDER BY g;
+----
+0	true
+1	true
+
+# The first (one-row) frame is too small for somers2_agg
+query I
+SELECT count(*) FROM (SELECT somers2_agg(y, s) OVER (ORDER BY id) AS r FROM d) WHERE r.n IS NOT NULL;
+----
+11
+
+# ---------------------------------------------------------------------------
+# lrm_stats_agg from a logistic_fit_agg linear predictor: the likelihood ratio
+# equals the deviance difference of the fit (R: lrm)
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE lr AS
+SELECT i, round(1.5 * sin(0.9 * i), 2) AS x1, round(cos(0.4 * i), 2) AS x2,
+       (sin(0.9 * i) + 0.6 * cos(1.7 * i) + 0.3 > 0)::INTEGER AS y
+FROM range(40) r(i);
+
+query III
+WITH m AS (SELECT logistic_fit_agg(y, [x1, x2]) AS fit FROM lr),
+     s AS (SELECT y, predict(m.fit, [x1, x2], {'type': 'link'}) AS lp FROM lr, m)
+SELECT abs(r.model_lr - 32.8356356117274) < 1e-6, abs(r.c - 0.962666666666667) < 1e-9, abs(r.g - 3.85621929020954) < 1e-5
+FROM (SELECT lrm_stats_agg(y, lp, 2) AS r FROM s);
+----
+true	true	true

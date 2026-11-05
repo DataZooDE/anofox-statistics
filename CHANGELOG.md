@@ -10,6 +10,16 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Predictive accuracy indexes (rms / Hmisc, #308):** `concordance_agg` (survival::concordance
+  pair counts, C, Dxy, gamma, tau-a; weighted), `somers2_agg` (Hmisc::somers2; weighted),
+  `rcorr_cens_agg` (Harrell's C for censored data, Hmisc::rcorr.cens), `lrm_stats_agg` (the
+  `stats` vector of a binary rms::lrm fit from its linear predictor, incl. R2Measures and the
+  g-indexes; weighted), `val_prob_agg` (rms::val.prob: D, U, Q, calibration intercept/slope,
+  Emax/E90/Eavg, Spiegelhalter z), `gini_md_agg` (Hmisc::GiniMd) and the scalar `r2_measures`
+  (Hmisc::R2Measures). See [docs/api/statistics/accuracy.md](docs/api/statistics/accuracy.md).
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

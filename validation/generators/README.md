@@ -109,6 +109,11 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_accuracy.R` (rms, Hmisc, survival) prints the data and the
+reference values of `accuracy_reference.test` (`concordance_agg`,
+`somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`,
+`gini_md_agg`, `r2_measures`, #308); the test is written from its output.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

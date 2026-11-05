@@ -149,6 +149,7 @@ fitted model struct).
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
+| Predictive accuracy (rms) | `concordance_agg`, `somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures` | [Accuracy indexes](api/statistics/accuracy.md) |
 | Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
 
 ### Diagnostics and Utilities

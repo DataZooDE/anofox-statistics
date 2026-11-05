@@ -3710,6 +3710,118 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/* ============================================================================
+ * Predictive accuracy indexes (issue #308). The structs must match
+ * crates/anofox-stats-ffi/src/accuracy_ffi.rs. An empty weights array means
+ * unweighted.
+ * ============================================================================ */
+
+typedef struct {
+	double concordant;
+	double discordant;
+	double tied_x;
+	double tied_y;
+	double tied_xy;
+	double c;
+	double dxy;
+	double gamma;
+	double tau_a;
+} AnofoxConcordanceResult;
+
+typedef struct {
+	double c;
+	double dxy;
+	/** Observations (sum of weights when weighted) */
+	double n;
+} AnofoxSomers2Result;
+
+typedef struct {
+	double c;
+	double dxy;
+	double sd;
+	double relevant_pairs;
+	double concordant;
+	double uncertain;
+	size_t n;
+	size_t missing;
+	size_t uncensored;
+} AnofoxRcorrCensResult;
+
+/** Hmisc::R2Measures; the ess fields are NaN without an effective sample size. */
+typedef struct {
+	double r2;
+	double r2_adj;
+	double r2_ess;
+	double r2_adj_ess;
+} AnofoxR2MeasuresResult;
+
+typedef struct {
+	double sum_weights;
+	double model_lr;
+	double df;
+	double p_value;
+	double c;
+	double dxy;
+	double gamma;
+	double tau_a;
+	double r2;
+	AnofoxR2MeasuresResult r2_measures;
+	/** Effective sample size 3 n1 n0 / n of the R2(m) measures */
+	double ess;
+	double brier;
+	double g;
+	double gr;
+	double gp;
+	size_t n;
+} AnofoxLrmStatsResult;
+
+typedef struct {
+	double dxy;
+	double c;
+	double r2;
+	double d;
+	double d_chisq;
+	double d_p;
+	double u;
+	double u_chisq;
+	double u_p;
+	double q;
+	double brier;
+	double intercept;
+	double slope;
+	double emax;
+	double e90;
+	double eavg;
+	double s_z;
+	double s_p;
+} AnofoxValProbResult;
+
+/** Concordance of x with the ordered response y (survival::concordance counts). */
+bool anofox_concordance(AnofoxDataArray x, AnofoxDataArray y, AnofoxDataArray weights,
+                        AnofoxConcordanceResult *out_result, AnofoxError *out_error);
+
+/** Hmisc::somers2(p, y, weights). */
+bool anofox_somers2(AnofoxDataArray p, AnofoxDataArray y, AnofoxDataArray weights, AnofoxSomers2Result *out_result,
+                    AnofoxError *out_error);
+
+/** Hmisc::rcorr.cens(x, Surv(time, event)); event non-zero = observed. */
+bool anofox_rcorr_cens(AnofoxDataArray x, AnofoxDataArray time, AnofoxDataArray event,
+                       AnofoxRcorrCensResult *out_result, AnofoxError *out_error);
+
+/** Hmisc::GiniMd(x); NaN for fewer than 2 values. */
+bool anofox_gini_md(AnofoxDataArray x, double *out_value, AnofoxError *out_error);
+
+/** Hmisc::R2Measures(lr, p, n, ess); ess NaN for none. */
+bool anofox_r2_measures(double lr, double p, double n, double ess, AnofoxR2MeasuresResult *out_result,
+                        AnofoxError *out_error);
+
+/** The stats vector of a binary rms::lrm fit from its response and linear predictor. */
+bool anofox_lrm_stats(AnofoxDataArray y, AnofoxDataArray lp, AnofoxDataArray weights, double df,
+                      AnofoxLrmStatsResult *out_result, AnofoxError *out_error);
+
+/** rms::val.prob(p, y, pl = FALSE). */
+bool anofox_val_prob(AnofoxDataArray p, AnofoxDataArray y, AnofoxValProbResult *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif
