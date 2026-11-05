@@ -187,6 +187,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterCramersVAggregateFunction(loader);
     RegisterCohenKappaAggregateFunction(loader);
     RegisterIccAggregateFunction(loader);
+    RegisterFactorialAnovaAggregateFunctions(loader); // two_way_anova_agg, repeated_measures_anova_agg (#297)
     RegisterGTestAggregateFunction(loader);
     RegisterMcNemarAggregateFunction(loader);
     RegisterPhiCoefficientAggregateFunction(loader);

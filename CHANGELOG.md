@@ -10,6 +10,19 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`two_way_anova_agg` and `repeated_measures_anova_agg`** (#297). `two_way_anova_agg(y,
+  factor_a, factor_b[, {'terms': [...]}])` returns one list element per F test (factor A,
+  factor B, interaction) with Type III sums of squares, matching R's `car::Anova(type = 3)`
+  with sum contrasts (= `aov()` for balanced designs). `repeated_measures_anova_agg(y,
+  subject, condition[, {'sphericity': ...}])` returns the within-subjects F test (R's
+  `aov(y ~ condition + Error(subject / condition))`), Mauchly's sphericity test and the
+  Greenhouse-Geisser correction; subjects missing a condition are excluded and counted.
+  Labels can be BIGINT or VARCHAR. Both are computed by anofox-statistics
+  (`two_way_anova`, `repeated_measures_anova`). The Huynh-Feldt correction is not exposed
+  yet: the upstream epsilon disagrees with car / afex / ez.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

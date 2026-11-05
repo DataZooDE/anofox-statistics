@@ -1,0 +1,129 @@
+# name: test/sql/reference/anova_reference.test
+# description: two_way_anova_agg and repeated_measures_anova_agg vs R (car::Anova type III, aov with Error(), mauchly.test, afex)
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_anova.R (R 4.x, car;
+# afex 1.x as a cross-check of the repeated-measures block).
+# Tolerance: relative 1e-9 (all closed form).
+
+require anofox_statistics
+
+# balanced 3 x 2, 4 replicates per cell (factor A VARCHAR, factor B BIGINT)
+statement ok
+CREATE TABLE bal AS SELECT y::DOUBLE AS y, a, b::BIGINT AS b FROM (VALUES
+ (4.2,'ctrl',1), (5.1,'ctrl',1), (3.8,'ctrl',1), (4.6,'ctrl',1), (5.0,'ctrl',2), (5.9,'ctrl',2),
+ (6.3,'ctrl',2), (5.4,'ctrl',2), (7.9,'high',1), (8.4,'high',1), (7.1,'high',1), (8.8,'high',1),
+ (9.6,'high',2), (10.9,'high',2), (9.2,'high',2), (10.1,'high',2), (6.1,'low',1), (5.7,'low',1),
+ (6.6,'low',1), (6.0,'low',1), (6.4,'low',2), (7.3,'low',2), (6.8,'low',2), (7.7,'low',2)) t(y, a, b);
+
+# unbalanced 2 x 3 (cell sizes 3, 4, 2 / 5, 3, 4)
+statement ok
+CREATE TABLE unb AS SELECT y::DOUBLE AS y, a, b FROM (VALUES
+ (12.1,'f','x'), (13.4,'f','x'), (11.8,'f','x'), (14.2,'f','y'), (15.0,'f','y'), (13.1,'f','y'),
+ (14.7,'f','y'), (18.3,'f','z'), (17.2,'f','z'), (11.0,'m','x'), (12.6,'m','x'), (10.9,'m','x'),
+ (11.7,'m','x'), (12.2,'m','x'), (16.4,'m','y'), (17.8,'m','y'), (15.9,'m','y'), (16.1,'m','z'),
+ (15.2,'m','z'), (17.0,'m','z'), (16.6,'m','z')) t(y, a, b);
+
+# 8 subjects x 4 conditions (long format)
+statement ok
+CREATE TABLE rm4 AS SELECT y::DOUBLE AS y, s::BIGINT AS s, c FROM (VALUES
+ (45,1,'c1'), (50,1,'c2'), (55,1,'c3'), (70,1,'c4'), (42,2,'c1'), (42,2,'c2'),
+ (45,2,'c3'), (60,2,'c4'), (36,3,'c1'), (41,3,'c2'), (43,3,'c3'), (62,3,'c4'),
+ (39,4,'c1'), (35,4,'c2'), (40,4,'c3'), (51,4,'c4'), (51,5,'c1'), (55,5,'c2'),
+ (59,5,'c3'), (77,5,'c4'), (44,6,'c1'), (49,6,'c2'), (56,6,'c3'), (68,6,'c4'),
+ (40,7,'c1'), (41,7,'c2'), (48,7,'c3'), (55,7,'c4'), (48,8,'c1'), (52,8,'c2'),
+ (56,8,'c3'), (74,8,'c4')) t(y, s, c);
+
+# 6 subjects x 2 conditions
+statement ok
+CREATE TABLE rm2 AS SELECT y::DOUBLE AS y, s::BIGINT AS s, c FROM (VALUES
+ (10.2,1,'c1'), (11.9,1,'c2'), (9.8,2,'c1'), (10.4,2,'c2'), (12.5,3,'c1'), (13.1,3,'c2'),
+ (11.1,4,'c1'), (12.8,4,'c2'), (8.7,5,'c1'), (10.0,5,'c2'), (10.9,6,'c1'), (11.2,6,'c2')) t(y, s, c);
+
+statement ok
+CREATE MACRO rel_ok(got, want) AS abs(got - want) <= 1e-9 * greatest(abs(want), 1e-300);
+
+# ---------------------------------------------------------------------------
+# two_way_anova_agg, balanced
+# R: car::Anova(lm(y ~ a * b, contrasts = list(a = "contr.sum", b = "contr.sum")), type = 3)
+#    (balanced: equal to summary(aov(y ~ a * b)))
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE bal_t AS SELECT unnest(two_way_anova_agg(y, a, b)) AS t FROM bal;
+
+query IIIIIIII
+SELECT t.term, rel_ok(t.sum_sq, w.ss), t.df1 = w.df, rel_ok(t.statistic, w.f), rel_ok(t.p_value, w.p),
+       rel_ok(t.effect_size, w.eta), t.df2 = 18, rel_ok(t.residual_sum_sq, 6.5074999999999967)
+FROM bal_t JOIN (VALUES
+ ('factor_a', 63.855833333333337, 2, 88.313868613138737, 4.9500540888974066e-10, 0.90751575157515763),
+ ('factor_b', 11.070416666666656, 1, 30.621206300422575, 2.9694988329051256e-05, 0.62979116789532308),
+ ('factor_a:factor_b', 0.95583333333333176, 2, 1.3219362274298869, 0.29129433674989286, 0.12807056721750767)
+) w(term, ss, df, f, p, eta) ON t.term = w.term
+ORDER BY t.term;
+----
+factor_a	true	true	true	true	true	true	true
+factor_a:factor_b	true	true	true	true	true	true	true
+factor_b	true	true	true	true	true	true	true
+
+# ---------------------------------------------------------------------------
+# two_way_anova_agg, unbalanced (Type III differs from type I here)
+# R: car::Anova(lm(y ~ a * b, contrasts = contr.sum), type = 3)
+# ---------------------------------------------------------------------------
+query IIIIIII
+SELECT t.term, rel_ok(t.sum_sq, w.ss), t.df1 = w.df, rel_ok(t.statistic, w.f), rel_ok(t.p_value, w.p),
+       rel_ok(t.effect_size, w.eta), t.df2 = 15 AND rel_ok(t.residual_sum_sq, 10.077166666666654) AND t.n_observations = 21
+FROM (SELECT unnest(two_way_anova_agg(y, a, b, {'terms': ['sex', 'diet']})) AS t FROM unb) JOIN (VALUES
+ ('sex', 0.015787202380952436, 1, 0.023499466025267042, 0.88020858816134673, 0.0015641805744666651),
+ ('diet', 84.158988109633057, 2, 62.635900715040478, 5.2288554343742774e-08, 0.89306475109698502),
+ ('sex:diet', 14.339375050382936, 2, 10.672177650252765, 0.0013104099194247462, 0.58728116440708034)
+) w(term, ss, df, f, p, eta) ON t.term = w.term
+ORDER BY t.term;
+----
+diet	true	true	true	true	true	true
+sex	true	true	true	true	true	true
+sex:diet	true	true	true	true	true	true
+
+# ---------------------------------------------------------------------------
+# repeated_measures_anova_agg, 4 conditions
+# R: summary(aov(y ~ cond + Error(subject / cond)))
+#    mauchly.test(lm(w ~ 1), X = ~1)$statistic (W); chi-square
+#    -(n - 1 - (2p^2 + p + 2) / (6p)) log W with p = k - 1, pchisq(., p(p+1)/2 - 1)
+#    GG epsilon from the eigenvalues of the contrast covariance; afex::aov_ez agrees
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE rm4_r AS SELECT repeated_measures_anova_agg(y, s, c) AS r FROM rm4;
+
+query IIIIIIII
+SELECT rel_ok(r.statistic, 105.79948860004239), r.df1 = 3, r.df2 = 21, rel_ok(r.p_value, 7.7575017775924844e-13),
+       rel_ok(r.ss_condition, 2216.5937500000023), rel_ok(r.ss_error, 146.65625000000045),
+       rel_ok(r.ss_subjects, 1293.4687499999993), rel_ok(r.effect_size, 0.93794298106421226)
+FROM rm4_r;
+----
+true	true	true	true	true	true	true	true
+
+query IIIIIII
+SELECT rel_ok(r.mauchly_w, 0.050779758665512362), rel_ok(r.mauchly_statistic, 17.053695438471543),
+       r.mauchly_df = 5, rel_ok(r.mauchly_p_value, 0.0043990798901871169),
+       rel_ok(r.gg_epsilon, 0.5163544344870411), rel_ok(r.gg_p_value, 1.6243747739126217e-07),
+       rel_ok(r.gg_df1, 0.5163544344870411 * 3) AND rel_ok(r.gg_df2, 0.5163544344870411 * 21)
+FROM rm4_r;
+----
+true	true	true	true	true	true	true
+
+query IIIIII
+SELECT r.method, r.n, r.n_subjects, r.n_conditions, r.n_excluded_subjects, r.effect_name FROM rm4_r;
+----
+Repeated measures ANOVA	8	8	4	0	partial_eta_squared
+
+# ---------------------------------------------------------------------------
+# repeated_measures_anova_agg, 2 conditions (no sphericity test)
+# R: summary(aov(y ~ cond + Error(subject / cond)))  (= paired t-test squared)
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT rel_ok(r.statistic, 17.099644128113869), r.df1 = 1, r.df2 = 5, rel_ok(r.p_value, 0.0090393771708362682),
+       rel_ok(r.ss_condition, 3.2033333333333189), rel_ok(r.ss_error, 0.93666666666666298),
+       rel_ok(r.ss_subjects, 15.329999999999997), r.mauchly_w IS NULL AND r.gg_p_value IS NULL
+FROM (SELECT repeated_measures_anova_agg(y, s, c) AS r FROM rm2);
+----
+true	true	true	true	true	true	true	true
+

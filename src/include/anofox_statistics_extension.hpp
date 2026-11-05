@@ -138,6 +138,7 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader);
 void RegisterCramersVAggregateFunction(ExtensionLoader &loader);
 void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader);
 void RegisterIccAggregateFunction(ExtensionLoader &loader);
+void RegisterFactorialAnovaAggregateFunctions(ExtensionLoader &loader);
 void RegisterGTestAggregateFunction(ExtensionLoader &loader);
 void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);

@@ -242,6 +242,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/cramers_v_aggregate.cpp
     src/aggregate_functions/cohen_kappa_aggregate.cpp
     src/aggregate_functions/icc_aggregate.cpp
+    src/aggregate_functions/factorial_anova_aggregate.cpp
     src/aggregate_functions/g_test_aggregate.cpp
     src/aggregate_functions/mcnemar_aggregate.cpp
     src/aggregate_functions/phi_coefficient_aggregate.cpp

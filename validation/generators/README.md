@@ -109,6 +109,12 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_anova.R` prints the values of `anova_reference.test`
+(`two_way_anova_agg`: `car::Anova(type = 3)` with sum contrasts;
+`repeated_measures_anova_agg`: `aov(y ~ cond + Error(subject / cond))`,
+`mauchly.test` and the Greenhouse-Geisser epsilon, cross-checked against
+`afex::aov_ez` when afex is installed, e.g. in `~/R/userlib`).
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and
