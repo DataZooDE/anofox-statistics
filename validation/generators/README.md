@@ -109,6 +109,12 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_pca.R` (base R only) (re)writes `pca_reference.test`:
+`pca_agg`, `pca_transform` and `pca_by` against `prcomp` / `predict.prcomp`
+on `USArrests` and a wide (n < d) matrix. prcomp's arbitrary component signs
+are flipped to the extension's convention (largest absolute loading positive)
+before the comparison.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

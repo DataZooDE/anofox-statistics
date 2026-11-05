@@ -3710,6 +3710,49 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/* ============================================================================
+ * Principal component analysis (#303)
+ * ============================================================================ */
+
+/**
+ * A fitted PCA. Must match PcaResultFFI in crates/anofox-stats-ffi/src/pca_ffi.rs.
+ * The arrays are allocated by anofox_pca_fit; release them with
+ * anofox_free_pca_result.
+ */
+typedef struct {
+	/** Column means, n_features values */
+	double *center;
+	/** Component standard deviations (divisor n - 1), n_components values, decreasing */
+	double *sdev;
+	/** Share of the total variance per component, n_components values */
+	double *proportion_of_variance;
+	/** Loadings, component-major: loadings[j * n_features + i] is variable i of component j */
+	double *loadings;
+	size_t n_features;
+	size_t n_components;
+	size_t n_observations;
+} AnofoxPcaResult;
+
+/**
+ * PCA (R's prcomp(x, center = TRUE, scale. = FALSE)) of n_rows rows of
+ * n_features values each, row-major in data, keeping the first n_components
+ * components (0: all min(n_rows - 1, n_features)).
+ */
+bool anofox_pca_fit(const double *data, size_t n_rows, size_t n_features, size_t n_components,
+                    AnofoxPcaResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_pca_fit. */
+void anofox_free_pca_result(AnofoxPcaResult *result);
+
+/**
+ * Scores of one row x (x_len values) on the n_components components of a
+ * fitted PCA (predict.prcomp). loadings is component-major as in
+ * AnofoxPcaResult; out_scores receives n_components values.
+ */
+bool anofox_pca_transform(const double *center, const double *sdev, const double *loadings, size_t n_features,
+                          size_t n_components, const double *x, size_t x_len, double *out_scores,
+                          AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif
