@@ -4,10 +4,12 @@
 #
 # Generates test/sql/reference/bootstrap_mean_ci.test (#294):
 #
-#   bootstrap_mean_ci_agg (method 'iid' and 'circular_block')
-#     <- the exact bootstrap standard error of the mean (closed form) and
-#        percentile intervals of boot::boot / boot::tsboot(sim = "fixed",
-#        endcorr = TRUE) with 200000 replicates
+#   bootstrap_mean_ci_agg (method 'iid', 'circular_block', 'stationary' and
+#   'moving_block')
+#     <- the exact bootstrap standard error of the mean (closed form, IID /
+#        circular block / stationary) and percentile intervals of boot::boot /
+#        boot::tsboot(sim = "fixed", endcorr = TRUE) / tsboot(sim = "geom") /
+#        tsboot(sim = "fixed", endcorr = FALSE) with 200000 replicates
 #
 #   Rscript validation/generators/make_reference_bootstrap.R      # from repo root
 #
@@ -22,6 +24,11 @@
 #       IID:            sqrt(mean((x - xbar)^2) / n)
 #       circular block: sqrt(mean((Bbar_i - xbar)^2) / b), Bbar_i the n circular
 #                       block means, b = n / l blocks (n is a multiple of l),
+#       stationary:     sqrt((g_0 + 2 sum_{i<n} kappa(n, i) g_i) / n), g_i the
+#                       sample autocovariances (divisor n) and
+#                       kappa(n, i) = (1 - i/n)(1 - q)^i + (i/n)(1 - q)^(n-i),
+#                       q = 1 / l (Politis and Romano 1994; Hansen 2005, eq. (7)),
+#       moving block:   no closed form here; the SD of R's 200000 replicates,
 #     to 2% (Monte Carlo error at B = 50000: ~0.3%);
 #   * conf_low / conf_high: the percentile interval of R's bootstrap with
 #     200000 replicates, to 0.06 bootstrap standard errors (Monte Carlo error
@@ -61,9 +68,19 @@ se_cbb <- function(l) {
   bm <- sapply(seq_len(n), function(i) mean(x[((i - 1 + 0:(l - 1)) %% n) + 1]))
   sqrt(mean((bm - xbar)^2) / (n / l))
 }
+se_sb <- function(l) {
+  q <- 1 / l
+  cc <- x - xbar
+  g <- vapply(0:(n - 1), function(i) sum(cc[1:(n - i)] * cc[(1 + i):n]) / n, 0)
+  i <- 1:(n - 1)
+  kap <- (n - i) / n * (1 - q)^i + i / n * (1 - q)^(n - i)
+  sqrt((g[1] + 2 * sum(kap * g[-1])) / n)
+}
 mean_stat <- function(d, i) mean(d[i])
 t_iid <- boot(x, mean_stat, R = B_R)$t[, 1]
 t_cbb <- function(l) tsboot(x, mean, R = B_R, l = l, sim = "fixed", endcorr = TRUE)$t[, 1]
+t_sb <- function(l) tsboot(x, mean, R = B_R, l = l, sim = "geom")$t[, 1]
+t_mbb <- function(l) tsboot(x, mean, R = B_R, l = l, sim = "fixed", endcorr = FALSE)$t[, 1]
 
 lines <- c(
   "# name: test/sql/reference/bootstrap_mean_ci.test",
@@ -86,7 +103,7 @@ ord <- order((seq_len(n) * 37) %% (n + 1))
 lines <- c(lines, paste0("INSERT INTO series VALUES\n",
   paste(sprintf("(%d, %s)", ord, x[ord]), collapse = ",\n"), ";"), "")
 
-case <- function(comment, call, level, se, ci, block) {
+case <- function(comment, call, level, se, ci, block, method = if (is.na(block)) "iid" else "circular_block") {
   src <- sprintf("(SELECT %s AS r FROM series) s", call)
   tol_ci <- 0.06 * se
   c(paste0("# ", comment),
@@ -99,8 +116,8 @@ case <- function(comment, call, level, se, ci, block) {
            sprintf("    r.conf_level = %s,\n", level),
            sprintf("    r.n = %d,\n", n),
            sprintf("    r.n_bootstrap = %d,\n", B_SQL),
-           if (is.na(block)) "    r.block_length IS NULL,\n" else sprintf("    r.block_length = %d,\n", block),
-           sprintf("    r.method = '%s'\n", if (is.na(block)) "iid" else "circular_block"),
+           if (is.na(block)) "    r.block_length IS NULL,\n" else sprintf("    r.block_length = %s,\n", num(block)),
+           sprintf("    r.method = '%s'\n", method),
            "FROM ", src, ";"),
     "----",
     paste(rep("true", 9), collapse = "\t"),
@@ -121,6 +138,19 @@ for (l in c(6, 10)) {
     sprintf("bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': %d, 'n_bootstrap': %d} ORDER BY t)",
             l, B_SQL), 0.95, se, percentile(t_cbb(l), 0.95), l))
 }
+
+for (l in c(5, 7.5)) {
+  se <- se_sb(l)
+  lines <- c(lines, case(
+    sprintf("stationary bootstrap, expected block length %s: exact SE %.6f, tsboot(sim = 'geom') interval", l, se),
+    sprintf("bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': %s, 'n_bootstrap': %d} ORDER BY t)",
+            l, B_SQL), 0.95, se, percentile(t_sb(l), 0.95), l, "stationary"))
+}
+tm <- t_mbb(6)
+lines <- c(lines, case(
+  sprintf("moving block bootstrap, l = 6: SD of tsboot(sim = 'fixed', endcorr = FALSE) replicates %.6f, its interval", sd(tm)),
+  sprintf("bootstrap_mean_ci_agg(x, {'method': 'moving_block', 'block_length': 6, 'n_bootstrap': %d} ORDER BY t)", B_SQL),
+  0.95, sd(tm), percentile(tm, 0.95), 6, "moving_block"))
 
 lines <- c(lines,
   sprintf("# The AR(1) dependence widens the block-bootstrap SE over the IID one (%.4f, %.4f vs %.4f).",

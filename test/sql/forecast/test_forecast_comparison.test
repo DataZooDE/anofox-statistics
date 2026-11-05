@@ -18,22 +18,25 @@ FROM (VALUES ('a'), ('b')) g(g), range(1, 61) r(t);
 
 # --- spa_test_agg ----------------------------------------------------------
 
-query IIIIIIIII
+query IIIIIIIIII
 SELECT r.best_model, r.n_models, r.n, r.n_bootstrap, r.block_length, r.method, r.alternative,
-    r.p_value = r.p_value_consistent, r.p_value_upper <= 1
+    r.p_value = r.p_value_consistent, r.p_value_upper <= 1, r.p_value_lower <= r.p_value_consistent
 FROM (SELECT spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'block_length': 4, 'seed': 1} ORDER BY t) AS r
       FROM fc WHERE g = 'a');
 ----
-1	2	60	199	4.0	Superior predictive ability test	greater	true	true
+1	2	60	199	4.0	Superior predictive ability test	greater	true	true	true
 
-# Per group: 'a' rejects H0, 'b' does not.
-query IIII
-SELECT g, (r).p_value < 0.05, (r).p_value_upper < 0.05, (r).statistic > 0
+# Per group: 'a' rejects H0 with every p-value. In 'b' no model is better
+# (T_SPA = max(0, ...) = 0), the upper (Reality Check) p-value does not reject;
+# the lower and consistent p-values are degenerate at T_SPA = 0 (see the docs).
+query IIIII
+SELECT g, (r).p_value < 0.05, (r).p_value_upper < 0.05, (r).statistic > 0,
+    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper
 FROM (SELECT g, spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'seed': 3} ORDER BY t) AS r FROM fc GROUP BY g)
 ORDER BY g;
 ----
-a	true	true	true
-b	false	false	false
+a	true	true	true	true
+b	true	false	false	true
 
 # Default options: block length T^(1/3), 1000 bootstrap samples, fixed default seed.
 query III
@@ -125,6 +128,12 @@ SELECT spa_test_agg(bench, [m1], {'block_length': 'nan'::DOUBLE}) FROM fc;
 ----
 block_length must be finite
 
+# The SPA bootstrap is always the stationary one.
+statement error
+SELECT spa_test_agg(bench, [m1], {'method': 'moving_block'}) FROM fc;
+----
+unknown option 'method'
+
 # --- mspe_adjusted_spa_agg -------------------------------------------------
 
 # Arguments are forecast errors: the benchmark error carries a signal the
@@ -148,12 +157,67 @@ unknown option 'statistic'
 
 # --- model_confidence_set_agg ---------------------------------------------
 
-query IIIIIIII
-SELECT list_sort(r.included_models), r.eliminated_models, r.statistic_type, r.alpha, r.n_models, r.n, r.n_bootstrap, r.method
+# Elimination order as R MCS::MCSprocedure(L, statistic = "TR", k = 4) on these
+# losses: c (position 3) before b (position 2), by the bootstrap t-ratio.
+
+query IIIIIIIIII
+SELECT list_sort(r.included_models), r.eliminated_models, r.statistic_type, r.alpha, r.n_models, r.n, r.n_bootstrap,
+    r.block_length, r.bootstrap_method, r.method
 FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'block_length': 4, 'seed': 42} ORDER BY t) AS r
       FROM fc WHERE g = 'b');
 ----
-[1, 4]	[2, 3]	range	0.1	4	60	199	Model confidence set
+[1, 4]	[3, 2]	range	0.1	4	60	199	4.0	stationary	Model confidence set
+
+# The full elimination order ends with the best model (MCS p-value 1); every
+# model's MCS p-value is reported, and a model is in the set iff it is >= alpha.
+query IIIII
+SELECT len(r.elimination_order), r.elimination_order[1:2] = r.eliminated_models,
+    r.mcs_p_values[r.elimination_order[4]] = 1.0,
+    list_sort(r.included_models) = list_sort([i FOR i IN range(1, 5) IF r.mcs_p_values[i] >= r.alpha]),
+    list_bool_and([s.mcs_p_value >= s.p_value FOR s IN r.elimination_steps])
+FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'block_length': 4, 'seed': 42} ORDER BY t) AS r
+      FROM fc WHERE g = 'b');
+----
+4	true	true	true	true
+
+# Reproducible for a fixed seed with three or more models (anofox-statistics
+# >= 0.8.0; before, the pairwise bootstrap iterated a HashMap). The exact values
+# are pinned, so a change across processes or upstream versions shows up here.
+query III
+SELECT r.elimination_order, [round(p, 6) FOR p IN r.mcs_p_values], r.included_models
+FROM (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
+          {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+[5, 4, 3, 1, 2]	[0.885772, 1.0, 0.0, 0.0, 0.0]	[1, 2]
+
+query I
+SELECT (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4] ORDER BY t) FROM fc WHERE g = 'a')
+     = (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4] ORDER BY t) FROM fc WHERE g = 'a');
+----
+true
+
+# Bootstrap schemes: 'moving_block' is R MCS::MCSprocedure(k = block_length); a
+# fixed block length must be a whole number, the default is round(T^(1/3)).
+query IIIIII
+SELECT (model_confidence_set_agg([m1, m2], {'method': 'moving_block'} ORDER BY t)).block_length,
+       (model_confidence_set_agg([m1, m2], {'method': 'circular_block', 'block_length': 3} ORDER BY t)).bootstrap_method,
+       (model_confidence_set_agg([m1, m2], {'bootstrap_method': 'iid'} ORDER BY t)).block_length,
+       (model_confidence_set_agg([m1, m2], {'method': 'stationary', 'block_length': 2.5} ORDER BY t)).block_length,
+       abs((model_confidence_set_agg([m1, m2] ORDER BY t)).block_length - pow(60, 1.0 / 3)) < 1e-12,
+       (model_confidence_set_agg([m1, m2] ORDER BY t)).bootstrap_method
+FROM fc WHERE g = 'a';
+----
+4.0	circular_block	1.0	2.5	true	stationary
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'method': 'moving_block', 'block_length': 2.5}) FROM fc;
+----
+block_length must be a whole number
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'method': 'jackknife'}) FROM fc;
+----
+Invalid method
 
 # Elimination steps: every eliminated model appears with p_value < alpha, the
 # last step (if any) that stopped the procedure has p_value >= alpha.

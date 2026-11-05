@@ -2127,7 +2127,7 @@ McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string
 	                                          {"block_length", {"block_size"}},
 	                                          KEY_SEED,
 	                                          {"statistic", {}},
-	                                          {"method", {"bootstrap", "bootstrap_method"}}};
+	                                          {"method", {"bootstrap_method"}}};
 	return ParseTestOptions<McsMapOptions>(
 	    map_value, function_name, keys, [](McsMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alpha") {

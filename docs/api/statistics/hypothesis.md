@@ -56,8 +56,8 @@ STRUCT(
     p_value DOUBLE,       -- p-value
     df DOUBLE,            -- Degrees of freedom
     effect_size DOUBLE,   -- Cohen's d
-    ci_lower DOUBLE,      -- CI lower bound
-    ci_upper DOUBLE,      -- CI upper bound
+    ci_lower DOUBLE,      -- CI lower bound (-inf for alternative 'less')
+    ci_upper DOUBLE,      -- CI upper bound (inf for alternative 'greater')
     n1 BIGINT,            -- Group 1 sample size
     n2 BIGINT,            -- Group 2 sample size
     method VARCHAR        -- "Welch's t-test" or "Student's t-test"
@@ -79,6 +79,12 @@ SELECT t_test_agg(outcome, treatment_group, {'alternative': 'less'}) AS result
 FROM experiment;
 ```
 
+The interval is for the difference of means at `confidence_level`. For a
+one-sided `alternative` it is R's one-sided interval, `(-inf, d + t s]` for
+`'less'` and `[d - t s, inf)` for `'greater'` (`t` the `confidence_level` quantile
+of the t distribution, `s` the standard error), as `t.test(alternative = )`. Up to
+0.15.0 the two-sided interval was returned for every alternative.
+
 ### t_test_one_sample_agg
 
 One-sample t-test of H0: mean(x) = `mu` (R `t.test(x, mu = mu)`), with Cohen's d
@@ -94,7 +100,7 @@ t_test_one_sample_agg(x DOUBLE, [options MAP]) -> STRUCT
 (default 0.95), `mu` (default 0.0). `kind` and `paired` do not apply and raise an error.
 
 **Returns:** `statistic`, `p_value`, `df`, `effect_size` (Cohen's d), `ci_lower`,
-`ci_upper` (two-sided CI of the mean at `confidence_level`, also for one-sided alternatives, as `t_test_agg`), `n`, `method`
+`ci_upper` (CI of the mean at `confidence_level`; one-sided with an infinite bound for a one-sided alternative, as `t.test`), `n`, `method`
 (`One Sample t-test`), `alternative`, then the unified fields (`estimate` is the
 sample mean, `effect_name` is `cohens_d`).
 
@@ -230,8 +236,8 @@ STRUCT(
     statistic DOUBLE,     -- U statistic
     p_value DOUBLE,       -- p-value
     effect_size DOUBLE,   -- Rank-biserial correlation
-    ci_lower DOUBLE,      -- CI lower bound
-    ci_upper DOUBLE,      -- CI upper bound
+    ci_lower DOUBLE,      -- CI lower bound (-inf for alternative 'less')
+    ci_upper DOUBLE,      -- CI upper bound (inf for alternative 'greater')
     n1 BIGINT,            -- Group 1 sample size
     n2 BIGINT,            -- Group 2 sample size
     method VARCHAR        -- "Mann-Whitney U"
@@ -302,10 +308,10 @@ permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ### bootstrap_mean_ci_agg
 
 Percentile bootstrap confidence interval of the mean (anofox-statistics
-`bootstrap_mean_ci`): the IID bootstrap, or the circular block bootstrap for a
-dependent series. The block bootstrap resamples blocks of `block_length`
-consecutive values in the aggregate's `ORDER BY` order (as `acf_agg`), so pass the
-time column there; without `ORDER BY` the row order, and so the result, is not
+`bootstrap_mean_ci_with_options`): the IID bootstrap, or for a dependent series the
+stationary, circular block or moving block bootstrap. The block methods resample
+blocks of consecutive values in the aggregate's `ORDER BY` order (as `acf_agg`), so
+pass the time column there; without `ORDER BY` the row order, and so the result, is not
 defined. The IID bootstrap does not depend on the row order. NULL and NaN values are
 skipped; fewer than two values give NULL. The draw is seeded (42 by default), so
 repeated calls return the same interval.
@@ -318,19 +324,25 @@ bootstrap_mean_ci_agg(x DOUBLE [, options MAP] [ORDER BY t]) -> STRUCT
 **Options:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| method | VARCHAR | 'iid' | `'iid'` or `'circular_block'` (`'stationary'` is not available yet, see below) |
+| method | VARCHAR | 'iid' | `'iid'`, `'stationary'`, `'circular_block'` or `'moving_block'` |
 | n_bootstrap (alias `n_boot`) | INTEGER | 10000 | Number of bootstrap replicates (>= 2) |
-| block_length (alias `l`, `block_size`) | INTEGER | - | Block length of `'circular_block'` (required, >= 2); not allowed for `'iid'` |
+| block_length (alias `l`, `block_size`, `expected_block_length`) | DOUBLE | - | Required for the block methods, not allowed for `'iid'`: the expected block length of `'stationary'` (>= 1, may be fractional), the block length of `'circular_block'` / `'moving_block'` (a whole number >= 2) |
 | confidence_level (alias `confidence`, `conf_level`, `level`) | DOUBLE | 0.95 | Level of the percentile interval |
 | seed (alias `random_state`) | INTEGER | 42 | Seed of the bootstrap draw |
 
 **Returns:** `estimate` (the mean), `std_error` (standard deviation of the bootstrap
 means), `conf_low`, `conf_high` (percentile interval: the `floor(alpha/2 B)`-th and
 `ceil((1 - alpha/2) B)`-th sorted replicate, 0-based), `conf_level`, `n`,
-`n_bootstrap`, `block_length` (NULL for `'iid'`), `method`. A block length that
-divides `n` gives the textbook circular block bootstrap (R
-`boot::tsboot(sim = "fixed", endcorr = TRUE)`); otherwise the last block of each
-resample is cut to length `n`.
+`n_bootstrap`, `block_length` (DOUBLE; NULL for `'iid'`), `method`. The schemes:
+
+| method | Resampling | R |
+|---|---|---|
+| `'stationary'` | Politis-Romano stationary bootstrap: blocks of geometric length with mean `block_length`, wrapping around | `boot::tsboot(sim = "geom")` |
+| `'circular_block'` | blocks of `block_length` starting anywhere, wrapping around | `tsboot(sim = "fixed", endcorr = TRUE)` |
+| `'moving_block'` | blocks of `block_length` that do not wrap around | `tsboot(sim = "fixed", endcorr = FALSE)` |
+
+A block length that divides `n` gives the textbook block bootstraps; otherwise the
+last block of each resample is cut to length `n`.
 
 ```sql
 SELECT r.estimate, r.std_error, r.conf_low, r.conf_high, r.method
@@ -342,7 +354,8 @@ For a dependent series the block bootstrap gives a wider (more honest) interval:
 
 ```sql
 SELECT (bootstrap_mean_ci_agg(x ORDER BY t)).std_error AS se_iid,
-       (bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 8} ORDER BY t)).std_error AS se_block
+       (bootstrap_mean_ci_agg(x, {'method': 'circular_block', 'block_length': 8} ORDER BY t)).std_error AS se_block,
+       (bootstrap_mean_ci_agg(x, {'method': 'stationary', 'block_length': 8} ORDER BY t)).std_error AS se_stationary
 FROM (SELECT i AS t, 10 + sin(i * 0.3) + 0.1 * cos(i * 2.1) AS x FROM range(120) r(i));
 ```
 
@@ -357,9 +370,6 @@ FROM (SELECT sensor, bootstrap_mean_ci_agg(reading, {'method': 'circular_block',
 ORDER BY sensor;
 ```
 
-`'stationary'` (Politis-Romano stationary bootstrap) is not offered yet: upstream
-`bootstrap_mean_ci` runs it only with an expected block length of 1, which resamples
-like the IID bootstrap.
 
 ## Normality Tests
 
@@ -769,18 +779,29 @@ spa_test_agg(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t, [options])
 | block_length (alias `block_size`) | T^(1/3) | Expected block length of the stationary bootstrap; 0 or less selects the default |
 | seed (alias `random_state`) | 42 | Seed of the bootstrap |
 
-The result has `statistic` (the largest standardized loss differential
-benchmark − model), `p_value` (= `p_value_consistent`), `p_value_upper`,
-`best_model` (1-based position in `model_losses` of the model with the largest
-standardized differential), `n_models`, `n`, `n_bootstrap`, `block_length`, `method`,
-`alternative` (`greater`) and the unified test fields. Rows with a NULL or NaN
-benchmark, a NULL list or a NULL/NaN element are skipped; every list must have the
-same length (otherwise an error). Fewer than 3 complete rows give NULL.
+The result has `statistic`, `p_value` (= `p_value_consistent`), `p_value_lower`,
+`p_value_consistent`, `p_value_upper`, `best_model` (1-based position in
+`model_losses` of the model with the largest standardized differential), `n_models`,
+`n`, `n_bootstrap`, `block_length`, `method`, `alternative` (`greater`) and the
+unified test fields. Rows with a NULL or NaN benchmark, a NULL list or a NULL/NaN
+element are skipped; every list must have the same length (otherwise an error).
+Fewer than 3 complete rows give NULL.
 
-The statistic follows the upstream crate's standardization,
-`t_k = mean(d_k) * sqrt(T) / sqrt(var(d_k) / T)`, which is `sqrt(T)` times the usual
-t-statistic; the bootstrap p-values use the same scale. The upstream crate does
-not compute Hansen's lower p-value.
+With `d_k = L_benchmark − L_k` the statistic is Hansen's
+`T_SPA = max(0, max_k sqrt(T) mean(d_k) / ω_k)`, `ω_k²` the stationary-bootstrap
+long-run variance of `d_k`. Each bootstrap replicate draws one set of time indices
+and applies it to all models jointly. The three p-values differ in how the models
+are re-centred under H0: `p_value_lower` (only models that beat the benchmark),
+`p_value_consistent` (Hansen's recommended choice: models that are not significantly
+worse) and `p_value_upper` (every model, White's Reality Check), so
+`p_value_lower <= p_value_consistent <= p_value_upper`. They match a base-R
+implementation of Hansen (2005) within Monte Carlo error.
+
+When no competitor has a lower average loss than the benchmark, `statistic` is 0
+and the test cannot reject; the lower and consistent p-values
+(`#{T* > T_SPA} / B`) are then degenerate (close to 0 when every model is clearly
+worse) and should not be read as a rejection. Check `statistic > 0` before
+reporting them; `p_value_upper` stays valid.
 
 ```sql
 CREATE TABLE fc_losses AS
@@ -831,27 +852,42 @@ model_confidence_set_agg(model_losses DOUBLE[] ORDER BY t, [options]) -> STRUCT
 |---|---|---|
 | alpha | 0.1 | Elimination level, in (0, 1) |
 | statistic | `range` | `range` (T_R = max \|t_ij\|) or `max` (T_max) |
+| method (alias `bootstrap_method`) | `stationary` | Bootstrap scheme: `stationary`, `moving_block`, `circular_block` or `iid` |
 | n_bootstrap (aliases `n_boot`, `bootstrap`) | 1000 | Bootstrap samples |
-| block_length (alias `block_size`) | T^(1/3) | Expected block length of the stationary bootstrap |
+| block_length (alias `block_size`) | T^(1/3) | Expected block length of `stationary`; the block length of `moving_block` / `circular_block` (a whole number; default `round(T^(1/3))`); ignored by `iid` |
 | seed (alias `random_state`) | 42 | Seed of the bootstrap |
 
-The result has `included_models` and `eliminated_models` (1-based positions in
-`model_losses`; eliminated in elimination order), `mcs_p_value` (the p-value at
-which elimination stopped; 1 for a single model), `elimination_steps`
-(`STRUCT(model, p_value, eliminated)[]`, one per test), `statistic_type`, `alpha`,
-`n_models`, `n`, `n_bootstrap`, `block_length` and `method`. NULL handling is that
-of `spa_test_agg`.
+The default is the stationary bootstrap with expected block length `T^(1/3)`, the
+scheme of the SPA aggregates. `{'method': 'moving_block', 'block_length': k}`
+reproduces R's `MCS::MCSprocedure(k = k)` (`k = 1` is its IID bootstrap); note that
+R's default `alpha` is 0.15.
 
-With three or more models the MCS p-values are not bit-reproducible across
-processes even with a fixed seed: anofox-statistics 0.7.0 draws the pairwise
-bootstrap samples in hash-map order. Clear eliminations are stable; p-values near
-`alpha` can move between runs.
+The result has `included_models` and `eliminated_models` (1-based positions in
+`model_losses`; eliminated in elimination order), `mcs_p_value` (the MCS p-value at
+which elimination stopped; 1 for a single model), `mcs_p_values` (the MCS p-value of
+every model, indexed by position: R's `MCS p-Value` column, 1 for the best model; a
+model is in the set iff its value is >= `alpha`), `elimination_order` (all models,
+worst first and the best last: R's `elimination.order`), `elimination_steps`
+(`STRUCT(model, p_value, mcs_p_value, eliminated)[]`, the steps up to the first
+retained model; `p_value` is the step's test, `mcs_p_value` the running maximum),
+`statistic_type`, `alpha`, `n_models`, `n`, `n_bootstrap`, `block_length` (the one
+used), `bootstrap_method` and `method`. NULL handling is that of `spa_test_agg`.
+
+Each replicate draws one set of time indices for all models, and the contrasts are
+standardized with bootstrap variances, as `MCSprocedure`. The result is
+reproducible for a fixed seed, with any number of models.
 
 ```sql
-SELECT r.included_models, r.eliminated_models, r.elimination_steps
+SELECT r.included_models, r.eliminated_models, r.mcs_p_values, r.elimination_order
 FROM (SELECT model_confidence_set_agg([naive_loss, ets_loss, arima_loss],
                                       {'alpha': 0.1, 'n_bootstrap': 999} ORDER BY t) AS r
       FROM fc_losses);
+
+-- As R MCS::MCSprocedure(L, alpha = 0.1, statistic = "Tmax", k = 3)
+SELECT (model_confidence_set_agg([naive_loss, ets_loss, arima_loss],
+                                 {'statistic': 'max', 'method': 'moving_block', 'block_length': 3,
+                                  'n_bootstrap': 2000} ORDER BY t)).mcs_p_values
+FROM fc_losses;
 ```
 
 Per series, group as usual:
@@ -863,8 +899,10 @@ GROUP BY series ORDER BY series;
 ```
 
 The SPA and MCS p-values come from the bootstrap: their digits depend on the
-random stream, so they agree with other implementations (e.g. R's `MCS` package)
-in the decision, not to the last digit.
+random stream, so they agree with other implementations (R's `MCS` package, a
+base-R Hansen SPA) within Monte Carlo error (about 0.005 at 20000 replicates), not
+to the last digit. The SPA statistic and the MCS elimination order are compared
+exactly.
 
 ## Pairwise Post-hoc Tests
 

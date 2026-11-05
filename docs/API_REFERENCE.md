@@ -1196,7 +1196,7 @@ FROM reg_data;
 | `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method, alternative, rank_biserial` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000), `seed` (42) | `statistic, p_value, n1, n2, method` |
-| `bootstrap_mean_ci_agg` | `(x DOUBLE [, options] [ORDER BY t])` | `method` ('iid' \| 'circular_block'), `n_bootstrap` (10000), `block_length`, `confidence_level` (0.95), `seed` (42) | `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap, block_length, method` |
+| `bootstrap_mean_ci_agg` | `(x DOUBLE [, options] [ORDER BY t])` | `method` ('iid' \| 'stationary' \| 'circular_block' \| 'moving_block'), `n_bootstrap` (10000), `block_length` (expected block length for 'stationary'), `confidence_level` (0.95), `seed` (42) | `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap, block_length, method` |
 
 ```sql
 SELECT (mann_whitney_u_agg(y, grp2, {'alternative': 'greater'})).p_value AS mw_p,
@@ -1274,9 +1274,9 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `diebold_mariano_agg` **MAP** | `(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE [, options])` | `loss` (squared; `'absolute'`), `horizon` (1), `var_estimator` (`'bartlett'`), `alternative` | `statistic, p_value, n, method` |
 | `clark_west_agg` **MAP** | `(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE [, options])` | `horizon` (1) | `statistic, p_value, n, method` |
-| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t [, options])` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
+| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t [, options])` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_lower, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
 | `mspe_adjusted_spa_agg` | `(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t [, options])` | as `spa_test_agg` | as `spa_test_agg` |
-| `model_confidence_set_agg` | `(model_losses DOUBLE[] ORDER BY t [, options])` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, elimination_steps, ...` |
+| `model_confidence_set_agg` | `(model_losses DOUBLE[] ORDER BY t [, options])` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `method` (`'stationary'`; `'moving_block'` = R `MCSprocedure(k)`, `'circular_block'`, `'iid'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, mcs_p_values, elimination_order, elimination_steps, ...` |
 
 ```sql
 SELECT (diebold_mariano_agg(y, y + sin(id), y + 2 * cos(id))).p_value AS dm_p,

@@ -15,6 +15,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/duckdb_compat.hpp"
 #include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
@@ -586,7 +587,7 @@ static void RegisterForecastComparisonSet(ExtensionLoader &loader, const string 
                                           const vector<string> &param_names_no_opts,
                                           const vector<LogicalType> &param_types_no_opts, const string &example,
                                           const string &example_no_opts) {
-	AggregateFunctionSet func_set(name);
+	AggregateFunctionSet func_set(AsDuckName(name));
 	// Row order is part of the input (time series): honour `agg(... ORDER BY t)`.
 	SetOrderDependentOf(with_opts, AggregateOrderDependent::ORDER_DEPENDENT);
 	func_set.AddFunction(with_opts);
