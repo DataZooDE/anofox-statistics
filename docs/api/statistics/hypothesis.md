@@ -190,6 +190,127 @@ Brown-Forsythe test for equality of variances.
 brown_forsythe_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
+### two_way_anova_agg
+
+Two-way (factorial) ANOVA with interaction: tests the main effect of each factor and
+their interaction. Sums of squares are Type III (each effect adjusted for all others),
+matching R's `car::Anova(lm(y ~ a * b, contrasts = list(a = "contr.sum", b = "contr.sum")), type = 3)`;
+for a balanced design they equal `summary(aov(y ~ a * b))`. Unbalanced designs are
+supported, but every combination of the two factors must be observed (otherwise the
+result is NULL).
+
+**Signature:**
+```text
+two_way_anova_agg(y DOUBLE, factor_a BIGINT | VARCHAR, factor_b BIGINT | VARCHAR, [options]) -> LIST(STRUCT)
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| terms | LIST(VARCHAR) | ['factor_a', 'factor_b'] | Labels of the two factors; the interaction is labelled `a:b` |
+
+**Returns:** one list element per F test (factor A, factor B, interaction):
+```
+LIST(STRUCT(
+    term VARCHAR,              -- 'factor_a', 'factor_b', 'factor_a:factor_b' (or the terms labels)
+    method VARCHAR,            -- 'Two-way ANOVA: factor A', ...
+    statistic DOUBLE,          -- F
+    df1 DOUBLE,                -- effect df
+    df2 DOUBLE,                -- residual df (n - levels_a * levels_b)
+    p_value DOUBLE,
+    sum_sq DOUBLE,             -- Type III sum of squares of the effect
+    mean_sq DOUBLE,
+    residual_sum_sq DOUBLE,
+    residual_mean_sq DOUBLE,
+    n_observations BIGINT,
+    ... unified fields: effect_size is partial eta squared (effect_name 'partial_eta_squared')
+))
+```
+
+A row is skipped when `y` is NULL or NaN or a factor is NULL. Levels are ordered by
+label, so the result does not depend on the row order.
+
+**Example:**
+```sql
+-- Yield by fertilizer (3 levels) and irrigation (2 levels), one row per term
+SELECT t.term, round(t.statistic, 4) AS f, t.df1, t.df2, round(t.p_value, 6) AS p_value,
+       round(t.effect_size, 4) AS partial_eta_sq
+FROM (SELECT unnest(two_way_anova_agg(yield, fertilizer, irrigation,
+                                      {'terms': ['fertilizer', 'irrigation']})) AS t
+      FROM (SELECT ['none', 'low', 'high'][(i % 3) + 1] AS fertilizer,
+                   (i // 3) % 2 AS irrigation,
+                   10 + (i % 3) * 1.5 + ((i // 3) % 2) * 0.8 + sin(i * 1.3) AS yield
+            FROM range(36) r(i)) field_trial);
+```
+
+### repeated_measures_anova_agg
+
+One-way repeated-measures ANOVA: compares the means of conditions measured on the same
+subjects (long format, one row per subject and condition). The F test is R's
+`summary(aov(y ~ condition + Error(subject / condition)))`. With three or more
+conditions it adds Mauchly's test of sphericity and the Greenhouse-Geisser corrected
+test (`gg_*`), as `afex::aov_ez` / `car::Anova` on the wide matrix report them.
+
+**Signature:**
+```text
+repeated_measures_anova_agg(y DOUBLE, subject BIGINT | VARCHAR, condition BIGINT | VARCHAR, [options]) -> STRUCT
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| sphericity | BOOLEAN | true | Compute Mauchly's test and the Greenhouse-Geisser correction |
+
+**Returns:**
+```
+STRUCT(
+    method VARCHAR,              -- 'Repeated measures ANOVA'
+    statistic DOUBLE,            -- F of the within-subjects effect
+    df1 DOUBLE,                  -- k - 1
+    df2 DOUBLE,                  -- (n - 1)(k - 1)
+    p_value DOUBLE,              -- uncorrected p-value
+    ss_condition DOUBLE,
+    ss_subjects DOUBLE,
+    ss_error DOUBLE,             -- subject x condition residual
+    ms_condition DOUBLE,
+    ms_error DOUBLE,
+    n_subjects BIGINT,           -- complete subjects used
+    n_conditions BIGINT,
+    n_excluded_subjects BIGINT,  -- subjects missing at least one condition
+    mauchly_w DOUBLE,            -- Mauchly's W (NULL for k = 2 or sphericity := false)
+    mauchly_statistic DOUBLE,    -- chi-square approximation
+    mauchly_df DOUBLE,
+    mauchly_p_value DOUBLE,
+    gg_epsilon DOUBLE,           -- Greenhouse-Geisser epsilon
+    gg_df1 DOUBLE,
+    gg_df2 DOUBLE,
+    gg_p_value DOUBLE,           -- Greenhouse-Geisser corrected p-value
+    ... unified fields: effect_size is partial eta squared, n is n_subjects
+)
+```
+
+Subjects that lack a value for some condition are excluded (listwise, like afex and
+ez) and counted in `n_excluded_subjects`; a second value for the same subject and
+condition is an error (aggregate replicates first). The result is NULL with fewer than
+two complete subjects or two conditions. `mauchly_p_value` uses the chi-square
+approximation with Bartlett's correction factor; R's `mauchly.test` adds a
+second-order term, so its p-value differs slightly (W and the chi-square agree). The
+Huynh-Feldt correction is not reported yet: anofox-statistics 0.7.0 computes its
+epsilon differently from car / afex / ez.
+
+**Example:**
+```sql
+-- Reaction time of 10 participants under 4 conditions
+-- (the spread grows with the condition, so sphericity is doubtful)
+SELECT round(r.statistic, 4) AS f, r.df1, r.df2, r.p_value,
+       round(r.mauchly_w, 4) AS mauchly_w, round(r.mauchly_p_value, 4) AS mauchly_p,
+       round(r.gg_epsilon, 4) AS gg_epsilon, r.gg_p_value
+FROM (SELECT repeated_measures_anova_agg(rt, participant, 'c' || condition) AS r
+      FROM (SELECT i // 4 AS participant, i % 4 AS condition,
+                   300 + (i % 4) * 6 + (i // 4) * 5 + (hash(i) % 1000) / 100.0 * (1 + i % 4) AS rt
+            FROM range(40) t(i)) trials);
+```
+
 ## Reproducibility
 
 The tests return bitwise-identical results for the same rows, whatever the thread

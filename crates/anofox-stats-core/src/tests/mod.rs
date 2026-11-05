@@ -3,6 +3,7 @@
 //! This module provides wrappers around the anofox-tests crate (anofox-statistics)
 //! for statistical hypothesis testing in DuckDB.
 
+pub mod anova;
 pub mod categorical;
 pub mod classification;
 pub mod correlation;

@@ -779,4 +779,25 @@ struct McsMapOptions {
 	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+};
+
+/**
+/**
+ * Options for the two-way ANOVA (two_way_anova_agg, #297)
+ */
+struct TwoWayAnovaMapOptions {
+	std::optional<vector<string>> terms; // labels of factor A and factor B
+
+	static TwoWayAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the repeated-measures ANOVA (repeated_measures_anova_agg, #297)
+ */
+struct RmAnovaMapOptions {
+	std::optional<bool> sphericity; // Mauchly's test + Greenhouse-Geisser correction
+
+	static RmAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
 } // namespace duckdb

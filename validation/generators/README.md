@@ -151,6 +151,12 @@ its output.
 of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_agg`,
 #296); it needs the `ppcor` package (`install.packages("ppcor", lib = "~/R/userlib")`).
 
+`make_reference_anova.R` prints the values of `anova_reference.test`
+(`two_way_anova_agg`: `car::Anova(type = 3)` with sum contrasts;
+`repeated_measures_anova_agg`: `aov(y ~ cond + Error(subject / cond))`,
+`mauchly.test` and the Greenhouse-Geisser epsilon, cross-checked against
+`afex::aov_ez` when afex is installed, e.g. in `~/R/userlib`).
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

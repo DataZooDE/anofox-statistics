@@ -87,6 +87,14 @@ CREATE VIEW results AS
     UNION ALL
     SELECT 'one_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(one_way_anova_agg(y, c1)).f_statistic, (one_way_anova_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
     UNION ALL
+    SELECT 'two_way_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), t -> t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'two_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, list_transform(two_way_anova_agg(y, c1, g2), t -> t.p_value) || [(two_way_anova_agg(y, c1, g2))[3].statistic]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'repeated_measures_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).statistic, (repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).gg_p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'repeated_measures_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).statistic, (repeated_measures_anova_agg(y, i // 32, (i // 8) % 4)).gg_p_value]::DOUBLE[] AS vals FROM big WHERE g = 0
+    UNION ALL
     SELECT 'brown_forsythe_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(brown_forsythe_agg(y, c1)).statistic, (brown_forsythe_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
     UNION ALL
     SELECT 'brown_forsythe_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(brown_forsythe_agg(y, c1)).statistic, (brown_forsythe_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
@@ -179,9 +187,11 @@ one_way_anova_agg	9	true
 permutation_t_test_agg	9	true
 prop_test_one_agg	9	true
 prop_test_two_agg	9	true
+repeated_measures_anova_agg	9	true
 shapiro_wilk_agg	9	true
 t_test_agg_student	9	true
 t_test_agg_welch	9	true
 tost_t_test_agg	9	true
+two_way_anova_agg	9	true
 wilcoxon_signed_rank_agg	9	true
 yuen_agg	9	true

@@ -4038,6 +4038,89 @@ bool anofox_model_confidence_set(const AnofoxDataArray *models, size_t n_models,
                                  uint64_t *out_included, AnofoxMcsStep *out_steps, uint64_t *out_order,
                                  double *out_mcs_p_values, AnofoxMcsResult *out_result, AnofoxError *out_error);
 
+/* ============================================================================
+ * Two-way and repeated-measures ANOVA (#297)
+ * ============================================================================ */
+
+/**
+ * One F test of anofox_two_way_anova. Must match AnovaTermFFI in
+ * crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	double sum_sq;
+	double df;
+	double mean_sq;
+	double f_statistic;
+	double p_value;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxTwoWayAnovaTerm;
+
+/**
+ * Result of anofox_two_way_anova. Must match TwoWayAnovaResultFFI in
+ * crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	/** Factor A, factor B, A x B interaction */
+	AnofoxTwoWayAnovaTerm terms[3];
+	double residual_sum_sq;
+	double residual_df;
+	double residual_mean_sq;
+	double total_sum_sq;
+	double total_df;
+	size_t levels_a;
+	size_t levels_b;
+	size_t n;
+	double grand_mean;
+} AnofoxTwoWayAnovaResult;
+
+/**
+ * Two-way ANOVA with interaction, Type III sums of squares (car::Anova(type = 3)
+ * with sum contrasts), of values by the dense 0-based level codes factor_a and
+ * factor_b. Every cell must be observed.
+ */
+bool anofox_two_way_anova(AnofoxDataArray values, AnofoxDataArray factor_a, AnofoxDataArray factor_b,
+                          AnofoxTwoWayAnovaResult *out_result, AnofoxError *out_error);
+
+/**
+ * Result of anofox_repeated_measures_anova. The sphericity fields are NaN when
+ * fewer than three conditions were observed or sphericity was not requested.
+ * Must match RmAnovaResultFFI in crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	double ss_condition;
+	double df_condition;
+	double ms_condition;
+	double f_statistic;
+	double p_value;
+	double ss_subjects;
+	double df_subjects;
+	double ss_error;
+	double df_error;
+	double ms_error;
+	double ss_total;
+	size_t n_subjects;
+	size_t n_conditions;
+	double mauchly_w;
+	double mauchly_chi_square;
+	double mauchly_df;
+	double mauchly_p_value;
+	double gg_epsilon;
+	double gg_df1;
+	double gg_df2;
+	double gg_p_value;
+	/** Unified test fields of the uncorrected F test (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxRmAnovaResult;
+
+/**
+ * One-way repeated-measures ANOVA of the complete row-major n_subjects x
+ * n_conditions matrix data; sphericity adds Mauchly's test and the
+ * Greenhouse-Geisser correction (three or more conditions).
+ */
+bool anofox_repeated_measures_anova(const double *data, size_t n_subjects, size_t n_conditions, bool sphericity,
+                                    AnofoxRmAnovaResult *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

@@ -10811,3 +10811,6 @@ pub use partial_cor_ffi::*;
 // AUC null distribution and Tukey distribution functions (#304).
 mod null_distributions_ffi;
 pub use null_distributions_ffi::*;
+
+// Two-way and repeated-measures ANOVA (#297).
+mod anova_ffi;

@@ -2147,4 +2147,43 @@ McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string
 	    });
 }
 
+		    }
+	    });
+}
+
+TwoWayAnovaMapOptions TwoWayAnovaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"terms", {"term_names"}}};
+	return ParseTestOptions<TwoWayAnovaMapOptions>(
+	    map_value, function_name, keys, [&](TwoWayAnovaMapOptions &result, const string &key, const Value &val) {
+		    if (key != "terms" || val.IsNull()) {
+			    return;
+		    }
+		    if (val.type().id() != LogicalTypeId::LIST || ListValue::GetChildren(val).size() != 2) {
+			    throw InvalidInputException("%s: terms must be a LIST of two VARCHAR labels (factor A, factor B), got %s",
+			                                function_name, val.ToString());
+		    }
+		    vector<string> labels;
+		    for (auto &child : ListValue::GetChildren(val)) {
+			    if (child.IsNull() || child.ToString().empty()) {
+				    throw InvalidInputException("%s: terms must not contain NULL or empty labels", function_name);
+			    }
+			    labels.push_back(child.ToString());
+		    }
+		    if (labels[0] == labels[1]) {
+			    throw InvalidInputException("%s: the two terms labels must differ", function_name);
+		    }
+		    result.terms = std::move(labels);
+	    });
+}
+
+RmAnovaMapOptions RmAnovaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"sphericity", {}}};
+	return ParseTestOptions<RmAnovaMapOptions>(map_value, function_name, keys,
+	                                           [](RmAnovaMapOptions &result, const string &key, const Value &val) {
+		                                           if (key == "sphericity" && !val.IsNull()) {
+			                                           result.sphericity = ExtractBool(val);
+		                                           }
+	                                           });
+}
+
 } // namespace duckdb
