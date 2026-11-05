@@ -10820,3 +10820,7 @@ pub use pca_ffi::*;
 
 mod gvif_ffi;
 pub use gvif_ffi::*;
+
+// Predictive accuracy indexes (#308).
+mod accuracy_ffi;
+pub use accuracy_ffi::*;

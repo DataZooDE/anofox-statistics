@@ -202,6 +202,8 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Classifier evaluation (#153)
     RegisterClassifierAggregateFunctions(loader);
+    // Predictive accuracy indexes (#308)
+    RegisterAccuracyFunctions(loader);
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);

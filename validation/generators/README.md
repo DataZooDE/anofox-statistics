@@ -163,6 +163,11 @@ on `USArrests` and a wide (n < d) matrix. prcomp's arbitrary component signs
 are flipped to the extension's convention (largest absolute loading positive)
 before the comparison.
 
+`make_reference_accuracy.R` (rms, Hmisc, survival) prints the data and the
+reference values of `accuracy_reference.test` (`concordance_agg`,
+`somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`,
+`gini_md_agg`, `r2_measures`, #308); the test is written from its output.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

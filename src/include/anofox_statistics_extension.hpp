@@ -155,6 +155,9 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 // Classifier evaluation: ROC/PR/calibration curves, AUC, Brier, log loss (#153)
 void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
 
+// Predictive accuracy indexes: concordance, somers2, rcorr.cens, lrm stats, val.prob, R2 measures (#308)
+void RegisterAccuracyFunctions(ExtensionLoader &loader);
+
 // Table Macros for fit_predict_by functions
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
