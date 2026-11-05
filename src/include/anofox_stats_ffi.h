@@ -3710,6 +3710,24 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/* ============================================================================
+ * AUC null distribution and studentized range distribution (#304)
+ * ============================================================================ */
+
+/** Quantile of the ROC AUC of a random classifier: qwilcox(p, n_pos, n_neg) / (n_pos n_neg). */
+bool anofox_auc_null_quantile(double p, int64_t n_pos, int64_t n_neg, double *out_value, AnofoxError *out_error);
+
+/** One-sided p-value P(AUC_random >= auc) of an observed AUC. */
+bool anofox_auc_null_p_value(double auc, int64_t n_pos, int64_t n_neg, double *out_value, AnofoxError *out_error);
+
+/** Studentized range distribution function (R ptukey). */
+bool anofox_ptukey(double q, double n_means, double df, double n_ranges, bool lower_tail, double *out_value,
+                   AnofoxError *out_error);
+
+/** Studentized range quantile function (R qtukey). */
+bool anofox_qtukey(double p, double n_means, double df, double n_ranges, bool lower_tail, double *out_value,
+                   AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

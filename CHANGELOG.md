@@ -10,6 +10,14 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **AUC null distribution and Tukey distribution functions (#304).** Scalars
+  `auc_null_quantile(p, n_pos, n_neg)` and `auc_null_p_value(auc, n_pos, n_neg)` (the AUC
+  of a random classifier, exact from the Mann-Whitney distribution: R `qwilcox` / `pwilcox`
+  divided by `n_pos · n_neg`), and `ptukey(q, n_means, df [, n_ranges [, lower_tail]])` /
+  `qtukey(p, ...)` (R's studentized range distribution), from anofox-statistics.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

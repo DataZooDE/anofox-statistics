@@ -234,6 +234,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterAicBicFunctions(loader);
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
+    RegisterNullDistributionFunctions(loader);
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);

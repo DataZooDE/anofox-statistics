@@ -12,6 +12,7 @@ pub mod equivalence;
 pub mod forecast;
 pub mod modern;
 pub mod nonparametric;
+pub mod null_distributions;
 pub mod parametric;
 pub mod posthoc;
 pub mod resampling;

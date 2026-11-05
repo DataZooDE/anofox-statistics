@@ -254,6 +254,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
+    src/scalar_functions/null_distributions.cpp
     src/window_functions/ols_fit_predict.cpp
     src/window_functions/huber_fit_predict.cpp
     src/window_functions/ransac_fit_predict.cpp

@@ -589,6 +589,30 @@ SELECT site, group1, group2, p_adj, estimate, conf_low, conf_high
 FROM pairwise_t_test_by('trial', site, response, arm);
 ```
 
+### Studentized range distribution: ptukey, qtukey
+
+```text
+ptukey(q DOUBLE, n_means DOUBLE, df DOUBLE [, n_ranges DOUBLE [, lower_tail BOOLEAN]]) -> DOUBLE
+qtukey(p DOUBLE, n_means DOUBLE, df DOUBLE [, n_ranges DOUBLE [, lower_tail BOOLEAN]]) -> DOUBLE
+```
+
+The distribution and quantile functions of the studentized range statistic, ports of
+R's `ptukey` / `qtukey` (`n_ranges` default 1, `lower_tail` default true) (#304). They
+give Tukey HSD p-values and critical values for given group counts and residual
+degrees of freedom. As R, `qtukey` stops its secant iteration once successive iterates
+differ by less than 1e-4, so it matches R's `qtukey` rather than the exact quantile.
+
+A NULL argument gives NULL and a NaN argument NaN. `n_means < 2`, `df < 2`,
+`n_ranges < 1` or `p` outside [0, 1] is an error (R returns NaN with a warning).
+`ptukey(q <= 0)` is 0, `ptukey(inf)` is 1, `qtukey(0)` is 0 and `qtukey(1)` is `inf`
+(lower tail).
+
+```sql
+SELECT ptukey(3.5, 3, 12) AS p_lower,
+       ptukey(3.5, 3, 12, 1, false) AS p_upper,
+       qtukey(0.95, 3, 12) AS q_crit;
+```
+
 ## Multiple Testing
 
 Adjust p-values from any set of tests for multiple comparisons, with R's
