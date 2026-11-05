@@ -7,6 +7,7 @@ pub mod diagnostics;
 pub mod errors;
 pub mod models;
 pub mod multivariate;
+pub mod splines;
 pub mod tests;
 pub mod types;
 mod validation;

@@ -4559,6 +4559,49 @@ bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y
                                 bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
                                 double *out_upper, double *out_intercept, AnofoxError *out_error);
 
+/* ============================================================================
+ * Regression-spline bases (#317)
+ * ============================================================================
+ * Variable-length results go to caller buffers: *out_len is always set to the
+ * length of the result, and the values are written only when it fits into
+ * `capacity`, so the caller can grow the buffer and call again. */
+
+/** Spline specification. Must match SplineSpecFFI in crates/anofox-stats-ffi/src/splines_ffi.rs. */
+typedef struct AnofoxSplineSpec {
+	int32_t kind;          /* 0 rcs, 1 lsp, 2 bspline */
+	int32_t norm;          /* rcs: norm of Hmisc::rcspline.eval (0, 1, 2) */
+	int32_t extrapolation; /* bspline: 0 constant, 1 linear, 2 continue, 3 periodic, 4 error */
+	bool include_bias;     /* bspline: keep the last spline */
+	size_t degree;         /* bspline */
+	const double *knots;   /* knots (rcs, lsp) or base knots (bspline); NaN for NULL */
+	size_t n_knots;
+} AnofoxSplineSpec;
+
+/** Basis row of `spec` at x (a NaN row for non-finite x). */
+bool anofox_spline_basis(const AnofoxSplineSpec *spec, double x, double *out_values, size_t capacity,
+                         size_t *out_len, AnofoxError *out_error);
+
+/** Validate `spec`; the knots as kept upstream and the nonlinearity flag of every column. */
+bool anofox_spline_info(const AnofoxSplineSpec *spec, double *out_knots, size_t knots_capacity, size_t *out_n_knots,
+                        bool *out_nonlinear, size_t columns_capacity, size_t *out_n_columns, AnofoxError *out_error);
+
+/** Default rcs knots: Hmisc::rcspline.eval(x, nk, knots.only = TRUE, fractied). */
+bool anofox_rcs_default_knots(AnofoxDataArray x, size_t nk, double fractied, double *out_knots, size_t capacity,
+                              size_t *out_len, AnofoxError *out_error);
+
+/** B-spline base knots from data; placement 0 uniform, 1 quantile (sklearn SplineTransformer). */
+bool anofox_bspline_data_knots(AnofoxDataArray x, size_t n_knots, int32_t placement, double *out_knots,
+                               size_t capacity, size_t *out_len, AnofoxError *out_error);
+
+/** Knot quantiles of RMS Table 2.3 for nk knots. */
+bool anofox_default_knot_quantiles(size_t nk, double *out_values, size_t capacity, size_t *out_len,
+                                   AnofoxError *out_error);
+
+/** Restricted interaction (rms %ia%) of two basis rows with their nonlinearity flags. */
+bool anofox_restricted_interaction(const double *a, const bool *a_nonlinear, size_t n_a, const double *b,
+                                   const bool *b_nonlinear, size_t n_b, double *out_values, size_t capacity,
+                                   size_t *out_len, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

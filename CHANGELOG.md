@@ -12,6 +12,19 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Regression-spline bases (#317).** `rcs(x, knots [, {'norm'}])` (restricted cubic spline,
+  `Hmisc::rcspline.eval(inclx = TRUE)` / `rms::rcs`), `lsp(x, knots)` (`rms::lsp`),
+  `bspline(x, knots [, degree [, {'extrapolation', 'include_bias'}]])` (sklearn
+  `SplineTransformer`) and `restricted_interaction(a, b [, a_nonlinear, b_nonlinear])`
+  (`rms` `%ia%`) expand one value into a `DOUBLE[]` basis row for any `*_fit_agg`;
+  `rcs_knots_agg(x [, nk [, {'fractied'}]])` places the default `rms::rcs` knots,
+  `bspline_knots_agg(x [, n_knots [, {'knots': 'uniform' | 'quantile'}]])` the sklearn base
+  knots, `default_knot_quantiles(nk)` gives RMS Table 2.3. `spline_spec(kind, knots [, options])`
+  returns the validated basis definition `{kind, knots, norm, degree, extrapolation,
+  include_bias, n_columns, nonlinear}` and `spline_basis(x, spec)` expands new data with it.
+  All from anofox-regression `splines`. Reference values: Hmisc / rms / splines
+  (`validation/generators/make_reference_splines.R`) and scikit-learn
+  (`validation/generators/make_reference_splines.py`).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap

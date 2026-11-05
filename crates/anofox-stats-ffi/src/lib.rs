@@ -3,8 +3,8 @@
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
 mod drift_ffi;
-mod forecast_ffi;
 mod embedding_ffi;
+mod forecast_ffi;
 mod inference_ffi;
 mod models_ffi;
 mod types;
@@ -10833,3 +10833,7 @@ pub use cluster_ffi::*;
 // Likelihood-ratio / score tests and profile CIs (#310).
 mod likelihood_ffi;
 pub use likelihood_ffi::*;
+
+// Regression-spline bases (#317).
+mod splines_ffi;
+pub use splines_ffi::*;
