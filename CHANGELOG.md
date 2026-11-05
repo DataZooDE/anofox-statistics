@@ -39,6 +39,19 @@ Breaking changes are called out explicitly.
   coefficients; options `rule` (`'aic'` / `'p'`), `type` (`'residual'` / `'individual'`),
   `sls`, `aics`, `k_aic`; NULL-labelled coefficients are never deleted. Reference values:
   `rms::anova` and `rms::fastbw` (`validation/generators/make_reference_wald_anova.R`).
+- **Cox proportional hazards regression (#312).** `cox_fit_agg(time, x, event [, weight] [, options])`
+  fits `survival::coxph` (anofox-regression `survival::cox`): Efron (default) or Breslow ties, case
+  weights, offset, strata, counting-process `(entry, stop]` data, ridge penalty and the robust /
+  cluster-robust covariance (offset, strata, entry and cluster are columns of `x` named by position
+  in the options). The model STRUCT carries the log hazard ratios, hazard ratios with Wald intervals,
+  the LR / Wald / score tests, Harrell's C, `rms::cph`'s R2, AIC / BIC and the baseline cumulative
+  hazard. `cox_zph_agg` is `cox.zph` (km / rank / identity / log transforms), the scalar
+  `cox_survival(model, x, times [, stratum])` the point estimate of `survfit(fit, newdata)`, and the
+  window aggregate `cox_augment_agg` returns the linear predictor and the martingale, deviance,
+  score, dfbeta(s) and (scaled) Schoenfeld residuals. Table macros `cox_fit_by`, `cox_tidy_by`
+  (`terms`), `cox_glance_by` (`summary`) and `cox_augment_by` (`obs`). Reference values:
+  `survival::coxph` / `cox.zph` / `survfit` / `residuals` and `rms::cph`
+  (`validation/generators/make_reference_cox.R`).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap

@@ -10841,3 +10841,7 @@ pub use multinomial_ffi::*;
 // rms-style Wald ANOVA and fast backward step-down (#311).
 mod wald_ffi;
 pub use wald_ffi::*;
+
+// Cox proportional hazards regression (#312)
+mod cox_ffi;
+pub use cox_ffi::*;

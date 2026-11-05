@@ -255,3 +255,16 @@ labels, solved to a tight tolerance (`lbfgs` / `saga`). The R script (needs
 (`lambda` 0, with and without case weights) against `nnet::multinom`, comparing
 the baseline-category contrasts `coefficients[k] - coefficients[1]`, the
 fitted probabilities, the predicted classes and `logLik`.
+
+## `make_reference_cox.R`
+
+```bash
+Rscript validation/generators/make_reference_cox.R
+```
+
+Requires `survival` and `rms`. It (re)writes `test/sql/reference/survival_cox.test`:
+`cox_fit_agg` (Efron / Breslow ties, case weights, offset, strata, counting-process
+data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
+`cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
+`survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
+on `survival::lung` and `survival::heart`.

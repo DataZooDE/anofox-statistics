@@ -119,4 +119,5 @@ ORDER BY calls;
 ## See Also
 
 - [AFT survival regression](aft.md) - `aft_fit_agg`, `aft_cdf`, `aft_quantile`
+- [Cox proportional hazards](cox.md) - `cox_fit_agg`, `cox_survival` (model-based curves of a Cox fit)
 - [Hypothesis tests](../statistics/hypothesis.md) - the unified test fields

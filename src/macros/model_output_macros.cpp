@@ -79,6 +79,7 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"tweedie", "a Tweedie GLM", nullptr, true},
     {"alm", "an augmented linear model (ALM)", nullptr, true},
     {"aft", "an accelerated failure time (AFT) survival model", "event_col", true},
+    {"cox", "a Cox proportional hazards model (coefficients are log hazard ratios)", "event_col", true},
     {"passive_aggressive", "a Passive-Aggressive online regression", nullptr, false, true},
     {"lm_dynamic", "a dynamic linear model with time-varying coefficients (greybox lmDynamic)", nullptr, false, true, true},
 };
@@ -672,6 +673,54 @@ static void RegisterGlmmOutputMacros(ExtensionLoader &loader) {
 	loader.RegisterFunction(*augment);
 }
 
+// Cox proportional hazards (#312): cox_fit_by (the model fields per group) and
+// cox_augment_by (contract `obs`: per-row residuals of cox_augment_agg).
+const char *const COX_FIT_BY_SQL =
+    "SELECT group_col, unnest(_m) FROM (SELECT group_col, cox_fit_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) AS _m FROM query_table(source::VARCHAR) GROUP BY group_col) ORDER BY group_col";
+
+const char *const COX_AUGMENT_SQL =
+    "SELECT * EXCLUDE (_aug, _rn, _anofox_rid), 'cox' AS model_id, 'cox' AS model_name, _anofox_rid AS row_id, "
+    "(_aug[_rn]).linear_predictor AS fitted, (_aug[_rn]).martingale_residual AS residual, "
+    "'martingale' AS resid_type, NULL::DOUBLE AS std_residual, NULL::DOUBLE AS stud_residual, "
+    "NULL::DOUBLE AS leverage, NULL::DOUBLE AS cooks_d, NULL::DOUBLE AS dffits, 1.0::DOUBLE AS weight, "
+    "(_aug[_rn]).is_training AS is_training, NULL::INTEGER AS n_params, (_aug[_rn]).risk AS risk, "
+    "(_aug[_rn]).deviance_residual AS deviance_residual, (_aug[_rn]).score_residuals AS score_residuals, "
+    "(_aug[_rn]).dfbeta AS dfbeta, (_aug[_rn]).dfbetas AS dfbetas, "
+    "(_aug[_rn]).schoenfeld_residuals AS schoenfeld_residuals, "
+    "(_aug[_rn]).scaled_schoenfeld_residuals AS scaled_schoenfeld_residuals, (_aug[_rn]).stratum AS stratum "
+    "FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+    "PRECEDING AND UNBOUNDED FOLLOWING) AS _rn, cox_augment_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND "
+    "UNBOUNDED FOLLOWING) AS _aug "
+    "FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))) "
+    "ORDER BY group_col, row_id";
+
+static void RegisterCoxOutputMacros(ExtensionLoader &loader) {
+	const vector<string> params = {"source", "group_col", "time_col", "x_cols", "event_col"};
+	const vector<string> categories = {"survival", "regression", "table-macro"};
+	auto fit = CreateTableMacro(
+	    "cox_fit_by", params, {{"options", "NULL"}}, COX_FIT_BY_SQL,
+	    "Table macro: fits a Cox proportional hazards model (cox_fit_agg, same options) per group of source and "
+	    "returns one row per group: the group column, then the fields of the model STRUCT (coefficients, "
+	    "hazard_ratios, hr_conf_low, hr_conf_high, the likelihood-ratio / Wald / score tests, concordance, "
+	    "baseline, ...).",
+	    "cox_fit_by('patients', site, days, [age, treated], died)", categories);
+	loader.RegisterFunction(*fit);
+
+	auto augment = CreateTableMacro(
+	    "cox_augment_by", params, {{"options", "NULL"}, {"order_by", "NULL"}}, COX_AUGMENT_SQL,
+	    "Table macro: fits a Cox proportional hazards model (cox_augment_agg, same options as cox_fit_agg) per "
+	    "group of source and returns every source row with its per-observation results (the integration contract's "
+	    "`obs` schema, broom augment.coxph): all source columns, model_id and model_name ('cox'), row_id, fitted "
+	    "(the linear predictor x'beta + offset, not centred), residual (martingale), resid_type ('martingale'), "
+	    "std_residual, stud_residual, leverage, cooks_d, dffits (NULL), weight (1), is_training, n_params (NULL), "
+	    "then risk (exp(fitted)), deviance_residual, score_residuals, dfbeta, dfbetas, schoenfeld_residuals and "
+	    "scaled_schoenfeld_residuals (event rows only) and stratum. Rows the fit could not use get NULLs.",
+	    "cox_augment_by('patients', site, days, [age, treated], died)", categories);
+	loader.RegisterFunction(*augment);
+}
+
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
@@ -761,6 +810,7 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		}
 	}
 	RegisterGlmmOutputMacros(loader);
+	RegisterCoxOutputMacros(loader);
 }
 
 void RegisterPathMacros(ExtensionLoader &loader) {

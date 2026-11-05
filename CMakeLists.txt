@@ -193,6 +193,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/elasticnet_predict_aggregate.cpp
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/aft_aggregate.cpp
+    src/aggregate_functions/cox_aggregate.cpp
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
     src/aggregate_functions/ols_anova_aggregate.cpp
