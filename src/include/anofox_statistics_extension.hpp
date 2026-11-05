@@ -176,6 +176,9 @@ unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const v
 void RegisterCurveMacros(ExtensionLoader &loader);
 // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
 void RegisterPcaFunctions(ExtensionLoader &loader);
+// Multinomial logistic regression: multinomial_fit_agg, multinomial_predict,
+// multinomial_fit_predict_by (#314)
+void RegisterMultinomialFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

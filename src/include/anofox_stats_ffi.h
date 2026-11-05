@@ -4563,6 +4563,63 @@ bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y
                                 bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
                                 double *out_upper, double *out_intercept, AnofoxError *out_error);
 
+/* ---- Multinomial logistic regression (#314) ---- */
+
+/**
+ * Options of anofox_multinomial_fit. Must match MultinomialOptionsFFI in
+ * crates/anofox-stats-ffi/src/multinomial_ffi.rs.
+ */
+typedef struct {
+	double lambda;   /* penalty strength 1 / C, >= 0 */
+	double l1_ratio; /* elastic-net mixing in [0, 1] */
+	double tolerance;
+	uint32_t max_iterations;
+	bool fit_intercept;
+} AnofoxMultinomialOptions;
+
+/**
+ * A fitted multinomial logistic regression. Must match MultinomialFitResultFFI.
+ * coefficients: row-major n_rows x n_features (one row for two classes,
+ * n_classes rows otherwise); intercepts: n_rows values. Release with
+ * anofox_free_multinomial_result.
+ */
+typedef struct {
+	double *coefficients;
+	double *intercepts;
+	size_t n_rows;
+	size_t n_features;
+	size_t n_classes;
+	size_t n_observations;
+	double log_likelihood;
+	double objective;
+	double accuracy;
+	uint32_t iterations;
+	bool converged;
+} AnofoxMultinomialFitResult;
+
+/**
+ * Multinomial (softmax) logistic regression with an elastic-net penalty
+ * (upstream MultinomialLogisticRegressor, sklearn LogisticRegression) of the
+ * class indices y (0..K-1, every class present) on the x columns, with
+ * optional sample weights (NULL: unweighted). Fewer than two rows or classes
+ * is INSUFFICIENT_DATA.
+ */
+bool anofox_multinomial_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                            const double *weights, AnofoxMultinomialOptions options,
+                            AnofoxMultinomialFitResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_multinomial_fit. */
+void anofox_free_multinomial_result(AnofoxMultinomialFitResult *result);
+
+/**
+ * Class probabilities (n_classes values to out_proba) and the most probable
+ * class index (out_class) of one row x under a fitted model's coefficients
+ * (row-major n_rows x n_features) and intercepts (n_rows).
+ */
+bool anofox_multinomial_predict_proba(const double *coefficients, const double *intercepts, size_t n_rows,
+                                      size_t n_features, size_t n_classes, const double *x, size_t x_len,
+                                      double *out_proba, size_t *out_class, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

@@ -68,6 +68,10 @@ How the prediction is computed depends on the model:
 - **Isotonic models** (`isotonic_fit_agg`): `x` holds a single value. The
   prediction interpolates linearly between the neighbouring knots and is
   clamped to the first/last fitted value outside the training range.
+- **Multinomial models** (`multinomial_fit_agg`): the most probable class (the
+  type of the model's `classes`), or with `{'type': 'prob'}` the class
+  probabilities as a `DOUBLE[]`; see
+  [multinomial_predict](../glm/multinomial.md#multinomial_predict).
 
 NULL handling: a NULL model (for example a group whose fit was degenerate), a
 NULL `x`, or a NULL element in `x` gives NULL. An `x` whose length does not
