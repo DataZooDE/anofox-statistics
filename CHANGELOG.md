@@ -27,6 +27,14 @@ Breaking changes are called out explicitly.
   is the exact linear-programming separation check of `detectseparation`;
   `separation_check_agg(y, x)` and `count_sparsity_agg(y, x)` are the per-predictor checks for
   binary and count responses. All computed by anofox-regression's diagnostics.
+- **`t_test_one_sample_agg(x [, options])` and `t_test_paired_agg(x, y [, options])`** (#299):
+  one-sample and paired t-tests (R `t.test(x, mu =)`, `t.test(x, y, paired = TRUE)`) with
+  Cohen's d / d_z as `effect_size`; options `alternative`, `confidence_level`, `mu`.
+- **`wilcoxon_signed_rank_agg` reports `rank_biserial`** (#299), the matched-pairs
+  rank-biserial correlation, as a new STRUCT field after `alternative` and in the unified
+  `effect_size` / `effect_name`. Positive when `y` tends to be larger (the sign convention of
+  `mann_whitney_u_agg`; R `effectsize` uses the opposite sign). Code that reads the whole
+  STRUCT positionally sees one more field.
 
 ### Changed
 

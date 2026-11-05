@@ -138,6 +138,7 @@ void LoadInternal(ExtensionLoader &loader) {
     // Register statistical hypothesis testing aggregate functions
     RegisterShapiroWilkAggregateFunction(loader);
     RegisterTTestAggregateFunction(loader);
+    RegisterTTestOneSamplePairedAggregateFunctions(loader);
     RegisterPearsonAggregateFunction(loader);
     RegisterSpearmanAggregateFunction(loader);
     RegisterMannWhitneyAggregateFunction(loader);

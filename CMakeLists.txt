@@ -211,6 +211,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/aid_aggregate.cpp
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
+    src/aggregate_functions/t_test_one_sample_paired_aggregate.cpp
     src/aggregate_functions/pairwise_posthoc_aggregate.cpp
     src/aggregate_functions/p_adjust_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp

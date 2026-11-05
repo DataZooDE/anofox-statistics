@@ -132,6 +132,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterBootstrapMeanCiAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
+void RegisterTTestOneSamplePairedAggregateFunctions(ExtensionLoader &loader);
 void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader);
 void RegisterChisqGofAggregateFunction(ExtensionLoader &loader);
 void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader);

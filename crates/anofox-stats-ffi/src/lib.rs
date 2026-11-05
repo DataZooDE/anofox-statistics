@@ -10785,3 +10785,6 @@ mod bootstrap_ffi;
 pub use bootstrap_ffi::*;
 mod diagnostics_ffi;
 pub use diagnostics_ffi::*;
+// One-sample and paired t-tests (#299).
+mod ttest_ffi;
+pub use ttest_ffi::*;

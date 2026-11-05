@@ -1,0 +1,168 @@
+# name: test/sql/hypothesis_tests/test_t_test_one_sample_paired_agg.test
+# description: t_test_one_sample_agg / t_test_paired_agg and the wilcoxon_signed_rank_agg rank_biserial (#299)
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE paired_data AS
+SELECT * FROM (VALUES
+    (1, 68.5, 70.2), (1, 72.3, 74.5), (1, 69.1, 71.3), (1, 71.8, 73.9),
+    (1, 67.2, 69.4), (1, 73.5, 75.8), (1, 70.2, 72.1), (1, 68.9, 71.2),
+    (2, 10.0, 10.4), (2, 11.0, 10.7), (2, 12.0, 12.5), (2, 13.0, 12.8), (2, 14.0, 14.1)
+) AS t(grp, before, after);
+
+# =============================================================================
+# Result shape
+# =============================================================================
+
+query TT
+SELECT typeof(t_test_one_sample_agg(before)) = typeof(t_test_paired_agg(before, after)),
+       typeof(t_test_one_sample_agg(before)) LIKE 'STRUCT(statistic DOUBLE, p_value DOUBLE, df DOUBLE, effect_size DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR, %'
+FROM paired_data;
+----
+true	true
+
+query TTTT
+SELECT (t_test_one_sample_agg(before)).method, (t_test_paired_agg(before, after)).method,
+       (t_test_one_sample_agg(before)).effect_name, (t_test_paired_agg(before, after)).alternative
+FROM paired_data;
+----
+One Sample t-test	Paired t-test	cohens_d	two_sided
+
+# =============================================================================
+# The paired test equals the one-sample test of the differences
+# =============================================================================
+
+query IIIIII
+SELECT abs(p.statistic - o.statistic) < 1e-12, p.df = o.df, abs(p.p_value - o.p_value) < 1e-14,
+       abs(p.ci_lower - o.ci_lower) < 1e-12, abs(p.effect_size - o.effect_size) < 1e-12, p.n = o.n
+FROM (SELECT t_test_paired_agg(before, after, {'mu': -1.5}) AS p,
+             t_test_one_sample_agg(before - after, {'mu': -1.5}) AS o FROM paired_data WHERE grp = 1);
+----
+true	true	true	true	true	true
+
+# after > before consistently: significant, negative mean difference, CI below 0
+query IIII
+SELECT r.p_value < 0.001, r.estimate < 0, r.ci_upper < 0, r.effect_size < 0
+FROM (SELECT t_test_paired_agg(before, after) AS r FROM paired_data WHERE grp = 1);
+----
+true	true	true	true
+
+# One-sided alternatives
+query II
+SELECT (t_test_paired_agg(before, after, {'alternative': 'less'})).p_value < 0.001,
+       (t_test_paired_agg(before, after, {'alternative': 'greater'})).p_value > 0.999
+FROM paired_data WHERE grp = 1;
+----
+true	true
+
+# GROUP BY
+query III
+SELECT grp, (t_test_paired_agg(before, after)).n, (t_test_paired_agg(before, after)).p_value < 0.05
+FROM paired_data GROUP BY grp ORDER BY grp;
+----
+1	8	true
+2	5	false
+
+# Row order does not change the result (bitwise)
+query I
+SELECT count(DISTINCT r) FROM (
+    SELECT t_test_paired_agg(before, after ORDER BY before) AS r FROM paired_data UNION ALL
+    SELECT t_test_paired_agg(before, after ORDER BY after DESC) AS r FROM paired_data UNION ALL
+    SELECT t_test_one_sample_agg(before ORDER BY before DESC) FROM paired_data UNION ALL
+    SELECT t_test_one_sample_agg(before ORDER BY before) FROM paired_data);
+----
+2
+
+# =============================================================================
+# NULL / NaN handling: rows with NULL or NaN are dropped (pairwise for paired)
+# =============================================================================
+
+query II
+SELECT (t_test_one_sample_agg(x)).n, (t_test_paired_agg(x, y)).n
+FROM (VALUES (1.0, 2.0), (NULL, 3.0), (2.5, NULL), ('NaN'::DOUBLE, 4.0), (3.0, 3.5), (4.5, 6.0)) t(x, y);
+----
+4	3
+
+# Empty input, a single value and a single pair -> NULL
+query IIII
+SELECT (SELECT t_test_one_sample_agg(before) FROM paired_data WHERE false) IS NULL,
+       (SELECT t_test_paired_agg(before, after) FROM paired_data WHERE false) IS NULL,
+       (SELECT t_test_one_sample_agg(x) FROM (VALUES (1.0)) t(x)) IS NULL,
+       (SELECT t_test_paired_agg(x, y) FROM (VALUES (1.0, 2.0), (NULL, 3.0)) t(x, y)) IS NULL;
+----
+true	true	true	true
+
+# Constant data: no error; the statistic is undefined (0 / 0)
+query I
+SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value)
+FROM (SELECT t_test_one_sample_agg(x, {'mu': 5}) AS r FROM (VALUES (5.0), (5.0), (5.0)) t(x));
+----
+true
+
+# =============================================================================
+# Options
+# =============================================================================
+
+statement error
+SELECT t_test_one_sample_agg(before, {'kind': 'student'}) FROM paired_data;
+----
+option 'kind' does not apply
+
+statement error
+SELECT t_test_paired_agg(before, after, {'paired': true}) FROM paired_data;
+----
+option 'paired' does not apply
+
+statement error
+SELECT t_test_paired_agg(before, after, {'unknown_key': 1}) FROM paired_data;
+----
+unknown_key
+
+statement error
+SELECT t_test_one_sample_agg(before, {'confidence_level': 1.5}) FROM paired_data;
+----
+confidence_level
+
+statement error
+SELECT t_test_one_sample_agg(before, {'alternative': 'sideways'}) FROM paired_data;
+----
+alternative
+
+# MAP options work too
+query I
+SELECT abs((t_test_one_sample_agg(before, MAP {'mu': '70'})).statistic
+         - (t_test_one_sample_agg(before, {'mu': 70})).statistic) < 1e-12 FROM paired_data;
+----
+true
+
+# Window use
+query I
+SELECT count(*) FROM (
+    SELECT t_test_paired_agg(before, after) OVER (PARTITION BY grp) AS r FROM paired_data)
+WHERE r.n IN (5, 8);
+----
+13
+
+# =============================================================================
+# wilcoxon_signed_rank_agg.rank_biserial
+# =============================================================================
+
+# after > before for every pair: r = +1 (y larger -> r > 0, as mann_whitney_u_agg)
+query IIT
+SELECT r.rank_biserial, r.effect_size, r.effect_name
+FROM (SELECT wilcoxon_signed_rank_agg(before, after) AS r FROM paired_data WHERE grp = 1);
+----
+1.0	1.0	rank_biserial
+
+query I
+SELECT (wilcoxon_signed_rank_agg(after, before)).rank_biserial FROM paired_data WHERE grp = 1;
+----
+-1.0
+
+# All differences zero: the rank-biserial is undefined -> NULL
+query I
+SELECT (wilcoxon_signed_rank_agg(x, x)).rank_biserial IS NULL FROM (VALUES (1.0), (2.0), (3.0)) t(x);
+----
+true
