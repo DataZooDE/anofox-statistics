@@ -198,3 +198,13 @@ data of anofox-statistics `R/generate_refs.R` (same seeds). The MCS superior set
 and elimination order come from the R package `MCS` (`MCSprocedure`), installed
 into a user library (`install.packages("MCS", lib = "~/R/userlib")`). Bootstrap
 p-values are only checked for their decision.
+
+## `make_reference_vif.R`
+
+```bash
+Rscript validation/generators/make_reference_vif.R
+```
+
+Requires `car`. Writes `vif_reference.test`: `vif`, `vif_agg` and `gvif_agg`
+(default terms, factor terms, non-adjacent integer labels) against
+`car::vif(lm(...))` (#307).

@@ -421,6 +421,15 @@ struct AnovaTableMapOptions {
 };
 
 /**
+ * Options for gvif_agg (#307)
+ */
+struct GvifMapOptions {
+	std::optional<vector<string>> terms;
+
+	static GvifMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
  * Options for Mann-Whitney U test
  */
 struct MannWhitneyMapOptions {

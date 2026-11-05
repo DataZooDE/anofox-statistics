@@ -18,4 +18,4 @@ pub use residuals::{compute_residuals, ResidualType, ResidualsResult};
 pub use separation::{
     check_binary_separation_diagnostic, check_count_sparsity_diagnostic, detect_linear_separation,
 };
-pub use vif::compute_vif;
+pub use vif::{compute_gvif, compute_vif, GvifResult, GvifTerm};

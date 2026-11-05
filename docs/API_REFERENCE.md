@@ -171,6 +171,7 @@ fitted model struct).
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `condition_diagnostic_agg` | BKW condition indices and variance-decomposition proportions | [Diagnostics](api/diagnostics/diagnostics.md#condition-indices) |
 | `detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg` | Separation of a binary response (exact LP / per predictor), count sparsity | [Diagnostics](api/diagnostics/diagnostics.md#separation) |
+| `gvif_agg` | Generalized VIF per term (car::vif) | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |

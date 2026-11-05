@@ -10817,3 +10817,6 @@ mod anova_ffi;
 
 mod pca_ffi;
 pub use pca_ffi::*;
+
+mod gvif_ffi;
+pub use gvif_ffi::*;

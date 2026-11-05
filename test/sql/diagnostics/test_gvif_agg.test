@@ -1,0 +1,149 @@
+# name: test/sql/diagnostics/test_gvif_agg.test
+# description: gvif_agg (generalized VIF, #307): shape, terms option, NULL handling, edge cases, invalid options
+# group: [diagnostics]
+#
+# Reference values against car::vif are in test/sql/reference/vif_reference.test.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS
+SELECT i, i::DOUBLE AS a, sin(i) AS b, cos(i * 1.3) AS c, 2.0 AS k, i % 2 AS g
+FROM range(20) r(i);
+
+# Without terms every column is its own term and gvif equals vif_agg
+query I
+SELECT list_distance([e.gvif FOR e IN gvif_agg([a, b, c])], vif_agg([a, b, c])) < 1e-9 FROM t;
+----
+true
+
+query TTTIIII
+SELECT g[1].term, g[2].term, g[3].term, g[1].df, g[2].df, g[3].df, g[1].n_observations
+FROM (SELECT gvif_agg([a, b, c]) AS g FROM t);
+----
+x1	x2	x3	1	1	1	20
+
+# gvif_adj = GVIF^(1/(2 df))
+query I
+SELECT bool_and(abs(e.gvif_adj - pow(e.gvif, 1.0 / (2 * e.df))) < 1e-12)
+FROM (SELECT unnest(gvif_agg([a, b, c], {'terms': ['p', 'q', 'q']})) AS e FROM t);
+----
+true
+
+# MAP options work like STRUCT options; term_names is an alias
+query I
+SELECT gvif_agg([a, b, c], MAP {'terms': ['p', 'q', 'q']}) = gvif_agg([a, b, c], {'term_names': ['p', 'q', 'q']}) FROM t;
+----
+true
+
+# One term holding every column: no other columns, GVIF = 1
+query TIRR
+SELECT g[1].term, g[1].df, g[1].gvif, g[1].gvif_adj FROM (SELECT gvif_agg([a, b, c], {'terms': ['p', 'p', 'p']}) AS g FROM t);
+----
+p	3	1.0	1.0
+
+# GROUP BY: one list per group
+query II
+SELECT g, len(gvif_agg([a, b, c], {'terms': ['p', 'q', 'q']})) FROM t GROUP BY g ORDER BY g;
+----
+0	2
+1	2
+
+# -----------------------------------------------------------------------------
+# NULL handling: a NULL list or a NULL element skips the row; a NaN row is left out
+# -----------------------------------------------------------------------------
+
+query I
+SELECT (SELECT gvif_agg([a, b, c]) FROM t WHERE i <> 5)
+     = (SELECT gvif_agg(CASE WHEN i = 5 THEN NULL ELSE [a, b, c] END) FROM t);
+----
+true
+
+query I
+SELECT (SELECT gvif_agg([a, b, c]) FROM t WHERE i <> 5)
+     = (SELECT gvif_agg([a, CASE WHEN i = 5 THEN NULL ELSE b END, c]) FROM t);
+----
+true
+
+query I
+SELECT list_distance([e.gvif FOR e IN (SELECT gvif_agg([a, b, c]) FROM t WHERE i <> 5)],
+                     [e.gvif FOR e IN (SELECT gvif_agg([a, CASE WHEN i = 5 THEN 'NaN'::DOUBLE ELSE b END, c]) FROM t)]) < 1e-12;
+----
+true
+
+query I
+SELECT (gvif_agg([a, CASE WHEN i = 5 THEN 'NaN'::DOUBLE ELSE b END, c]))[1].n_observations FROM t;
+----
+19
+
+# Empty input, fewer than 3 rows or a single column: NULL (as vif_agg)
+query I
+SELECT gvif_agg([a, b, c]) IS NULL FROM t WHERE i < 0;
+----
+true
+
+query I
+SELECT gvif_agg([a, b, c]) IS NULL FROM t WHERE i < 2;
+----
+true
+
+query I
+SELECT gvif_agg([a]) IS NULL FROM t;
+----
+true
+
+query I
+SELECT gvif_agg(NULL::DOUBLE[]) IS NULL FROM t;
+----
+true
+
+# -----------------------------------------------------------------------------
+# Degenerate designs: infinite GVIF
+# -----------------------------------------------------------------------------
+
+# Perfect collinearity
+query I
+SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, 2 * a + 1, c])) AS e FROM t);
+----
+true
+
+# No more complete rows than columns
+query I
+SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, b, c])) AS e FROM t WHERE i < 3);
+----
+true
+
+# A constant column makes the correlation matrix undefined: every term is inf
+query I
+SELECT bool_and(isinf(e.gvif)) FROM (SELECT unnest(gvif_agg([a, b, k])) AS e FROM t);
+----
+true
+
+# -----------------------------------------------------------------------------
+# Invalid input
+# -----------------------------------------------------------------------------
+
+statement error
+SELECT gvif_agg([a, b, c], {'terms': ['p', 'q']}) FROM t;
+----
+gvif_agg: terms has 2 labels for 3 x columns
+
+statement error
+SELECT gvif_agg([a, b, c], {'foo': 1}) FROM t;
+----
+gvif_agg: unknown option 'foo'
+
+statement error
+SELECT gvif_agg([a, b, c], {'terms': 'p'}) FROM t;
+----
+gvif_agg: terms must be a LIST
+
+statement error
+SELECT gvif_agg([a, b, c], {'terms': ['p', NULL, 'q']}) FROM t;
+----
+gvif_agg: terms must not contain NULL
+
+statement error
+SELECT gvif_agg(CASE WHEN i = 3 THEN [a, b] ELSE [a, b, c] END) FROM t;
+----
+gvif_agg: inconsistent x length

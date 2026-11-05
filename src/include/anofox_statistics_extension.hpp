@@ -94,6 +94,7 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader);
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);
+void RegisterGvifAggregateFunction(ExtensionLoader &loader);
 void RegisterAicBicFunctions(ExtensionLoader &loader);
 void RegisterJarqueBeraFunction(ExtensionLoader &loader);
 void RegisterNullDistributionFunctions(ExtensionLoader &loader);

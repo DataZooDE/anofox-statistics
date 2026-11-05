@@ -127,6 +127,19 @@ Breaking changes are called out explicitly.
   against `prcomp` in `test/sql/reference/pca_reference.test`. `scale` is not supported yet
   (upstream `pca` does not scale).
 
+### Added
+
+- **`gvif_agg(x[, {'terms': [...]}])`** (#307): generalized VIF (Fox & Monette 1992) per
+  term with its df and `GVIF^(1/(2 df))`, as `car::vif` reports it for factor terms;
+  columns sharing a `terms` label form one term. Computed by anofox-regression's
+  `diagnostics::generalized_vif`.
+
+### Fixed
+
+- **`vif_agg` with NaN values** (#307): a row with a NaN is now left out as a whole. Before,
+  only the NaN value was dropped, which misaligned the columns and made the aggregate fail
+  with a dimension-mismatch error.
+
 ### Changed
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /
@@ -140,6 +153,10 @@ Breaking changes are called out explicitly.
   `qwilcox` boundaries), the exact Wilcoxon / Mann-Whitney quantile behind the
   Hodges-Lehmann intervals is exact at p = 0 / 1. Upstream's repeated-measures ANOVA
   changes (Huynh-Feldt epsilon, Mauchly p-value) are not exposed in SQL.
+- **`vif` / `vif_agg` delegate to anofox-regression** (`diagnostics::variance_inflation_factor`,
+  #307) instead of computing the auxiliary regressions in the extension. Results are
+  unchanged except that a VIF above 10^4 (auxiliary R^2 > 0.9999) is now reported as its
+  finite value, as `car::vif` does, instead of `inf`.
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).

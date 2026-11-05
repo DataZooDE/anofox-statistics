@@ -4164,6 +4164,24 @@ bool anofox_pca_transform(const double *center, const double *sdev, const double
                           size_t n_components, const double *x, size_t x_len, double *out_scores,
                           AnofoxError *out_error);
 
+/**
+ * GVIF of one term. Must match GvifTermFFI in
+ * crates/anofox-stats-ffi/src/gvif_ffi.rs.
+ */
+typedef struct {
+	uint64_t df;
+	double gvif;
+	double gvif_adj;
+} AnofoxGvifTerm;
+
+/**
+ * Generalized VIF (Fox & Monette 1992, car::vif) per term, on the rows where
+ * every x value is finite (#307). term_of_column[j] is the 0-based term of
+ * column j; out_terms receives n_terms entries.
+ */
+bool anofox_compute_gvif(const AnofoxDataArray *x, size_t x_count, const uint64_t *term_of_column, size_t n_terms,
+                         AnofoxGvifTerm *out_terms, size_t *out_n_observations, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif
