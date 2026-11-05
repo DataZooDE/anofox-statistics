@@ -12,12 +12,10 @@ sizes <- list(c(3, 4), c(10, 10), c(5, 12), c(20, 30), c(50, 40))
 # The null AUC of a random classifier is U / (n_pos n_neg), U ~ Mann-Whitney.
 cat("## auc_null_quantile: p n_pos n_neg expected = qwilcox(p, n_pos, n_neg) / (n_pos n_neg)\n")
 out <- c()
-# p = 1 is left out for 50 x 40: upstream anofox-statistics 0.7.0 returns 0.93
-# there (its cumulative pmf reaches 1 in floating point before U = n_pos n_neg),
-# where R's qwilcox(1, m, n) is m n; reported upstream.
-for (s in sizes) for (p in c(0, 0.01, 0.05, 0.5, 0.95, 0.99, 1)) {
+# p = 0 and p = 1 are exact boundaries (0 and m n), as qwilcox; anofox-statistics
+# < 0.8.1 returned 0.93 for p = 1 at 50 x 40 (#304).
+for (s in sizes) for (p in c(0, 1e-12, 0.01, 0.05, 0.5, 0.95, 0.99, 1 - 1e-12, 1)) {
   m <- s[1]; n <- s[2]
-  if (p == 1 && m * n > 1000) next
   out <- c(out, sprintf("(%s, %d, %d, %s)", fmt(p), m, n, fmt(qwilcox(p, m, n) / (m * n))))
 }
 rows(out)

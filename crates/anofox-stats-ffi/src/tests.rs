@@ -1483,6 +1483,7 @@ fn spa_and_mcs_round_trip() {
         assert_eq!(r.best_model, 0);
         assert_eq!(r.n_models, 2);
         assert!((r.block_length - 40f64.cbrt()).abs() < 1e-12);
+        assert!(r.p_value_lower <= r.p_value_consistent && r.p_value_consistent <= r.p_value_upper);
         // Invalid kind and empty model list are input errors.
         assert!(!anofox_spa_test(
             7,
@@ -1512,14 +1513,18 @@ fn spa_and_mcs_round_trip() {
         block_length: 3.0,
         seed: 1,
         statistic: 0,
+        bootstrap: 1,
         has_seed: true,
     };
     let mut included = [0u64; 2];
     let mut steps = [McsStepFFI {
         model: 0,
         p_value: 0.0,
+        mcs_p_value: 0.0,
         eliminated: false,
     }; 2];
+    let mut order = [9u64; 2];
+    let mut mcs_p = [f64::NAN; 2];
     let mut res = std::mem::MaybeUninit::<McsResultFFI>::uninit();
     unsafe {
         assert!(anofox_model_confidence_set(
@@ -1528,6 +1533,8 @@ fn spa_and_mcs_round_trip() {
             mcs_opts,
             included.as_mut_ptr(),
             steps.as_mut_ptr(),
+            order.as_mut_ptr(),
+            mcs_p.as_mut_ptr(),
             res.as_mut_ptr(),
             &mut e
         ));
@@ -1537,6 +1544,10 @@ fn spa_and_mcs_round_trip() {
         assert!(r.n_steps >= 1);
         assert_eq!(steps[0].model, 1);
         assert!(steps[0].eliminated);
+        assert_eq!(order, [1, 0]);
+        assert_eq!(mcs_p[0], 1.0);
+        assert!(mcs_p[1] < 0.1);
+        assert_eq!(r.block_length, 3.0);
         let bad = McsOptionsFFI {
             statistic: 5,
             ..mcs_opts
@@ -1547,6 +1558,8 @@ fn spa_and_mcs_round_trip() {
             bad,
             included.as_mut_ptr(),
             steps.as_mut_ptr(),
+            order.as_mut_ptr(),
+            mcs_p.as_mut_ptr(),
             res.as_mut_ptr(),
             &mut e
         ));

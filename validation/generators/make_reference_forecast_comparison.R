@@ -1,22 +1,26 @@
 # Reference values for spa_test_agg, mspe_adjusted_spa_agg and
-# model_confidence_set_agg (#295).
+# model_confidence_set_agg (#295), for anofox-statistics >= 0.8.0.
 #
 #   Rscript validation/generators/make_reference_forecast_comparison.R
 #
 # Writes test/sql/reference/forecast_comparison_reference.test.
 #
-# * SPA / MSPE-adjusted SPA: no CRAN package is installed for Hansen's SPA, so
-#   the observed statistic and the best model are computed in base R with the
-#   formula of the upstream crate (anofox-statistics R/generate_refs.R, phase 9,
-#   whose fixture data this script regenerates with the same seeds):
-#   t_k = mean(d_k) * sqrt(T) / sqrt(var(d_k) / T), statistic = max_k t_k with
-#   d_k = L_benchmark - L_k (SPA) or the Clark-West adjusted differential
-#   f_k = (e_b^2 - e_k^2) + (e_b - e_k)^2 (MSPE-adjusted). The bootstrap
-#   p-values depend on the random stream and are only checked for their
-#   decision (reject / do not reject).
-# * MCS: the R package MCS (Bernardi and Catania, MCSprocedure) gives the
-#   superior set and the elimination order, which the extension must
-#   reproduce on clearly separated data; p-values are again bootstrap-based.
+# * SPA / MSPE-adjusted SPA: no CRAN package implements Hansen's (2005) SPA,
+#   so this script carries a base-R implementation of it (the one upstream
+#   validates against, anofox-statistics R/generate_spa_mcs_refs.R):
+#   T_SPA = max(0, max_k sqrt(n) dbar_k / omega_k) with Hansen's
+#   stationary-bootstrap variance omega_k^2, one stationary-bootstrap index
+#   vector per replication applied to all models jointly, and the lower /
+#   consistent / upper re-centrings, p = mean(T* > T_SPA). The statistic is
+#   deterministic and must match to 1e-9; the p-values come from R's random
+#   numbers and are compared within Monte-Carlo tolerance (B = 20000 on both
+#   sides; the MC standard error of a difference is below 0.005, tolerance
+#   0.025 as upstream's own validation).
+# * MCS: the R package MCS (Bernardi and Catania, MCSprocedure) with its
+#   moving-block bootstrap of block length k, which the extension reproduces
+#   with {'method': 'moving_block', 'block_length': k}. The elimination order
+#   and the superior set must match exactly, the per-model MCS p-values within
+#   the same Monte-Carlo tolerance (B = 20000).
 #
 # MCS is not part of the default R library here; it is installed into a user
 # library: install.packages("MCS", lib = "~/R/userlib").
@@ -27,10 +31,13 @@ out <- "test/sql/reference/forecast_comparison_reference.test"
 fmt <- function(v) trimws(formatC(v, digits = 17, format = "g"))
 lines <- character()
 emit <- function(...) lines <<- c(lines, paste0(...))
+B <- 20000
+MC_TOL <- 0.025
 
 close_to <- function(expr, ref, tol = 1e-9) {
   sprintf("abs((%s) - (%s)) <= %g * (1 + abs(%s))", expr, fmt(ref), tol, fmt(ref))
 }
+mc_close <- function(expr, ref) sprintf("abs((%s) - (%s)) < %g", expr, fmt(ref), MC_TOL)
 
 table_sql <- function(name, cols) {
   emit("statement ok")
@@ -48,131 +55,157 @@ table_sql <- function(name, cols) {
   emit("")
 }
 
-spa_stats <- function(d) {
-  n <- length(d[[1]])
-  vapply(d, function(x) mean(x) * sqrt(n) / sqrt(var(x) / n), 0)
+ar1 <- function(n, phi) as.numeric(stats::filter(rnorm(n), phi, method = "recursive"))
+
+# ---------------------------------------------------------------------------
+# Hansen (2005) SPA in base R
+# ---------------------------------------------------------------------------
+spa_omega2 <- function(d, l) {
+  n <- length(d); q <- 1 / l; cc <- d - mean(d)
+  g <- vapply(0:(n - 1), function(i) sum(cc[1:(n - i)] * cc[(1 + i):n]) / n, 0)
+  i <- 1:(n - 1)
+  kap <- (n - i) / n * (1 - q)^i + i / n * (1 - q)^(n - i)
+  g[1] + 2 * sum(kap * g[-1])
+}
+spa <- function(D, l, idx_list) {
+  n <- nrow(D)
+  dbar <- colMeans(D)
+  om <- sqrt(apply(D, 2, spa_omega2, l = l))
+  z <- sqrt(n) * dbar / om
+  stat <- max(0, max(z))
+  A <- sqrt(om^2 / n * 2 * log(log(n)))
+  g <- list(l = pmax(dbar, 0), c = dbar * (dbar >= -A), u = dbar)
+  Tb <- vapply(idx_list, function(idx) {
+    m <- colMeans(D[idx, , drop = FALSE])
+    vapply(g, function(gg) max(0, sqrt(n) * (m - gg) / om), 0)
+  }, numeric(3))
+  list(stat = stat, best = which.max(z), p = rowMeans(Tb > stat))
+}
+# Stationary bootstrap indices (geometric block lengths, wrap-around), as
+# boot::tsboot(sim = "geom").
+stat_idx <- function(n, l) {
+  out <- integer(0)
+  while (length(out) < n) {
+    s <- sample.int(n, 1); len <- 1 + rgeom(1, 1 / l)
+    out <- c(out, ((s - 1 + 0:(len - 1)) %% n) + 1)
+  }
+  out[1:n]
 }
 
 emit("# name: test/sql/reference/forecast_comparison_reference.test")
-emit("# description: #295 SPA, MSPE-adjusted SPA and Model Confidence Set against base R (upstream formula) and R MCS::MCSprocedure")
+emit("# description: #295 SPA, MSPE-adjusted SPA and Model Confidence Set against a base-R Hansen (2005) SPA and R MCS::MCSprocedure")
 emit("# group: [reference]")
 emit("#")
 emit("# GENERATED by validation/generators/make_reference_forecast_comparison.R -- do not edit")
 emit("# by hand; change the generator and re-run it instead.")
 emit(sprintf("# Reference: %s, MCS %s", R.version.string, packageVersion("MCS")))
+emit("# Statistics match to 1e-9; bootstrap p-values (R's random numbers vs the extension's,")
+emit(sprintf("# B = %d on both sides) within %g.", B, MC_TOL))
 emit("")
 emit("require anofox_statistics")
 emit("")
 
 # ---------------------------------------------------------------------------
-# SPA: data of anofox-statistics R/generate_refs.R phase 9 (set.seed(456)).
+# SPA: benchmark + 5 cross-correlated, autocorrelated models, n = 200
+# (upstream's validation design).
 # ---------------------------------------------------------------------------
-set.seed(456)
-spa_n <- 100
-b  <- abs(rnorm(spa_n, 2, 0.5))   # benchmark
-m1 <- abs(rnorm(spa_n, 1, 0.3))   # clearly better
-m2 <- abs(rnorm(spa_n, 2.1, 0.5)) # similar
-m3 <- abs(rnorm(spa_n, 3, 0.6))   # worse
-table_sql("spa", list(b = b, m1 = m1, m2 = m2, m3 = m3))
+set.seed(20051)
+n <- 200
+z <- ar1(n, 0.4)
+mu <- c(0.10, 0.08, 0.00, -0.60, -1.00)
+D <- sapply(mu, function(m) m + 0.6 * z + 0.6 * ar1(n, 0.3))
+L0 <- 5 + 0.5 * ar1(n, 0.5)
+L <- L0 - D
+cols <- c(list(b = L0), setNames(lapply(1:5, function(k) L[, k]), paste0("m", 1:5)))
+table_sql("spa", cols)
+D <- L0 - L
+l_spa <- 4
+set.seed(7)
+r <- spa(D, l_spa, lapply(1:B, function(b) stat_idx(n, l_spa)))
 
-t_all <- spa_stats(list(b - m1, b - m2, b - m3))
-t_nobetter <- spa_stats(list(b - m2, b - m3))
-
-emit("# All three competitors: model 1 is clearly better than the benchmark.")
-emit("query I")
-emit("SELECT ", close_to("r.statistic", max(t_all)), "
-    AND r.best_model = ", which.max(t_all), " AND r.n_models = 3 AND r.n = ", spa_n, "
-    AND r.p_value < 0.05 AND r.p_value_upper < 0.05
-FROM (SELECT spa_test_agg(b, [m1, m2, m3], {'n_bootstrap': 499, 'block_length': 5, 'seed': 42} ORDER BY t) AS r FROM spa);")
+emit(sprintf("# Hansen (2005): T_SPA = %s, best model %d; p (lower, consistent, upper) = %s.",
+             fmt(r$stat), r$best, paste(sprintf("%.4f", r$p), collapse = ", ")))
+emit("query IIIIIIII")
+emit("SELECT ", close_to("r.statistic", r$stat), ", r.best_model = ", r$best, ",
+       ", mc_close("r.p_value_lower", r$p[1]), ", ", mc_close("r.p_value_consistent", r$p[2]), ",
+       ", mc_close("r.p_value_upper", r$p[3]), ", r.p_value = r.p_value_consistent,
+       r.p_value_lower <= r.p_value_consistent AND r.p_value_consistent <= r.p_value_upper,
+       r.n_models = 5 AND r.n = ", n, " AND r.block_length = ", l_spa, "
+FROM (SELECT spa_test_agg(b, [m1, m2, m3, m4, m5], {'n_bootstrap': ", B, ", 'block_length': ", l_spa,
+     ", 'seed': 11} ORDER BY t) AS r FROM spa);")
 emit("----")
-emit("true")
+emit(paste(rep("true", 8), collapse = "\t"))
 emit("")
-emit("# Only the similar and the worse model: no competitor beats the benchmark.")
-emit("query I")
-emit("SELECT ", close_to("r.statistic", max(t_nobetter)), "
-    AND r.best_model = ", which.max(t_nobetter), " AND r.p_value > 0.1
-FROM (SELECT spa_test_agg(b, [m2, m3], {'n_bootstrap': 499, 'block_length': 5, 'seed': 42} ORDER BY t) AS r FROM spa);")
-emit("----")
-emit("true")
-emit("")
 
-# ---------------------------------------------------------------------------
-# MSPE-adjusted SPA on forecast errors (benchmark nested in the alternatives).
-# ---------------------------------------------------------------------------
-set.seed(2295)
-n_e <- 120
-signal <- sin(seq_len(n_e) / 4)
-noise <- rnorm(n_e, 0, 0.4)
-eb <- signal + noise                                  # benchmark misses the signal
-ea <- 0.1 * signal + noise + rnorm(n_e, 0, 0.1)       # alternative captures it
-ec <- signal + noise + rnorm(n_e, 0, 0.3)             # adds noise only
-table_sql("mspe", list(eb = eb, ea = ea, ec = ec))
-
-cw <- function(e_b, e_k) (e_b^2 - e_k^2) + (e_b - e_k)^2
-f_all <- spa_stats(list(cw(eb, ea), cw(eb, ec)))
-f_c <- spa_stats(list(cw(eb, ec)))
-
-emit("# Clark-West adjusted differentials f = (e_b^2 - e_k^2) + (e_b - e_k)^2.")
-emit("query I")
-emit("SELECT ", close_to("r.statistic", max(f_all)), "
-    AND r.best_model = ", which.max(f_all), " AND r.n_models = 2 AND r.n = ", n_e, " AND r.p_value < 0.05
-FROM (SELECT mspe_adjusted_spa_agg(eb, [ea, ec], {'n_bootstrap': 499, 'block_length': 4, 'seed': 7} ORDER BY t) AS r FROM mspe);")
+# Only the clearly worse models: T_SPA = 0.
+r0 <- spa(D[, 4:5], l_spa, list(seq_len(n)))
+stopifnot(r0$stat == 0)
+emit("# Only models that are clearly worse than the benchmark: T_SPA = max(0, ...) = 0.")
+emit("query II")
+emit("SELECT r.statistic, r.best_model
+FROM (SELECT spa_test_agg(b, [m4, m5], {'n_bootstrap': 999, 'block_length': 4} ORDER BY t) AS r FROM spa);")
 emit("----")
-emit("true")
-emit("")
-emit("query I")
-emit("SELECT ", close_to("r.statistic", max(f_c)), " AND r.best_model = 1
-FROM (SELECT mspe_adjusted_spa_agg(eb, [ec], {'n_bootstrap': 499, 'block_length': 4, 'seed': 7} ORDER BY t) AS r FROM mspe);")
-emit("----")
-emit("true")
+emit(sprintf("0.0\t%d", r0$best))
 emit("")
 
 # ---------------------------------------------------------------------------
-# MCS: data of anofox-statistics R/generate_refs.R phase 10 (set.seed(789)),
-# plus a set with two equally good models.
+# MSPE-adjusted SPA: Clark-West differentials f = e0^2 - ek^2 + (e0 - ek)^2.
 # ---------------------------------------------------------------------------
-mcs_case <- function(table, L, statistic, B = 2000, k = 5) {
-  set.seed(1)
-  r <- MCSprocedure(L, alpha = 0.1, B = B, statistic = statistic, k = k, verbose = FALSE)
-  pos <- function(nm) match(nm, colnames(L))
-  included <- sort(pos(r@Info$included))
-  order <- head(pos(r@Info$elimination.order), r@Info$n_elim)
-  list(included = included, eliminated = order)
-}
+set.seed(2012)
+n2 <- 150
+e0 <- ar1(n2, 0.3)
+E <- cbind(e0 + 0.3 * rnorm(n2), e0 + 0.5 * ar1(n2, 0.2), 0.999 * e0 + 0.2 * rnorm(n2))
+table_sql("mspe", list(e0 = e0, e1 = E[, 1], e2 = E[, 2], e3 = E[, 3]))
+Fcw <- sapply(1:ncol(E), function(k) e0^2 - E[, k]^2 + (e0 - E[, k])^2)
+set.seed(8)
+r <- spa(Fcw, 3, lapply(1:B, function(b) stat_idx(n2, 3)))
+emit(sprintf("# Hansen SPA on Clark-West differentials: T = %s, best model %d; p = %s.",
+             fmt(r$stat), r$best, paste(sprintf("%.4f", r$p), collapse = ", ")))
+emit("query IIIII")
+emit("SELECT ", close_to("r.statistic", r$stat), ", r.best_model = ", r$best, ",
+       ", mc_close("r.p_value_lower", r$p[1]), ", ", mc_close("r.p_value_consistent", r$p[2]), ",
+       ", mc_close("r.p_value_upper", r$p[3]), "
+FROM (SELECT mspe_adjusted_spa_agg(e0, [e1, e2, e3], {'n_bootstrap': ", B,
+     ", 'block_length': 3, 'seed': 12} ORDER BY t) AS r FROM mspe);")
+emit("----")
+emit(paste(rep("true", 5), collapse = "\t"))
+emit("")
 
-set.seed(789)
-mcs_n <- 200
-l0 <- abs(rnorm(mcs_n, 1.0, 0.3))
-l1 <- abs(rnorm(mcs_n, 1.1, 0.35))
-l2 <- abs(rnorm(mcs_n, 2.0, 0.5))
-l3 <- abs(rnorm(mcs_n, 3.5, 0.8))
-table_sql("mcs", list(l0 = l0, l1 = l1, l2 = l2, l3 = l3))
-LA <- cbind(l0 = l0, l1 = l1, l2 = l2, l3 = l3)
-
-set.seed(4242)
-q_n <- 200
-base <- abs(rnorm(q_n, 1.0, 0.3))
-q0 <- base + rnorm(q_n, 0, 0.2)
-q1 <- base + rnorm(q_n, 0, 0.2)
-q2 <- base + 1.5 + rnorm(q_n, 0, 0.3)
-table_sql("mcs_tie", list(q0 = q0, q1 = q1, q2 = q2))
-LB <- cbind(q0 = q0, q1 = q1, q2 = q2)
+# ---------------------------------------------------------------------------
+# Model Confidence Set (MCS::MCSprocedure, moving-block bootstrap of length k)
+# ---------------------------------------------------------------------------
+set.seed(2011)
+n3 <- 150
+common <- ar1(n3, 0.5)
+mu3 <- c(0.00, 0.06, 0.25, 0.70, 0.12)
+Lm <- sapply(mu3, function(m) 3 + m + common + 0.8 * ar1(n3, 0.3))
+colnames(Lm) <- paste0("l", 1:5)
+table_sql("mcs", setNames(lapply(1:5, function(k) Lm[, k]), colnames(Lm)))
 
 list_sql <- function(v) sprintf("[%s]", paste(v, collapse = ", "))
-for (case in list(
-  list(tbl = "mcs", L = LA, cols = "[l0, l1, l2, l3]"),
-  list(tbl = "mcs_tie", L = LB, cols = "[q0, q1, q2]"))) {
-  for (st in c("TR", "Tmax")) {
-    ref <- mcs_case(case$tbl, case$L, st)
-    opt <- if (st == "TR") "range" else "max"
-    emit(sprintf("# MCS::MCSprocedure(statistic = '%s', alpha = 0.1, k = 5): superior set %s, elimination order %s.",
-                 st, list_sql(ref$included), list_sql(ref$eliminated)))
-    emit("query III")
-    emit(sprintf("SELECT list_sort(r.included_models), r.eliminated_models, r.statistic_type
-FROM (SELECT model_confidence_set_agg(%s, {'alpha': 0.1, 'statistic': '%s', 'n_bootstrap': 999, 'block_length': 5, 'seed': 42} ORDER BY t) AS r FROM %s);",
-                 case$cols, opt, case$tbl))
+for (stat in c("Tmax", "TR")) {
+  for (k in c(1, 3)) {
+    fit <- MCSprocedure(Lm, alpha = 0.1, B = B, statistic = stat, k = k, seed = 5, verbose = FALSE)
+    tab <- fit@show
+    models <- colnames(Lm)
+    order <- match(fit@Info$elimination.order, models)
+    mcs_p <- tab[models, 3]
+    included <- which(mcs_p >= 0.1)
+    opt <- if (stat == "TR") "range" else "max"
+    emit(sprintf("# MCSprocedure(statistic = '%s', alpha = 0.1, k = %d, B = %d): elimination order %s,",
+                 stat, k, B, list_sql(order)))
+    emit(sprintf("# MCS p-values %s, superior set %s.",
+                 list_sql(sprintf("%.4f", mcs_p)), list_sql(included)))
+    checks <- c(sprintf("r.elimination_order = %s", list_sql(order)),
+                sprintf("list_sort(r.included_models) = %s", list_sql(included)),
+                vapply(seq_along(mcs_p), function(i) mc_close(sprintf("r.mcs_p_values[%d]", i), mcs_p[i]), ""),
+                sprintf("r.bootstrap_method = 'moving_block' AND r.block_length = %d AND r.statistic_type = '%s'", k, opt))
+    emit("query ", strrep("I", length(checks)))
+    emit("SELECT ", paste(checks, collapse = ",\n       "))
+    emit(sprintf("FROM (SELECT model_confidence_set_agg([l1, l2, l3, l4, l5], {'alpha': 0.1, 'statistic': '%s', 'n_bootstrap': %d, 'method': 'moving_block', 'block_length': %d} ORDER BY t) AS r FROM mcs);",
+                 opt, B, k))
     emit("----")
-    emit(sprintf("%s\t%s\t%s", list_sql(ref$included), list_sql(ref$eliminated), opt))
+    emit(paste(rep("true", length(checks)), collapse = "\t"))
     emit("")
   }
 }

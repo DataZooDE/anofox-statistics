@@ -133,7 +133,8 @@ partial_cor_agg(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options MAP]) -> STRUCT
 
 Semi-partial (part) correlation: the correlation of `x` with `y` after the
 control is removed from `y` only. Matches R `ppcor::spcor.test(x, y, z)`.
-Takes at most one control variable.
+With several controls, `y` is residualized on all of them jointly (least squares
+with intercept), as `spcor.test`.
 
 **Signature:**
 ```text
@@ -262,10 +263,9 @@ matters). The `k` variants give the reliability of the mean of the k ratings.
 
 The `f_statistic` / `p_value` test H0: ICC = 0, with F = MS_R / MS_W for the
 one-way types and F = MS_R / MS_E for the two-way types (as `psych::ICC`).
-The 95% interval (`ci_lower`, `ci_upper`) matches `psych::ICC` for `icc1`,
-`icc3`, `icc1k` and `icc3k`. For `icc2` and `icc2k` it is `NULL`: the upstream
-library does not yet compute the Shrout & Fleiss approximate-F interval for the
-absolute-agreement two-way types.
+The 95% interval (`ci_lower`, `ci_upper`) matches `psych::ICC` for all six
+types; for `icc2` and `icc2k` it is the absolute-agreement interval of Shrout &
+Fleiss (1979) / McGraw & Wong (1996) with Satterthwaite degrees of freedom.
 
 Every subject must be rated by every rater; incomplete data returns `NULL`.
 

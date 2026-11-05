@@ -69,14 +69,6 @@ pub fn partial_correlation(
         ));
     }
     let k = z.len();
-    if kind == PartialCorKind::SemiPartial && k > 1 {
-        // Upstream anofox-statistics 0.7.0 residualizes y on the controls one at
-        // a time, which is not the OLS residual when the controls are correlated.
-        return Err(StatsError::InvalidInput(
-            "semi-partial correlation supports at most one control variable".into(),
-        ));
-    }
-
     let rows: Vec<usize> = (0..x.len())
         .filter(|&i| !x[i].is_nan() && !y[i].is_nan() && z.iter().all(|zi| !zi[i].is_nan()))
         .collect();
@@ -198,14 +190,15 @@ mod tests {
         );
         assert!((r.r - 0.55234422212853096).abs() < 1e-12);
         assert!((r.p_value - 0.040542944165616455).abs() < 1e-12);
-        let e = partial_correlation(
-            &X,
-            &Y,
-            &[Z1.to_vec(), Z2.to_vec()],
+        // Two correlated controls: y residualized on both jointly (spcor.test)
+        let r = run(
+            &[&Z1, &Z2],
             PartialCorKind::SemiPartial,
             PartialCorMethod::Pearson,
         );
-        assert!(matches!(e, Err(StatsError::InvalidInput(_))));
+        assert!((r.r - 0.4565251230535648).abs() < 1e-12);
+        assert!((r.p_value - 0.1168476978748559).abs() < 1e-12);
+        assert_eq!(r.df, 11.0);
     }
 
     #[test]

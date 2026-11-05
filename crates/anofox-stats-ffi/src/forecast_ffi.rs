@@ -4,8 +4,8 @@
 
 use super::*;
 use anofox_stats_core::tests::forecast::{
-    model_confidence_set, mspe_adjusted_spa, spa_test, McsOptions, McsStatistic, SpaResult,
-    SpaTestOptions,
+    model_confidence_set, mspe_adjusted_spa, spa_test, McsBootstrap, McsOptions, McsStatistic,
+    SpaResult, SpaTestOptions,
 };
 
 /// Options of `anofox_spa_test`.
@@ -24,6 +24,7 @@ pub struct SpaOptionsFFI {
 #[derive(Debug, Clone, Copy)]
 pub struct SpaResultFFI {
     pub statistic: f64,
+    pub p_value_lower: f64,
     pub p_value_consistent: f64,
     pub p_value_upper: f64,
     /// Block length actually used.
@@ -41,6 +42,7 @@ impl From<&SpaResult> for SpaResultFFI {
     fn from(r: &SpaResult) -> Self {
         Self {
             statistic: r.statistic,
+            p_value_lower: r.p_value_lower,
             p_value_consistent: r.p_value_consistent,
             p_value_upper: r.p_value_upper,
             block_length: r.block_length,
@@ -59,11 +61,14 @@ impl From<&SpaResult> for SpaResultFFI {
 pub struct McsOptionsFFI {
     pub alpha: f64,
     pub n_bootstrap: usize,
-    /// Expected stationary-bootstrap block length; <= 0 for `T^(1/3)`.
+    /// (Expected) block length; <= 0 for `T^(1/3)` (rounded for the fixed
+    /// block schemes).
     pub block_length: f64,
     pub seed: u64,
     /// 0 range (T_R), 1 max (T_max).
     pub statistic: i32,
+    /// 0 stationary, 1 moving block, 2 circular block, 3 IID.
+    pub bootstrap: i32,
     pub has_seed: bool,
 }
 
@@ -74,11 +79,13 @@ pub struct McsStepFFI {
     /// 0-based model index.
     pub model: u64,
     pub p_value: f64,
+    /// MCS p-value (running maximum of the step p-values).
+    pub mcs_p_value: f64,
     pub eliminated: bool,
 }
 
-/// Result of `anofox_model_confidence_set`; the sets are written to the
-/// caller's buffers.
+/// Result of `anofox_model_confidence_set`; the sets, the elimination order
+/// and the per-model MCS p-values are written to the caller's buffers.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct McsResultFFI {
@@ -159,12 +166,13 @@ pub unsafe extern "C" fn anofox_spa_test(
     })
 }
 
-/// Model Confidence Set of `n_models` loss series. `out_included` and
-/// `out_steps` must each hold `n_models` entries.
+/// Model Confidence Set of `n_models` loss series. `out_included`,
+/// `out_steps`, `out_order` (the full elimination order, best model last) and
+/// `out_mcs_p_values` (indexed by model) must each hold `n_models` entries.
 ///
 /// # Safety
 /// - the `n_models` DataArrays at `models` must be valid
-/// - `out_included` and `out_steps` must point to `n_models` entries
+/// - the four output buffers must point to `n_models` entries
 /// - `out_result` and `out_error` must be valid pointers
 #[no_mangle]
 pub unsafe extern "C" fn anofox_model_confidence_set(
@@ -173,6 +181,8 @@ pub unsafe extern "C" fn anofox_model_confidence_set(
     options: McsOptionsFFI,
     out_included: *mut u64,
     out_steps: *mut McsStepFFI,
+    out_order: *mut u64,
+    out_mcs_p_values: *mut f64,
     out_result: *mut McsResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
@@ -181,10 +191,25 @@ pub unsafe extern "C" fn anofox_model_confidence_set(
         if !check_out(out_result, out_error) {
             return false;
         }
-        if n_models > 0 && (out_included.is_null() || out_steps.is_null()) {
-            invalid_input(out_error, "out_included or out_steps is NULL");
+        if n_models > 0
+            && (out_included.is_null()
+                || out_steps.is_null()
+                || out_order.is_null()
+                || out_mcs_p_values.is_null())
+        {
+            invalid_input(out_error, "an MCS output buffer is NULL");
             return false;
         }
+        let bootstrap = match options.bootstrap {
+            0 => McsBootstrap::Stationary,
+            1 => McsBootstrap::MovingBlock,
+            2 => McsBootstrap::CircularBlock,
+            3 => McsBootstrap::Iid,
+            _ => {
+                invalid_input(out_error, "invalid MCS bootstrap scheme");
+                return false;
+            }
+        };
         let statistic = match options.statistic {
             0 => McsStatistic::Range,
             1 => McsStatistic::Max,
@@ -197,6 +222,7 @@ pub unsafe extern "C" fn anofox_model_confidence_set(
             alpha: options.alpha,
             n_bootstrap: options.n_bootstrap,
             statistic,
+            bootstrap,
             block_length: options.block_length,
             seed: options.has_seed.then_some(options.seed),
         };
@@ -212,8 +238,15 @@ pub unsafe extern "C" fn anofox_model_confidence_set(
                     *out_steps.add(i) = McsStepFFI {
                         model: s.model_idx as u64,
                         p_value: s.p_value,
+                        mcs_p_value: s.mcs_p_value,
                         eliminated: s.eliminated,
                     };
+                }
+                for (i, &m) in r.elimination_order.iter().take(n_models).enumerate() {
+                    *out_order.add(i) = m as u64;
+                }
+                for (i, &p) in r.mcs_p_values.iter().take(n_models).enumerate() {
+                    *out_mcs_p_values.add(i) = p;
                 }
                 *out_result = McsResultFFI {
                     mcs_p_value: r.mcs_p_value,

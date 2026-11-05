@@ -1292,7 +1292,7 @@ FROM reg_data;
 | `spearman_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `kendall_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level`, `variant` ('tau_a', 'tau_b', 'tau_c') | `tau, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
-| `semi_partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` (at most one control) | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
+| `semi_partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
 | `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000), `seed` (42) | `dcor, statistic, p_value, n, method` |
 | `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('icc1' default, 'icc2', 'icc3', 'icc1k', 'icc2k', 'icc3k'; aliases 'single' / 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
 

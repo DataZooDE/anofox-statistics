@@ -149,11 +149,14 @@ FROM icc_data;
 ----
 true	true	true	true
 
-# ICC2 / ICC2k carry no interval (upstream's is not the Shrout & Fleiss one);
-# the other types do, and it contains the estimate.
+# Every type has an interval (ICC2 / ICC2k: the absolute-agreement interval of
+# Shrout & Fleiss / McGraw & Wong, since anofox-statistics 0.8.0), and it
+# contains the estimate.
 query IIII
-SELECT (icc_agg(rating, subject, rater, {'type': 'icc2'})).ci_lower IS NULL,
-       (icc_agg(rating, subject, rater, {'type': 'icc2k'})).ci_upper IS NULL,
+SELECT (icc_agg(rating, subject, rater, {'type': 'icc2'})).ci_lower
+         <= (icc_agg(rating, subject, rater, {'type': 'icc2'})).icc,
+       (icc_agg(rating, subject, rater, {'type': 'icc2k'})).icc
+         <= (icc_agg(rating, subject, rater, {'type': 'icc2k'})).ci_upper,
        (icc_agg(rating, subject, rater, {'type': 'icc3'})).ci_lower
          <= (icc_agg(rating, subject, rater, {'type': 'icc3'})).icc,
        (icc_agg(rating, subject, rater, {'type': 'icc3k'})).icc

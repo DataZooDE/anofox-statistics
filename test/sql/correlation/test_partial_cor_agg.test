@@ -102,11 +102,12 @@ SELECT partial_cor_agg(x, y, [z1], {'confidence_level': 0.9}) FROM d;
 ----
 unknown option 'confidence_level'
 
-# Semi-partial correlation takes at most one control variable
-statement error
-SELECT semi_partial_cor_agg(x, y, [z1, z2]) FROM d;
+# Semi-partial correlation takes several controls (jointly residualized)
+query II
+SELECT (semi_partial_cor_agg(x, y, [z1, z2])).n_controls, (semi_partial_cor_agg(x, y, [z1, z2])).df = 36
+FROM d;
 ----
-at most one control variable
+2	true
 
 # Inconsistent control count across rows
 statement error

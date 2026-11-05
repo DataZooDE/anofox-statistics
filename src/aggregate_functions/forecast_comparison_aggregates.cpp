@@ -3,8 +3,8 @@
 //   mspe_adjusted_spa_agg(benchmark_error, model_errors DOUBLE[] [, options])
 //   model_confidence_set_agg(model_losses DOUBLE[] [, options])
 // The statistics come from anofox-statistics (forecast::spa_test,
-// forecast::mspe_adjusted_spa, forecast::model_confidence_set); this file only
-// collects the series and marshals options and results.
+// forecast::mspe_adjusted_spa, forecast::model_confidence_set_with_method);
+// this file only collects the series and marshals options and results.
 
 #include <cmath>
 #include <vector>
@@ -202,6 +202,7 @@ struct ForecastComparisonBindData : public FunctionData {
 	double block_length = 0.0; // <= 0: T^(1/3)
 	uint64_t seed = ANOFOX_DEFAULT_MC_SEED;
 	int32_t statistic = 0; // MCS: 0 range, 1 max
+	int32_t bootstrap = 0; // MCS: 0 stationary, 1 moving block, 2 circular block, 3 IID
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto copy = make_uniq<ForecastComparisonBindData>();
@@ -210,13 +211,14 @@ struct ForecastComparisonBindData : public FunctionData {
 		copy->block_length = block_length;
 		copy->seed = seed;
 		copy->statistic = statistic;
+		copy->bootstrap = bootstrap;
 		return std::move(copy);
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<ForecastComparisonBindData>();
 		return alpha == other.alpha && n_bootstrap == other.n_bootstrap && block_length == other.block_length &&
-		       seed == other.seed && statistic == other.statistic;
+		       seed == other.seed && statistic == other.statistic && bootstrap == other.bootstrap;
 	}
 };
 
@@ -236,6 +238,7 @@ static LogicalType GetSpaAggResultType() {
 	child_list_t<LogicalType> children;
 	children.push_back(make_pair("statistic", LogicalType::DOUBLE));
 	children.push_back(make_pair("p_value", LogicalType::DOUBLE));
+	children.push_back(make_pair("p_value_lower", LogicalType::DOUBLE));
 	children.push_back(make_pair("p_value_consistent", LogicalType::DOUBLE));
 	children.push_back(make_pair("p_value_upper", LogicalType::DOUBLE));
 	children.push_back(make_pair("best_model", LogicalType::BIGINT));
@@ -291,6 +294,7 @@ static void SpaFinalizeImpl(const char *fn_name, int32_t kind, const char *metho
 		idx_t s = 0;
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.statistic;
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.p_value_consistent;
+		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.p_value_lower;
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.p_value_consistent;
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.p_value_upper;
 		if (r.best_model < 0) {
@@ -364,6 +368,7 @@ static LogicalType GetMcsStepType() {
 	child_list_t<LogicalType> children;
 	children.push_back(make_pair("model", LogicalType::BIGINT));
 	children.push_back(make_pair("p_value", LogicalType::DOUBLE));
+	children.push_back(make_pair("mcs_p_value", LogicalType::DOUBLE));
 	children.push_back(make_pair("eliminated", LogicalType::BOOLEAN));
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -373,6 +378,8 @@ static LogicalType GetMcsAggResultType() {
 	children.push_back(make_pair("included_models", LogicalType::LIST(LogicalType::BIGINT)));
 	children.push_back(make_pair("eliminated_models", LogicalType::LIST(LogicalType::BIGINT)));
 	children.push_back(make_pair("mcs_p_value", LogicalType::DOUBLE));
+	children.push_back(make_pair("mcs_p_values", LogicalType::LIST(LogicalType::DOUBLE)));
+	children.push_back(make_pair("elimination_order", LogicalType::LIST(LogicalType::BIGINT)));
 	children.push_back(make_pair("elimination_steps", LogicalType::LIST(GetMcsStepType())));
 	children.push_back(make_pair("statistic_type", LogicalType::VARCHAR));
 	children.push_back(make_pair("alpha", LogicalType::DOUBLE));
@@ -380,8 +387,34 @@ static LogicalType GetMcsAggResultType() {
 	children.push_back(make_pair("n", LogicalType::BIGINT));
 	children.push_back(make_pair("n_bootstrap", LogicalType::BIGINT));
 	children.push_back(make_pair("block_length", LogicalType::DOUBLE));
+	children.push_back(make_pair("bootstrap_method", LogicalType::VARCHAR));
 	children.push_back(make_pair("method", LogicalType::VARCHAR));
 	return LogicalType::STRUCT(std::move(children));
+}
+
+static const char *McsBootstrapName(int32_t bootstrap) {
+	switch (bootstrap) {
+	case 1:
+		return "moving_block";
+	case 2:
+		return "circular_block";
+	case 3:
+		return "iid";
+	default:
+		return "stationary";
+	}
+}
+
+static void WriteDoubleList(Vector &list_vec, idx_t row, const vector<double> &values) {
+	auto offset = ListVector::GetListSize(list_vec);
+	ListVector::Reserve(list_vec, offset + values.size());
+	auto &child = ListVector::GetEntry(list_vec);
+	auto data = FlatDataMut<double>(child);
+	for (idx_t j = 0; j < values.size(); j++) {
+		data[offset + j] = values[j];
+	}
+	ListVector::SetListSize(list_vec, offset + values.size());
+	ListVector::GetData(list_vec)[row] = {offset, (idx_t)values.size()};
 }
 
 static void WriteBigintList(Vector &list_vec, idx_t row, const vector<int64_t> &values) {
@@ -426,13 +459,17 @@ static void McsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		options.block_length = bind_data.block_length;
 		options.seed = bind_data.seed;
 		options.statistic = bind_data.statistic;
+		options.bootstrap = bind_data.bootstrap;
 		options.has_seed = true;
 
 		vector<uint64_t> included(k);
 		vector<AnofoxMcsStep> steps(k);
+		vector<uint64_t> order(k);
+		vector<double> mcs_p_values(k);
 		AnofoxMcsResult r;
 		AnofoxError error;
-		bool ok = anofox_model_confidence_set(models.data(), k, options, included.data(), steps.data(), &r, &error);
+		bool ok = anofox_model_confidence_set(models.data(), k, options, included.data(), steps.data(), order.data(),
+		                                      mcs_p_values.data(), &r, &error);
 		if (!ok) {
 			ThrowUnlessDegenerate("model_confidence_set_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
@@ -440,7 +477,10 @@ static void McsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		}
 
 		// Model positions are 1-based, like DuckDB list positions in model_losses.
-		vector<int64_t> included_out, eliminated_out;
+		vector<int64_t> included_out, eliminated_out, order_out;
+		for (idx_t j = 0; j < k; j++) {
+			order_out.push_back(static_cast<int64_t>(order[j]) + 1);
+		}
 		for (idx_t j = 0; j < r.n_included; j++) {
 			included_out.push_back(static_cast<int64_t>(included[j]) + 1);
 		}
@@ -454,6 +494,8 @@ static void McsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		WriteBigintList(StructEntry(struct_entries[s++]), result_idx, included_out);
 		WriteBigintList(StructEntry(struct_entries[s++]), result_idx, eliminated_out);
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.mcs_p_value;
+		WriteDoubleList(StructEntry(struct_entries[s++]), result_idx, mcs_p_values);
+		WriteBigintList(StructEntry(struct_entries[s++]), result_idx, order_out);
 
 		{
 			auto &steps_vec = StructEntry(struct_entries[s++]);
@@ -463,10 +505,12 @@ static void McsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 			auto &fields = StructVector::GetEntries(step_struct);
 			auto models_out = FlatDataMut<int64_t>(StructEntry(fields[0]));
 			auto p_out = FlatDataMut<double>(StructEntry(fields[1]));
-			auto elim_out = FlatDataMut<bool>(StructEntry(fields[2]));
+			auto mcs_p_out = FlatDataMut<double>(StructEntry(fields[2]));
+			auto elim_out = FlatDataMut<bool>(StructEntry(fields[3]));
 			for (idx_t j = 0; j < r.n_steps; j++) {
 				models_out[list_offset + j] = static_cast<int64_t>(steps[j].model) + 1;
 				p_out[list_offset + j] = steps[j].p_value;
+				mcs_p_out[list_offset + j] = steps[j].mcs_p_value;
 				elim_out[list_offset + j] = steps[j].eliminated;
 			}
 			ListVector::SetListSize(steps_vec, list_offset + r.n_steps);
@@ -479,6 +523,7 @@ static void McsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		FlatDataMut<int64_t>(StructEntry(struct_entries[s++]))[result_idx] = static_cast<int64_t>(r.n);
 		FlatDataMut<int64_t>(StructEntry(struct_entries[s++]))[result_idx] = static_cast<int64_t>(r.n_bootstrap);
 		FlatDataMut<double>(StructEntry(struct_entries[s++]))[result_idx] = r.block_length;
+		SetResultString(StructEntry(struct_entries[s++]), result_idx, McsBootstrapName(bind_data.bootstrap));
 		SetResultString(StructEntry(struct_entries[s++]), result_idx, "Model confidence set");
 
 		state.Reset();
@@ -507,11 +552,20 @@ static unique_ptr<FunctionData> McsAggBind(ClientContext &context, AggregateBind
 		if (opts.max_statistic.has_value()) {
 			bind_data->statistic = opts.max_statistic.value() ? 1 : 0;
 		}
+		if (opts.method.has_value()) {
+			const string &m = opts.method.value();
+			bind_data->bootstrap = m == "moving_block" ? 1 : m == "circular_block" ? 2 : m == "iid" ? 3 : 0;
+		}
 	}
 	if (!(bind_data->alpha > 0.0 && bind_data->alpha < 1.0)) {
 		throw InvalidInputException("model_confidence_set_agg: alpha must be in (0, 1), got %g", bind_data->alpha);
 	}
 	CheckBootstrapOptions("model_confidence_set_agg", *bind_data);
+	if ((bind_data->bootstrap == 1 || bind_data->bootstrap == 2) && bind_data->block_length > 0 &&
+	    bind_data->block_length != std::floor(bind_data->block_length)) {
+		throw InvalidInputException("model_confidence_set_agg: block_length must be a whole number for '%s', got %g",
+		                            McsBootstrapName(bind_data->bootstrap), bind_data->block_length);
+	}
 	PostHogTelemetry::Instance().RecordFunctionCall("model_confidence_set_agg");
 	return std::move(bind_data);
 }
@@ -596,9 +650,11 @@ void RegisterForecastComparisonAggregateFunctions(ExtensionLoader &loader) {
 	    ANOFOX_FORECAST_CMP_FN("model_confidence_set_agg", (vector<LogicalType> {dbl_list}), McsAggUpdate,
 	                           McsAggFinalize, McsAggBind),
 	    "Hansen, Lunde and Nason's (2011) Model Confidence Set: the set of models that contains the best one with "
-	    "confidence 1 - alpha, with the elimination order and p-values.",
+	    "confidence 1 - alpha, with the elimination order and the MCS p-values. Bootstrap 'method': 'stationary' "
+	    "(default), 'moving_block' (R MCS::MCSprocedure(k = block_length)), 'circular_block' or 'iid'.",
 	    {"model_losses"}, {dbl_list},
-	    "model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t, {'alpha': 0.1, 'statistic': 'range'})",
+	    "model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t, {'alpha': 0.1, 'statistic': 'max', "
+	    "'method': 'moving_block', 'block_length': 3})",
 	    "model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t)");
 }
 

@@ -736,9 +736,9 @@ struct MediationMapOptions {
  * Options for the bootstrap CI of the mean (bootstrap_mean_ci_agg, #294)
  */
 struct BootstrapMeanMapOptions {
-	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block'
+	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block' | 'moving_block'
 	std::optional<uint32_t> n_bootstrap;
-	std::optional<uint32_t> block_length;
+	std::optional<double> block_length; // expected block length for 'stationary'
 	std::optional<double> confidence_level;
 	std::optional<uint64_t> seed; // also accepted as random_state
 
@@ -774,6 +774,7 @@ struct McsMapOptions {
 	std::optional<double> block_length; // <= 0: T^(1/3)
 	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 	std::optional<bool> max_statistic;  // 'statistic': 'range' (false) | 'max' (true)
+	std::optional<string> method;       // bootstrap: 'stationary' | 'moving_block' | 'circular_block' | 'iid'
 
 	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };

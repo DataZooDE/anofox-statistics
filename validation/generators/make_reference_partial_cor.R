@@ -20,9 +20,13 @@ x  <- c(3.1, 4.7, 2.2, 6.8, 5.5, 7.9, 4.1, 8.6, 6.0, 9.4, 5.2, 7.3, 3.8, 8.1, 6.
 y  <- c(4.2, 3.9, 2.0, 4.9, 4.2, 6.4, 3.6, 6.9, 6.6, 10.2, 4.5, 8.0, 5.8, 8.6, 6.3)
 z1 <- c(0.6, 2.6, -0.2, 1.3, 3.8, 2.8, 2.9, 4.3, 3.4, 3.4, 1.4, 2.7, 0.6, 4.2, 1.4)
 z2 <- c(0.9, 2.8, 1.6, 2.0, 2.5, 3.6, 1.1, 3.0, 3.9, 4.2, 1.8, 2.4, 2.3, 4.8, 1.7)
+## z3 is correlated with z1 and z2 (2-3 correlated controls for spcor, #296).
+z3 <- c(1.2, 3.1, 0.5, 2.0, 3.5, 3.4, 2.1, 4.0, 3.9, 4.1, 1.9, 2.9, 1.3, 4.6, 1.8)
 tx  <- c(3, 4, 2, 6, 5, 7, 4, 8, 6, 9, 5, 7, 3, 8, 6)
 tz1 <- c(1, 2, 1, 3, 2, 4, 2, 4, 3, 5, 2, 4, 1, 5, 3)
 Z <- cbind(z1, z2)
+Z3 <- cbind(z1, z2, z3)
+cat(sprintf("cor(z1, z2) = %.3f, cor(z1, z3) = %.3f, cor(z2, z3) = %.3f\n", cor(z1, z2), cor(z1, z3), cor(z2, z3)))
 
 # base-R checks: partial = cor of both residuals, semi-partial = cor(x, resid(y | z))
 chk <- function(a, b) stopifnot(abs(a - b) < 1e-12)
@@ -49,9 +53,15 @@ r <- spcor.test(x, y, z1); chk(r$estimate, cor(x, resid(lm(y ~ z1)))); emit("spc
 r <- spcor.test(x, y, z1, method = "spearman"); emit("spcor_spearman_k1", r)
 r <- spcor.test(tx, y, tz1, method = "spearman")
 chk(r$estimate, cor(rank(tx), resid(lm(rank(y) ~ rank(tz1))))); emit("spcor_spearman_ties", r)
-# Not exposed (upstream anofox-statistics 0.7.0 residualizes y sequentially,
-# which differs from OLS residuals for correlated controls):
+# Several correlated controls: y is residualized on all controls jointly
+# (anofox-statistics >= 0.8.1; 0.7.0 residualized sequentially).
 r <- spcor.test(x, y, Z); chk(r$estimate, cor(x, resid(lm(y ~ Z)))); emit("spcor_pearson_k2", r)
+r <- spcor.test(x, y, Z3); chk(r$estimate, cor(x, resid(lm(y ~ Z3)))); emit("spcor_pearson_k3", r)
+r <- spcor.test(x, y, Z, method = "spearman")
+chk(r$estimate, cor(rank(x), resid(lm(rank(y) ~ apply(Z, 2, rank))))); emit("spcor_spearman_k2", r)
+r <- spcor.test(x, y, Z3, method = "spearman")
+chk(r$estimate, cor(rank(x), resid(lm(rank(y) ~ apply(Z3, 2, rank))))); emit("spcor_spearman_k3", r)
+r <- pcor.test(x, y, Z3); chk(r$estimate, cor(resid(lm(x ~ Z3)), resid(lm(y ~ Z3)))); emit("pcor_pearson_k3", r)
 
 cat("## no controls = Pearson cor.test\n")
 r <- cor.test(x, y); out("pearson.estimate", r$estimate); out("pearson.p_value", r$p.value)
