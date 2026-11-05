@@ -296,9 +296,6 @@ struct RegressionMapOptions {
 	std::optional<bool> conditioning;      // Ridge conditioning-aware lambda
 	std::optional<double> lambda_small;    // Ridge: lambda on a well-conditioned design (implies conditioning)
 	std::optional<double> cond_threshold;  // Ridge: kappa(X'X) threshold (implies conditioning)
-};
-
-/**
 	// GLM profile-likelihood confidence intervals (#310)
 	std::optional<bool> profile_ci;        // 'profile_ci': confint(glm) profile intervals
 
@@ -796,9 +793,6 @@ struct McsMapOptions {
 	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
-};
-
-/**
 /**
  * Options for the two-way ANOVA (two_way_anova_agg, #297)
  */
@@ -817,9 +811,6 @@ struct RmAnovaMapOptions {
 	static RmAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
-};
-
-/**
 /**
  * Options of embedding_drift_agg (#302). Each method accepts only its own keys
  * (checked after parsing, see EmbeddingDriftMapOptions::ParseFromValue).
