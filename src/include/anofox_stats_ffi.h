@@ -4620,6 +4620,97 @@ bool anofox_multinomial_predict_proba(const double *coefficients, const double *
                                       size_t n_features, size_t n_classes, const double *x, size_t x_len,
                                       double *out_proba, size_t *out_class, AnofoxError *out_error);
 
+/* ============================================================================
+ * rms-style Wald ANOVA and fast backward step-down (issue #311)
+ * ============================================================================ */
+
+/**
+ * One row of anofox_wald_anova (rms::anova.rms). NaN marks a value that does
+ * not apply. Must match WaldAnovaRowFFI in crates/anofox-stats-ffi/src/wald_ffi.rs.
+ */
+typedef struct {
+	char *label;
+	char *kind;
+	int64_t term;      /* 0-based term, -1 for the totals */
+	uint64_t *columns; /* 0-based slope columns tested */
+	size_t n_columns;
+	double chi_square;
+	double df;
+	double f_statistic;
+	double df_residual;
+	double p_value;
+	double partial_ss;
+} AnofoxWaldAnovaRow;
+
+/**
+ * Result of anofox_wald_anova; free with anofox_free_wald_anova. The error row
+ * is NaN unless an F test with sigma2 was requested. Must match
+ * WaldAnovaResultFFI.
+ */
+typedef struct {
+	AnofoxWaldAnovaRow *rows;
+	size_t n_rows;
+	double error_df;
+	double error_ss;
+	double error_ms;
+} AnofoxWaldAnovaResult;
+
+/**
+ * rms::anova.rms table of a fitted model: slopes `coefficients` (p, feature
+ * order), row-major covariance vcov (dim = p or p + 1, intercept first).
+ * term_of_column[j]: 0-based term of slope j (negative: none); term_names:
+ * n_terms names; interaction_factors (NULL: none): two 0-based main-effect
+ * terms per term, negative for a main effect; nonlinear (NULL: all linear): p
+ * flags. f_test refers the rows to F(df, df_residual); a finite sigma2 adds
+ * partial sums of squares.
+ */
+bool anofox_wald_anova(const double *coefficients, size_t p, const double *vcov, size_t dim,
+                       const int64_t *term_of_column, const bool *nonlinear, const char *const *term_names,
+                       size_t n_terms, const int64_t *interaction_factors, bool f_test, double df_residual,
+                       double sigma2, AnofoxWaldAnovaResult *out_result, AnofoxError *out_error);
+
+void anofox_free_wald_anova(AnofoxWaldAnovaResult *result);
+
+/**
+ * One deletion of anofox_fastbw (rms::fastbw). Must match FastbwStepFFI.
+ */
+typedef struct {
+	uint64_t term;
+	double chi_square;
+	double df;
+	double p_value;
+	double residual_chi_square;
+	double residual_df;
+	double residual_p_value;
+	double aic;
+} AnofoxFastbwStep;
+
+/**
+ * Result of anofox_fastbw; free with anofox_free_fastbw. Must match
+ * FastbwResultFFI.
+ */
+typedef struct {
+	AnofoxFastbwStep *deleted;
+	size_t n_deleted;
+	uint64_t *kept_terms;
+	size_t n_kept;
+	double *coefficients; /* approximate reduced-model slopes, 0 when deleted */
+	size_t n_coefficients;
+	double intercept; /* NaN without one */
+} AnofoxFastbwResult;
+
+/**
+ * rms::fastbw of a fitted model (inputs as anofox_wald_anova; slopes without a
+ * term are never deleted). rule 0: AIC (chi2 - k_aic * df <= aics), 1: P
+ * (p > sls); individual applies the rule to the term's own test instead of the
+ * residual test.
+ */
+bool anofox_fastbw(const double *coefficients, size_t p, double intercept, const double *vcov, size_t dim,
+                   const int64_t *term_of_column, size_t n_terms, int32_t rule, bool individual, double k_aic,
+                   double aics, double sls, AnofoxFastbwResult *out_result, AnofoxError *out_error);
+
+void anofox_free_fastbw(AnofoxFastbwResult *result);
+
 #ifdef __cplusplus
 }
 #endif

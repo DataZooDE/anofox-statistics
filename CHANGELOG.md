@@ -23,6 +23,22 @@ Breaking changes are called out explicitly.
   `predict(model, x)` return the most probable class or, with `{'type': 'prob'}`, the class
   probabilities. Validated against scikit-learn (penalized fits, weights) and R
   `nnet::multinom` (unpenalized).
+- **`wald_anova(model [, terms [, options]])` and `fastbw(model [, terms [, options]])` (#311).**
+  rms-style inference from any fitted model STRUCT with a coefficient covariance `vcov`
+  (OLS, WLS, Ridge and the GLMs with `compute_inference`, also with a cluster-robust
+  `vcov`). `wald_anova` is the `rms::anova.rms` table of Wald chunk tests from
+  anofox-regression `inference::anova`: per term the test of all its columns including its
+  interactions, its nonlinear and interaction chunks, then `TOTAL NONLINEAR`,
+  `TOTAL INTERACTION`, `TOTAL NONLINEAR + INTERACTION` and `TOTAL`; F tests with partial sums
+  of squares and the `ERROR` row for the linear models (`'test': 'auto'`), chi-square
+  otherwise. `terms` gives one label per coefficient (equal labels form a term, NULL leaves
+  a coefficient out); options `nonlinear` (one flag per coefficient), `interactions` (MAP
+  label -> its two factor labels; full `a * b` or restricted `%ia%` products) and `test`.
+  `fastbw` is `rms::fastbw` (`inference::fastbw`): the deletion order with the Wald and
+  residual chi-square tests and AIC, the kept terms and the approximate reduced-model
+  coefficients; options `rule` (`'aic'` / `'p'`), `type` (`'residual'` / `'individual'`),
+  `sls`, `aics`, `k_aic`; NULL-labelled coefficients are never deleted. Reference values:
+  `rms::anova` and `rms::fastbw` (`validation/generators/make_reference_wald_anova.R`).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap

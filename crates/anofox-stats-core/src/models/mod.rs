@@ -34,6 +34,7 @@ mod ransac;
 mod ridge;
 mod rls;
 mod theil_sen;
+mod wald_anova;
 mod wls;
 
 pub use aft::{
@@ -106,6 +107,10 @@ pub use ransac::{fit_ransac, RansacResult};
 pub use ridge::{fit_ridge, ridge_selected_lambda, DEFAULT_COND_THRESHOLD, DEFAULT_LAMBDA_SMALL};
 pub use rls::{fit_rls, RlsOptions};
 pub use theil_sen::{fit_theilsen, TheilSenResult};
+pub use wald_anova::{
+    fastbw, wald_anova, FastbwResult, FastbwRule, FastbwStep, ModelCovariance, TermSpec,
+    WaldAnovaResult, WaldAnovaRow,
+};
 pub use wls::fit_wls;
 
 /// Project upstream coefficient inference onto `FitResultInference`; fields

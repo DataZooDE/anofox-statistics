@@ -127,6 +127,7 @@ fitted model struct).
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 | Likelihood-ratio / score tests, profile CIs | `lr_test` (scalar), `glm_score_test_agg`, `profile_ci` option on the GLM fits | `glm_score_test_by` | [Likelihood tests](api/glm/likelihood.md) |
+| Wald ANOVA (chunk tests), fast backward step-down | `wald_anova`, `fastbw` (scalars on any model STRUCT with `vcov`) | - | [Wald ANOVA](api/regression/wald_anova.md) |
 
 ### Statistical Tests
 

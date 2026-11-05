@@ -10837,3 +10837,7 @@ pub use likelihood_ffi::*;
 // Multinomial logistic regression (#314).
 mod multinomial_ffi;
 pub use multinomial_ffi::*;
+
+// rms-style Wald ANOVA and fast backward step-down (#311).
+mod wald_ffi;
+pub use wald_ffi::*;
