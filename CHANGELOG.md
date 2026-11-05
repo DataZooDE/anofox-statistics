@@ -10,6 +10,16 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`partial_cor_agg` and `semi_partial_cor_agg` (#296).** Partial and semi-partial (part)
+  correlation of `x` and `y` controlling for a `DOUBLE[]` list of variables, with the t test
+  (df = n - 2 - k), `{'method': 'pearson' | 'spearman'}`; upstream
+  `correlation::partial_cor` / `semi_partial_cor`, checked against R `ppcor::pcor.test` /
+  `spcor.test`. `semi_partial_cor_agg` takes at most one control for now: upstream
+  anofox-statistics 0.7.0 residualizes y on several controls one at a time, which is not the
+  OLS residual when the controls are correlated.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream

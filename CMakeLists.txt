@@ -214,6 +214,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/p_adjust_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp
     src/aggregate_functions/spearman_aggregate.cpp
+    src/aggregate_functions/partial_cor_aggregate.cpp
     src/aggregate_functions/mann_whitney_aggregate.cpp
     src/aggregate_functions/anova_aggregate.cpp
     src/aggregate_functions/kruskal_wallis_aggregate.cpp

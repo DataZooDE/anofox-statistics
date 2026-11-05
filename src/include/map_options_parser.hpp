@@ -700,4 +700,13 @@ struct MediationMapOptions {
 	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+/**
+ * Options for partial_cor_agg / semi_partial_cor_agg (#296)
+ */
+struct PartialCorMapOptions {
+	std::optional<bool> spearman; // 'method': 'pearson' (false) | 'spearman' (true)
+
+	static PartialCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
 } // namespace duckdb

@@ -109,6 +109,10 @@ against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
 
+`make_reference_partial_cor.R` prints the `ppcor::pcor.test` / `spcor.test` values
+of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_agg`,
+#296); it needs the `ppcor` package (`install.packages("ppcor", lib = "~/R/userlib")`).
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and
