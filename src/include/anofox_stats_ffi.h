@@ -3893,6 +3893,37 @@ bool anofox_tweedie_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, si
 bool anofox_gamma_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
                                AnofoxGammaOptions options, AnofoxGlmFitResultCore *out_result,
                                AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+/* ============================================================================
+ * Partial / semi-partial correlation -- issue #296
+ * ============================================================================ */
+
+/** Options of anofox_partial_cor. Must match PartialCorOptionsFFI. */
+typedef struct {
+	/** 0 partial (controls removed from x and y), 1 semi-partial (from y only) */
+	int32_t kind;
+	/** 0 pearson, 1 spearman */
+	int32_t method;
+} AnofoxPartialCorOptions;
+
+/** Result of anofox_partial_cor. Must match PartialCorResultFFI. */
+typedef struct {
+	double r;
+	double statistic;
+	double p_value;
+	double df;
+	size_t n;
+	size_t n_controls;
+	/** Unified test fields (#159), method name included; keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxPartialCorResult;
+
+/**
+ * Partial or semi-partial correlation of x and y controlling for
+ * controls[0..n_controls] (upstream correlation::partial_cor /
+ * semi_partial_cor, R ppcor::pcor.test / spcor.test). NaN entries drop their row.
+ */
+bool anofox_partial_cor(AnofoxDataArray x, AnofoxDataArray y, const AnofoxDataArray *controls, size_t n_controls,
+                        AnofoxPartialCorOptions options, AnofoxPartialCorResult *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

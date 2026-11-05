@@ -147,6 +147,9 @@ also recomputed from the two-way ANOVA mean squares in base R.
 `make_reference_tost.R` (base R only) prints the reference values of the TOST
 variants (#293) held by `tost_reference.test`; the test is written by hand from
 its output.
+`make_reference_partial_cor.R` prints the `ppcor::pcor.test` / `spcor.test` values
+of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_agg`,
+#296); it needs the `ppcor` package (`install.packages("ppcor", lib = "~/R/userlib")`).
 
 ## `generate_issue107_tests.R`
 

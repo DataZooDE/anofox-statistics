@@ -116,6 +116,79 @@ SELECT (kendall_agg(height, weight, {'variant': 'tau_a'})).tau FROM measurements
 - More interpretable (probability of concordance)
 - Generally smaller magnitude than Spearman
 
+## Partial and Semi-Partial Correlation
+
+### partial_cor_agg
+
+Partial correlation of `x` and `y` controlling for one or more variables (the
+controls are removed from both `x` and `y`), with its t test. Matches R
+`ppcor::pcor.test`.
+
+**Signature:**
+```text
+partial_cor_agg(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options MAP]) -> STRUCT
+```
+
+### semi_partial_cor_agg
+
+Semi-partial (part) correlation: the correlation of `x` with `y` after the
+control is removed from `y` only. Matches R `ppcor::spcor.test(x, y, z)`.
+Takes at most one control variable.
+
+**Signature:**
+```text
+semi_partial_cor_agg(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options MAP]) -> STRUCT
+```
+
+**Options** (both functions):
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| method | VARCHAR | 'pearson' | `'pearson'`, or `'spearman'` (every column is ranked first, average ties, as ppcor does) |
+
+**Returns:**
+```
+STRUCT(
+    r DOUBLE,             -- Partial (semi-partial) correlation coefficient
+    statistic DOUBLE,     -- t = r * sqrt(df / (1 - r^2))
+    p_value DOUBLE,       -- Two-sided p-value
+    df DOUBLE,            -- n - 2 - n_controls
+    n BIGINT,             -- Complete rows used
+    n_controls BIGINT,    -- Number of control variables
+    method VARCHAR,       -- e.g. "Partial correlation (controlling for 2 variable(s))"
+    alternative VARCHAR   -- "two_sided"
+    -- plus the unified test fields (estimate, df1, effect_size, ...)
+)
+```
+
+A row with a NULL or NaN in `x`, `y`, the control list or one of its elements is
+skipped. Every row must have the same number of controls. Fewer than
+`n_controls + 3` complete rows, or a constant column, returns `NULL`. An empty
+control list (`[]::DOUBLE[]`) gives the plain Pearson (or Spearman) correlation.
+There is no confidence interval (ppcor reports none either).
+
+**Example:**
+```sql
+CREATE OR REPLACE TABLE growth AS
+SELECT i,
+       (i % 12)::DOUBLE AS age,
+       (100 + 5 * (i % 12) + (i * 7) % 11)::DOUBLE AS height,
+       (20 + 2 * (i % 12) + (i * 5) % 7 + 0.1 * ((i * 7) % 11))::DOUBLE AS weight,
+       ((i * 3) % 5)::DOUBLE AS activity
+FROM range(60) r(i);
+
+-- Height and weight both grow with age: the partial correlation removes it
+SELECT (pearson_agg(height, weight)).r AS r_raw,
+       (partial_cor_agg(height, weight, [age])).r AS r_partial
+FROM growth;
+
+-- Two controls, rank-based
+SELECT unnest(partial_cor_agg(height, weight, [age, activity], {'method': 'spearman'}))
+FROM growth;
+
+-- Semi-partial: height vs the part of weight not explained by age
+SELECT unnest(semi_partial_cor_agg(height, weight, [age])) FROM growth;
+```
+
 ## Distance Correlation
 
 ### distance_cor_agg
@@ -244,6 +317,7 @@ FROM (SELECT p AS patient_id, r AS rater_id,
 | Linear relationship, normal data | Pearson |
 | Ordinal data or outliers | Spearman |
 | Many ties, small samples | Kendall |
+| Association net of other variables | Partial / semi-partial correlation |
 | Non-linear relationships | Distance correlation |
 | Inter-rater reliability | ICC |
 

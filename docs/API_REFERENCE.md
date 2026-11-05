@@ -142,7 +142,7 @@ fitted model struct).
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Survival | `log_rank_test_agg` | [Survival curves](api/survival/survival_curves.md) |
-| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `partial_cor_agg`, `semi_partial_cor_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
 | Multiple testing | `p_adjust_by`, `p_adjust_agg`, `p_adjust_list` | [Hypothesis tests](api/statistics/hypothesis.md#multiple-testing) |
@@ -1288,6 +1288,8 @@ FROM reg_data;
 | `pearson_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` (0.95) | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `spearman_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `kendall_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level`, `variant` ('tau_a', 'tau_b', 'tau_c') | `tau, statistic, p_value, ci_lower, ci_upper, n, method` |
+| `partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
+| `semi_partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` (at most one control) | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
 | `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000), `seed` (42) | `dcor, statistic, p_value, n, method` |
 | `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('icc1' default, 'icc2', 'icc3', 'icc1k', 'icc2k', 'icc3k'; aliases 'single' / 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
 

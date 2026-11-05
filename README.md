@@ -162,7 +162,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` (with the regressors `x`, the `lmtest::dwtest` p-value) | [timeseries](docs/api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [timeseries](docs/api/diagnostics/timeseries.md) |
 | Survival | `log_rank_test_agg` | [survival_curves](docs/api/survival/survival_curves.md) |
-| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [correlation](docs/api/statistics/correlation.md) |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `partial_cor_agg`, `semi_partial_cor_agg`, `distance_cor_agg`, `icc_agg` | [correlation](docs/api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Effect size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Proportion | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [categorical](docs/api/statistics/categorical.md) |

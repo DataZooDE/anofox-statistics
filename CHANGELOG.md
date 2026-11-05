@@ -67,6 +67,13 @@ Breaking changes are called out explicitly.
 
 - The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
   (it had no SQL caller before #293).
+- **`partial_cor_agg` and `semi_partial_cor_agg` (#296).** Partial and semi-partial (part)
+  correlation of `x` and `y` controlling for a `DOUBLE[]` list of variables, with the t test
+  (df = n - 2 - k), `{'method': 'pearson' | 'spearman'}`; upstream
+  `correlation::partial_cor` / `semi_partial_cor`, checked against R `ppcor::pcor.test` /
+  `spcor.test`. `semi_partial_cor_agg` takes at most one control for now: upstream
+  anofox-statistics 0.7.0 residualizes y on several controls one at a time, which is not the
+  OLS residual when the controls are correlated.
 
 ### Changed
 

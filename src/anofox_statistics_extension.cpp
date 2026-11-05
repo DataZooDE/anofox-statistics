@@ -141,6 +141,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTTestOneSamplePairedAggregateFunctions(loader);
     RegisterPearsonAggregateFunction(loader);
     RegisterSpearmanAggregateFunction(loader);
+    RegisterPartialCorAggregateFunctions(loader);
     RegisterMannWhitneyAggregateFunction(loader);
     RegisterAnovaAggregateFunction(loader);
     RegisterPairwisePosthocAggregateFunctions(loader);

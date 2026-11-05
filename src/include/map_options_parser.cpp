@@ -2095,4 +2095,14 @@ BootstrapMeanMapOptions BootstrapMeanMapOptions::ParseFromValue(const Value &map
 	    });
 }
 
+PartialCorMapOptions PartialCorMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}}};
+	return ParseTestOptions<PartialCorMapOptions>(
+	    map_value, function_name, keys, [](PartialCorMapOptions &result, const string &key, const Value &val) {
+		    if (key == "method" && !val.IsNull()) {
+			    result.spearman = ExtractChoice(val, "method", {"pearson", "spearman"}) == "spearman";
+		    }
+	    });
+}
+
 } // namespace duckdb

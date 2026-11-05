@@ -10815,3 +10815,5 @@ mod passthrough_ffi;
 pub use passthrough_ffi::*;
 mod tost_ffi;
 pub use tost_ffi::*;
+// Partial / semi-partial correlation (#296).
+mod partial_cor_ffi;

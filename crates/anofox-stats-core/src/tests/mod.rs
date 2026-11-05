@@ -13,6 +13,7 @@ pub mod forecast;
 pub mod modern;
 pub mod nonparametric;
 pub mod parametric;
+pub mod partial_correlation;
 pub mod posthoc;
 pub mod resampling;
 pub mod survival;

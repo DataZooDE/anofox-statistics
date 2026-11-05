@@ -94,6 +94,7 @@ static const struct {
     {"negbinom_effects_by", "prediction"}, {"gamma_effects_by", "prediction"}, {"tweedie_effects_by", "prediction"},
     {"ols_rolling_tidy_by", "terms"}, {"wls_rolling_tidy_by", "terms"}, {"ridge_rolling_tidy_by", "terms"},
     {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
+    {"partial_cor_agg", "test"}, {"semi_partial_cor_agg", "test"},
     {nullptr, nullptr}
 };
 // clang-format on

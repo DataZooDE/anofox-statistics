@@ -105,6 +105,7 @@ void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader);
 void RegisterTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterPearsonAggregateFunction(ExtensionLoader &loader);
 void RegisterSpearmanAggregateFunction(ExtensionLoader &loader);
+void RegisterPartialCorAggregateFunctions(ExtensionLoader &loader);
 void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader);
 void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterPairwisePosthocAggregateFunctions(ExtensionLoader &loader);
