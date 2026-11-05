@@ -56,6 +56,7 @@ struct GlmmAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	bool reml;
+	uint32_t n_agq = 0; // lme4 nAGQ (#305)
 	double theta;
 	double power;
 	idx_t offset_column;
@@ -119,6 +120,7 @@ struct GlmmAggregateBindData : public FunctionData {
 	bool compute_inference = false;
 	double confidence_level = 0.95;
 	bool reml = true;
+	uint32_t n_agq = 0; // lme4 nAGQ (#305): 0 = PIRLS Laplace (default)
 	//! NaN = estimate the negative-binomial size (lme4::glmer.nb).
 	double theta = std::numeric_limits<double>::quiet_NaN();
 	double power = 1.5;
@@ -150,6 +152,7 @@ struct GlmmAggregateBindData : public FunctionData {
 		r->compute_inference = compute_inference;
 		r->confidence_level = confidence_level;
 		r->reml = reml;
+		r->n_agq = n_agq;
 		r->theta = theta;
 		r->power = power;
 		r->offset_column = offset_column;
@@ -163,7 +166,7 @@ struct GlmmAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<GlmmAggregateBindData>();
 		return family == o.family && fit_intercept == o.fit_intercept && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && reml == o.reml &&
+		       confidence_level == o.confidence_level && reml == o.reml && n_agq == o.n_agq &&
 		       // theta is NaN when estimated; NaN != NaN would make a copy unequal to itself.
 		       (theta == o.theta || (std::isnan(theta) && std::isnan(o.theta))) && power == o.power &&
 		       offset_column == o.offset_column && random_slopes == o.random_slopes &&
@@ -282,6 +285,7 @@ static void GlmmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
 		state.compute_inference = bind_data.compute_inference;
 		state.confidence_level = bind_data.confidence_level;
 		state.reml = bind_data.reml;
+		state.n_agq = bind_data.n_agq;
 		state.theta = bind_data.theta;
 		state.power = bind_data.power;
 		state.offset_column = bind_data.offset_column;
@@ -347,6 +351,7 @@ static void GlmmAggCombine(Vector &source_vector, Vector &target_vector, Aggrega
 			target.compute_inference = source.compute_inference;
 			target.confidence_level = source.confidence_level;
 			target.reml = source.reml;
+			target.n_agq = source.n_agq;
 			target.theta = source.theta;
 			target.power = source.power;
 			target.offset_column = source.offset_column;
@@ -428,6 +433,7 @@ static void PrepareGlmmCall(const SETTINGS &settings, vector<vector<double>> &x_
 	options.compute_inference = settings.compute_inference;
 	options.confidence_level = settings.confidence_level;
 	options.reml = settings.reml;
+	options.n_agq = settings.n_agq;
 	options.theta = settings.theta;
 	options.power = settings.power;
 	// The offset / random-slope indices refer to the caller's x; re-index them onto
@@ -654,7 +660,7 @@ static unique_ptr<GlmmAggregateBindData> ParseGlmmBindData(ClientContext &contex
 	if (arguments.size() >= 4) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], fn_name,
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "family", "reml", "offset", "random", "groups", "theta", "ddf"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "family", "reml", "offset", "random", "groups", "theta", "ddf", "n_agq"});
 		if (opts.glmm_family.has_value()) {
 			result->family = (AnofoxGlmmFamily)opts.glmm_family.value();
 		}
@@ -675,6 +681,9 @@ static unique_ptr<GlmmAggregateBindData> ParseGlmmBindData(ClientContext &contex
 		}
 		if (opts.reml.has_value()) {
 			result->reml = opts.reml.value();
+		}
+		if (opts.n_agq.has_value()) {
+			result->n_agq = opts.n_agq.value();
 		}
 		if (opts.nb_theta.has_value()) {
 			result->theta = opts.nb_theta.value();

@@ -491,6 +491,7 @@ pub unsafe extern "C" fn anofox_huber_fit(
             tolerance: options.tolerance,
             compute_inference: options.compute_inference,
             confidence_level: options.confidence_level,
+            joint_scale: options.joint_scale,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1047,6 +1048,7 @@ pub unsafe extern "C" fn anofox_ridge_fit(
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
             compute_loo: options.compute_loo,
+            conditioning: options.conditioning_pair(),
         };
 
         // Call the core function with panic catching for regress-rs issues
@@ -4495,6 +4497,7 @@ pub unsafe extern "C" fn anofox_quantile_fit(
             fit_intercept: options.fit_intercept,
             max_iterations: options.max_iterations,
             tolerance: options.tolerance,
+            alpha: options.alpha,
         };
 
         // Call the core function with panic catching
@@ -8947,6 +8950,7 @@ unsafe fn glmm_core_options(options: &GlmmOptionsFFI, observations: bool) -> Glm
             GlmmDdfFFI::Satterthwaite => Some(GlmmDdf::Satterthwaite),
         },
         observations,
+        n_agq: options.n_agq,
     }
 }
 
@@ -9485,6 +9489,7 @@ pub unsafe extern "C" fn anofox_ridge_augment(
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
             compute_loo: false,
+            conditioning: options.conditioning_pair(),
         };
         augment_entry("Ridge augment", out_result, out_error, || {
             augment_ridge(&y_vec, &x_vecs, &opts)
@@ -10805,3 +10810,6 @@ pub use diagnostics_ffi::*;
 // One-sample and paired t-tests (#299).
 mod ttest_ffi;
 pub use ttest_ffi::*;
+// Option pass-throughs (#305).
+mod passthrough_ffi;
+pub use passthrough_ffi::*;

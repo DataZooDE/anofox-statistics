@@ -49,9 +49,9 @@ SELECT poisson_fit_agg(cnt, [x1], {'binomial_link': 'logit'}) FROM d;
 poisson_fit_agg: unsupported option 'binomial_link'
 
 statement error
-SELECT quantile_fit_predict_agg(y, [x1], {'alpha': 0.5}) FROM d;
+SELECT quantile_fit_predict_agg(y, [x1], {'epsilon': 1.5}) FROM d;
 ----
-quantile_fit_predict_agg: unsupported option 'alpha'
+quantile_fit_predict_agg: unsupported option 'epsilon'
 
 statement error
 SELECT ols_fit_predict(y, [x1], {'compute_inference': true}) OVER (ORDER BY i) FROM d;

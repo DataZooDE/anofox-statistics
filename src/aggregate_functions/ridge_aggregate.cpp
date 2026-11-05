@@ -10,6 +10,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ridge_conditioning.hpp"
 #include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -36,6 +37,7 @@ struct RidgeAggregateState {
     SolverType solver;
     LambdaScaling lambda_scaling;
     bool compute_loo;
+    RidgeConditioningOpt conditioning; // #305
 
     RidgeAggregateState()
         : n_features(0), initialized(false), alpha(1.0), fit_intercept(true), compute_inference(false),
@@ -60,6 +62,7 @@ struct RidgeAggregateBindData : public FunctionData {
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
     bool compute_loo = false; // press, press_rmse, loo_r_squared (#235): one SVD of the design
+    RidgeConditioningOpt conditioning; // conditioning-aware lambda (#305)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeAggregateBindData>();
@@ -70,6 +73,7 @@ struct RidgeAggregateBindData : public FunctionData {
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
         result->compute_loo = compute_loo;
+        result->conditioning = conditioning;
         return std::move(result);
     }
 
@@ -77,7 +81,8 @@ struct RidgeAggregateBindData : public FunctionData {
         auto &other = other_p.Cast<RidgeAggregateBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                compute_inference == other.compute_inference && confidence_level == other.confidence_level &&
-               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo;
+               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo &&
+               conditioning == other.conditioning;
     }
 };
 
@@ -156,6 +161,7 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
         state.confidence_level = bind_data.confidence_level;
         state.solver = bind_data.solver;
         state.lambda_scaling = bind_data.lambda_scaling;
+        state.conditioning = bind_data.conditioning;
         state.compute_loo = bind_data.compute_loo;
 
         // Get y value
@@ -231,6 +237,7 @@ static void RidgeAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
             target.confidence_level = source.confidence_level;
             target.solver = source.solver;
             target.lambda_scaling = source.lambda_scaling;
+            target.conditioning = source.conditioning;
             target.compute_loo = source.compute_loo;
             continue;
         }
@@ -313,6 +320,7 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         options.solver = ConvertSolverType(state.solver);
         options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
         options.compute_loo = state.compute_loo;
+        state.conditioning.ToFFI(options);
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;
@@ -346,12 +354,15 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
         // the inference fields are NULL (the Rust core reports NaN for them).
         // alpha == 0 is OLS and keeps its inference.
-        writer.WriteInference(result_idx, state.compute_inference && state.alpha == 0 ? &inference_result : nullptr);
+        // The lambda the fit used: alpha, or with conditioning-aware lambda (#305)
+        // upstream's choice for this design.
+        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_agg");
+        writer.WriteInference(result_idx, state.compute_inference && lambda == 0 ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
         // Ridge sandwich covariance with the effective (raw) penalty, as the fit-predict intervals.
         writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result, state.fit_intercept,
                                      nullptr,
-                                     state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha);
+                                     state.lambda_scaling == LambdaScaling::GLMNET ? lambda * (double)core_result.n_observations : lambda);
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);
         }
@@ -374,8 +385,8 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateBi
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling",
-             "compute_loo"});
+            RidgeConditioningOpt::WithKeys({"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda",
+                                            "solver", "lambda_scaling", "compute_loo"}));
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -398,6 +409,7 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateBi
         if (opts.compute_loo.has_value()) {
             result->compute_loo = opts.compute_loo.value();
         }
+        result->conditioning.Apply(opts, "ridge_fit_agg");
     }
 
     // Set return type based on options

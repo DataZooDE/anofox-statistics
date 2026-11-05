@@ -791,6 +791,8 @@ pub struct HuberOptionsFFI {
     pub max_iterations: u32,
     /// Convergence tolerance.
     pub tolerance: f64,
+    /// Joint coefficient / scale estimate (sklearn); false = MAD scale (MASS::rlm).
+    pub joint_scale: bool,
 }
 
 impl Default for HuberOptionsFFI {
@@ -803,6 +805,7 @@ impl Default for HuberOptionsFFI {
             confidence_level: 0.95,
             max_iterations: 100,
             tolerance: 1e-5,
+            joint_scale: false,
         }
     }
 }
@@ -1044,6 +1047,35 @@ pub struct RidgeOptionsFFI {
     pub lambda_scaling: LambdaScalingFFI,
     /// Compute the leave-one-out statistics in the summary (#235)
     pub compute_loo: bool,
+    /// Conditioning-aware λ (#305): use `lambda_small` when κ(XᵀX) ≤
+    /// `cond_threshold`, `alpha` otherwise.
+    pub conditioning: bool,
+    /// λ on a well-conditioned design; NaN = upstream's default.
+    pub lambda_small: f64,
+    /// κ(XᵀX) threshold; NaN = upstream's default.
+    pub cond_threshold: f64,
+}
+
+impl RidgeOptionsFFI {
+    /// The core conditioning setting: `None` unless `conditioning`, NaN fields
+    /// replaced by upstream's defaults.
+    pub fn conditioning_pair(&self) -> Option<(f64, f64)> {
+        use anofox_stats_core::models::{DEFAULT_COND_THRESHOLD, DEFAULT_LAMBDA_SMALL};
+        self.conditioning.then(|| {
+            (
+                if self.lambda_small.is_nan() {
+                    DEFAULT_LAMBDA_SMALL
+                } else {
+                    self.lambda_small
+                },
+                if self.cond_threshold.is_nan() {
+                    DEFAULT_COND_THRESHOLD
+                } else {
+                    self.cond_threshold
+                },
+            )
+        })
+    }
 }
 
 impl Default for RidgeOptionsFFI {
@@ -1056,6 +1088,9 @@ impl Default for RidgeOptionsFFI {
             solver: SolverTypeFFI::Qr,
             lambda_scaling: LambdaScalingFFI::Raw,
             compute_loo: false,
+            conditioning: false,
+            lambda_small: f64::NAN,
+            cond_threshold: f64::NAN,
         }
     }
 }
@@ -2761,6 +2796,8 @@ pub struct QuantileOptionsFFI {
     pub max_iterations: u32,
     /// Convergence tolerance
     pub tolerance: f64,
+    /// L1 penalty on the slopes (sklearn `QuantileRegressor(alpha)`); 0 = none
+    pub alpha: f64,
 }
 
 impl Default for QuantileOptionsFFI {
@@ -2770,6 +2807,7 @@ impl Default for QuantileOptionsFFI {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            alpha: 0.0,
         }
     }
 }
@@ -3133,6 +3171,9 @@ pub struct GlmmOptionsFFI {
     pub random_slopes: *const usize,
     pub random_slopes_len: usize,
     pub ddf: GlmmDdfFFI,
+    /// lme4's `nAGQ` (#305): 0 = Laplace at the PIRLS fixed effects (default),
+    /// 1 = joint Laplace, > 1 = adaptive Gauss-Hermite quadrature.
+    pub n_agq: u32,
 }
 
 impl Default for GlmmOptionsFFI {
@@ -3151,6 +3192,7 @@ impl Default for GlmmOptionsFFI {
             random_slopes: std::ptr::null(),
             random_slopes_len: 0,
             ddf: GlmmDdfFFI::Default,
+            n_agq: 0,
         }
     }
 }

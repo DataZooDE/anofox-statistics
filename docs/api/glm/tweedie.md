@@ -18,6 +18,7 @@ with a log link by IRLS.
 
 ```text
 tweedie_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
+tweedie_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE [, options MAP]) -> STRUCT
 ```
 
 | Parameter | Type | Description |
@@ -81,6 +82,26 @@ UNION ALL
 SELECT 1.5, (tweedie_fit_agg(loss, [risk_score], {'power': 1.5})).deviance FROM losses
 UNION ALL
 SELECT 1.7, (tweedie_fit_agg(loss, [risk_score], {'power': 1.7})).deviance FROM losses;
+```
+
+### Prior weights
+
+A numeric third argument is the row's prior weight, as R's
+`glm(y ~ x, family = statmod::tweedie(var.power = p, link.power = 0), weights = w)`:
+the fit is anofox-regression's `TweedieRegressor` with `weights`, the
+dispersion is the weighted Pearson estimate, and the tests and intervals use
+t(df_residual) as `summary.glm` (the unweighted fit uses z). For `1 < power < 2`
+the Tweedie density has no closed form, so the weighted fit reports a NULL
+`aic` / log-likelihood (R: `NA`); `power` 1 and 2 give R's Poisson and Gamma
+values. Rows with a NULL (or non-finite) weight are left out, as in `wls_fit_agg`; a
+negative weight is an error; weight 0 keeps the row out of the residual degrees
+of freedom (R's `n.ok`). `glm_lambda` and explicit priors cannot be
+combined with weights (error). The `*_fit_predict_agg`, `*_augment_agg` and
+`*_by` macro forms are unweighted.
+
+```sql
+SELECT (fit).coefficients, (fit).dispersion, (fit).aic IS NULL AS no_aic
+FROM (SELECT tweedie_fit_agg(loss, [risk_score], 1 + policy_id % 2, {'power': 1.5}) AS fit FROM losses);
 ```
 
 ## Prediction

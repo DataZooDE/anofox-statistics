@@ -17,6 +17,7 @@ Fitted with a log link by IRLS.
 
 ```text
 gamma_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
+gamma_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE [, options MAP]) -> STRUCT
 ```
 
 | Parameter | Type | Description |
@@ -76,6 +77,24 @@ FROM (
     SELECT gamma_fit_agg(amount, [risk_score], {'compute_inference': true}) AS fit
     FROM claims
 );
+```
+
+### Prior weights
+
+A numeric third argument is the row's prior weight, as R's
+`glm(y ~ x, family = Gamma("log"), weights = w)`: the fit is
+anofox-regression's Gamma `TweedieRegressor` with `weights`, the dispersion is
+the weighted Pearson χ² / df and the AIC is R's (dispersion `deviance / Σw`).
+The weighted fit's tests and intervals use t(df_residual), exactly
+`summary.glm`, where the unweighted `gamma_fit_agg` uses z. Rows with a NULL (or non-finite) weight are left out, as in `wls_fit_agg`; a
+negative weight is an error; weight 0 keeps the row out of the residual degrees
+of freedom (R's `n.ok`). `glm_lambda` and explicit priors cannot be
+combined with weights (error). The `*_fit_predict_agg`, `*_augment_agg` and
+`*_by` macro forms are unweighted.
+
+```sql
+SELECT (gamma_fit_agg(amount, [risk_score], 1 + claim_id % 3)).coefficients AS weighted
+FROM claims;
 ```
 
 ## Prediction

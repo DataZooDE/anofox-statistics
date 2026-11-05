@@ -74,8 +74,38 @@ FROM ridge_demo;
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
 | `lambda_scaling` | VARCHAR | `'raw'` | `'raw'` uses `alpha` as given; `'glmnet'` scales it like R's glmnet |
 | `compute_loo` | BOOLEAN | `false` | Fill the exact leave-one-out fields `press`, `press_rmse`, `loo_r_squared` (one SVD of the design); independent of `compute_inference` |
+| `conditioning` (alias `conditioning_aware`) | BOOLEAN | `false` | Conditioning-aware λ, see below |
+| `lambda_small` | DOUBLE | `0.1` | λ on a well-conditioned design (implies `conditioning`) |
+| `cond_threshold` (alias `condition_threshold`) | DOUBLE | `1000` | κ(XᵀX) at or below which the design counts as well-conditioned (implies `conditioning`) |
 
 Option keys the function does not support raise an error.
+
+### Conditioning-aware λ
+
+A fixed λ over-shrinks the coefficients of a well-conditioned design, where the
+penalty buys no stability. With `{'conditioning': true}` (or either of
+`lambda_small` / `cond_threshold`) the fit measures the condition number
+`κ(XᵀX) = (σ_max / σ_min)²` of the design it penalises (columns centred when an
+intercept is fitted) and uses `lambda_small` when `κ ≤ cond_threshold`, `alpha`
+otherwise (anofox-regression's `RidgeRegressorBuilder::conditioning_aware`; the
+defaults 0.1 and 1000 are upstream's). `lambda_small` is on the same scale as
+`alpha` (`lambda_scaling` applies to both). The inference, the coefficient
+covariance and the fit-predict intervals use the λ actually chosen, so a
+`lambda_small` of 0 reports OLS inference. `ridge_fit`, `ridge_fit_agg`,
+`ridge_fit_predict`, `ridge_fit_predict_agg`, `ridge_augment_agg` and the
+`ridge_*_by` macros take these options; `ridge_fit_from_state` does not (a
+sufficient-statistics state keeps no design to measure), nor do the
+`ridge_cv` / `ridge_path` grids.
+
+```sql
+-- x1 and x2 are nearly collinear: kappa is large, so alpha (5) is kept;
+-- x1 alone is well conditioned, so lambda_small (0.1) is used
+SELECT
+    (ridge_fit_agg(y, [x1, x2], {'alpha': 5, 'conditioning': true})).coefficients AS collinear,
+    (ridge_fit_agg(y, [x1], {'alpha': 5, 'conditioning': true})).coefficients AS single,
+    (ridge_fit_agg(y, [x1], {'alpha': 0.1})).coefficients AS single_at_0_1
+FROM ridge_demo;
+```
 
 ```sql
 -- glmnet-style lambda scaling with the Cholesky solver

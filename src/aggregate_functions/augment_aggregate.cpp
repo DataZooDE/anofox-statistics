@@ -13,6 +13,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ridge_conditioning.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -98,6 +99,7 @@ struct AugmentAggBindData : public FunctionData {
     // Ridge settings, with the defaults of ridge_fit_agg.
     double alpha = 1.0;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
+    RidgeConditioningOpt conditioning; // conditioning-aware lambda (#305)
 
     unique_ptr<FunctionData> Copy() const override {
         return make_uniq<AugmentAggBindData>(*this);
@@ -113,7 +115,8 @@ struct AugmentAggBindData : public FunctionData {
                same_double(power, other.power) && same_double(theta, other.theta) &&
                max_iterations == other.max_iterations && same_double(tolerance, other.tolerance) &&
                same_double(glm_lambda, other.glm_lambda) && offset_column == other.offset_column &&
-               same_double(alpha, other.alpha) && lambda_scaling == other.lambda_scaling;
+               same_double(alpha, other.alpha) && lambda_scaling == other.lambda_scaling &&
+               conditioning == other.conditioning;
     }
 };
 
@@ -538,6 +541,7 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             options.confidence_level = 0.95;
             options.solver = ConvertSolverType(bind_data.solver);
             options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
+            bind_data.conditioning.ToFFI(options);
             ok = anofox_ridge_augment(y_array, x_arrays.data(), x_arrays.size(), options, &aug, &error);
         } else if (bind_data.model != AugmentModel::OLS && bind_data.model != AugmentModel::WLS) {
             ok = RunGlmAugment(bind_data, state.n_features, y_array, x_arrays, &aug, &error);
@@ -637,7 +641,8 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
         // so that a penalized fit is rejected with upstream's error rather than as an unknown key.
         vector<string> allowed;
         if (model == AugmentModel::RIDGE) {
-            allowed = {"fit_intercept", "null_policy", "solver", "alpha", "lambda", "lambda_scaling"};
+            allowed = RidgeConditioningOpt::WithKeys(
+                {"fit_intercept", "null_policy", "solver", "alpha", "lambda", "lambda_scaling"});
         } else if (linear) {
             allowed = {"fit_intercept", "null_policy", "solver"};
         } else {
@@ -696,6 +701,7 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
         if (opts.lambda_scaling.has_value()) {
             result->lambda_scaling = opts.lambda_scaling.value();
         }
+        result->conditioning.Apply(opts, fn_name);
     }
     SetReturnTypeOf(function, partial ? GetPartialResidualsAggResultType() : GetAugmentAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall(fn_name);

@@ -11,6 +11,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/glm_weights_arg.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/model_struct.hpp"
 #include "telemetry.hpp"
@@ -28,6 +29,7 @@ struct GammaAggregateState {
 	GlmPriorState prior_state;
 	double glm_lambda = 0.0;
 	vector<double> y_values;
+	vector<double> weights; // prior weights (#305); empty unless weighted
 	vector<vector<double>> x_columns;
 	idx_t n_features;
 	bool initialized;
@@ -47,6 +49,7 @@ struct GammaAggregateState {
 	void Reset() {
 		prior_state.Clear();
 		y_values.clear();
+		weights.clear();
 		x_columns.clear();
 		n_features = 0;
 		initialized = false;
@@ -62,6 +65,7 @@ struct GammaAggregateBindData : public FunctionData {
 	bool compute_inference = false;
 	double confidence_level = 0.95;
 	idx_t offset_column = 0;
+	bool weighted = false; // f(y, x, w [, options]) (#305)
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<GammaAggregateBindData>();
@@ -73,6 +77,7 @@ struct GammaAggregateBindData : public FunctionData {
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
 		result->offset_column = offset_column;
+		result->weighted = weighted;
 		return std::move(result);
 	}
 
@@ -80,7 +85,7 @@ struct GammaAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<GammaAggregateBindData>();
 		return fit_intercept == o.fit_intercept && max_iterations == o.max_iterations && tolerance == o.tolerance &&
 		       compute_inference == o.compute_inference && confidence_level == o.confidence_level &&
-		       offset_column == o.offset_column;
+		       offset_column == o.offset_column && weighted == o.weighted;
 	}
 };
 
@@ -137,6 +142,10 @@ static void GammaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 	UnifiedVectorFormat x_data;
 	inputs[0].ToUnifiedFormat(count, y_data);
 	inputs[1].ToUnifiedFormat(count, x_data);
+	GlmWeightsInput w_input;
+	if (bind_data.weighted) {
+		w_input.Load(inputs[2], count);
+	}
 
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
 	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
@@ -188,6 +197,13 @@ static void GammaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 			                            n_features);
 		}
 
+		if (bind_data.weighted) {
+			double w_val;
+			if (!w_input.Get(i, w_val)) {
+				continue; // NULL weight: the row is left out, as wls_fit_agg
+			}
+			state.weights.push_back(w_val);
+		}
 		state.y_values.push_back(y_val);
 
 		for (idx_t j = 0; j < n_features; j++) {
@@ -217,6 +233,7 @@ static void GammaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
 
 		if (!target.initialized) {
 			target.y_values = CombineTake(source.y_values, aggr_input_data);
+			target.weights = CombineTake(source.weights, aggr_input_data);
 			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
 			target.n_features = source.n_features;
 			target.initialized = true;
@@ -239,6 +256,7 @@ static void GammaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
 		}
 
 		target.y_values.insert(target.y_values.end(), source.y_values.begin(), source.y_values.end());
+		target.weights.insert(target.weights.end(), source.weights.begin(), source.weights.end());
 
 		for (idx_t j = 0; j < target.n_features; j++) {
 			target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
@@ -278,7 +296,12 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		}
 
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
-		SortRowsCanonically(state.y_values, state.x_columns);
+		const bool weighted = !state.weights.empty();
+		if (weighted) {
+			CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
+		} else {
+			SortRowsCanonically(state.y_values, state.x_columns);
+		}
 		AnofoxDataArray y_array;
 		y_array.data = state.y_values.data();
 		y_array.validity = nullptr;
@@ -308,8 +331,13 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		AnofoxFitResultInference inference_result;
 		AnofoxError error;
 
-		bool success = anofox_gamma_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
-		                                state.compute_inference ? &inference_result : nullptr, &error);
+		// Prior weights (#305): upstream's weighted Gamma fit; the unweighted fit is unchanged.
+		AnofoxDataArray w_array {state.weights.data(), nullptr, state.weights.size()};
+		AnofoxFitResultInference *inference_out = state.compute_inference ? &inference_result : nullptr;
+		bool success = weighted ? anofox_gamma_fit_weighted(y_array, x_arrays.data(), x_arrays.size(), w_array, options,
+		                                                 &core_result, inference_out, &error)
+		                        : anofox_gamma_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+		                                          inference_out, &error);
 
 		if (!success) {
 			ThrowUnlessDegenerate("gamma_fit_agg", error);
@@ -355,9 +383,12 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateBi
                                              vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<GammaAggregateBindData>();
 
-	if (arguments.size() >= 3) {
+	// f(y, x, w) / f(y, x, w, options): prior weights (#305).
+	result->weighted = GlmWeightsArgument(arguments);
+	const idx_t options_idx = result->weighted ? 3 : 2;
+	if (arguments.size() > options_idx) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
-            context, *arguments[2], "gamma_fit_agg",
+            context, *arguments[options_idx], "gamma_fit_agg",
             {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
@@ -404,6 +435,17 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	    GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, ANOFOX_AGG_BIND(GammaAggBind), GammaAggDestroy);
 	func_set.AddFunction(map_func);
 
+	// (y, x, w, options): prior weights (#305). (y, x, w) is the ANY overload above
+	// with a numeric third argument.
+	auto weighted_func = AggregateFunction(
+	    "gamma_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
+	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, ANOFOX_AGG_INIT(GammaAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(GammaAggUpdate, GammaAggDestroy, GammaAggInitialize), GammaAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr,
+	    ANOFOX_AGG_BIND(GammaAggBind), GammaAggDestroy);
+	func_set.AddFunction(weighted_func);
+
 	CreateAggregateFunctionInfo info(std::move(func_set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	FunctionDescription d1;
@@ -422,6 +464,15 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	d2.parameter_names = {"y", "x"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
 	info.descriptions.push_back(std::move(d2));
+	FunctionDescription d3;
+	d3.description = "Fits the same model with prior (case) weights w, as R's glm(weights = w); a NULL weight drops "
+	                 "the row.";
+	d3.examples = {"gamma_fit_agg(y, x, w)", "gamma_fit_agg(y, x, w, {'compute_inference': true})"};
+	d3.categories = {"regression"};
+	d3.parameter_names = {"y", "x", "weights", "options"};
+	d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
+	                      LogicalType::ANY};
+	info.descriptions.push_back(std::move(d3));
 	loader.RegisterFunction(std::move(info));
 
 }

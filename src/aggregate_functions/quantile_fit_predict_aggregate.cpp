@@ -38,8 +38,9 @@ struct QuantilePredictAggState {
     // Options
     double tau;
     bool fit_intercept;
+    double alpha; // L1 penalty on the slopes (#305)
 
-    QuantilePredictAggState() : n_features(0), initialized(false), tau(0.5), fit_intercept(true) {}
+    QuantilePredictAggState() : n_features(0), initialized(false), tau(0.5), fit_intercept(true), alpha(0.0) {}
 
     void Reset() {
         y_train.clear();
@@ -59,19 +60,21 @@ struct QuantilePredictAggState {
 struct QuantilePredictAggBindData : public FunctionData {
     double tau = 0.5;
     bool fit_intercept = true;
+    double alpha = 0.0;          // L1 penalty on the slopes (#305)
     bool use_split_col = false;  // True if using split column instead of y NULL
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<QuantilePredictAggBindData>();
         result->tau = tau;
         result->fit_intercept = fit_intercept;
+        result->alpha = alpha;
         result->use_split_col = use_split_col;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<QuantilePredictAggBindData>();
-        return tau == other.tau && fit_intercept == other.fit_intercept &&
+        return tau == other.tau && fit_intercept == other.fit_intercept && alpha == other.alpha &&
                use_split_col == other.use_split_col;
     }
 };
@@ -149,6 +152,7 @@ static void QuantilePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
 
         state.tau = bind_data.tau;
         state.fit_intercept = bind_data.fit_intercept;
+        state.alpha = bind_data.alpha;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -257,6 +261,7 @@ static void QuantilePredictAggCombine(Vector &source_vector, Vector &target_vect
             target.initialized = true;
             target.tau = source.tau;
             target.fit_intercept = source.fit_intercept;
+            target.alpha = source.alpha;
             PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
@@ -315,6 +320,7 @@ static void QuantilePredictAggFinalize(Vector &state_vector, AggregateInputData 
         options.fit_intercept = state.fit_intercept;
         options.max_iterations = 1000;
         options.tolerance = 1e-6;
+        options.alpha = state.alpha;
 
         AnofoxQuantileFitResultCore core_result;
         AnofoxError error;
@@ -389,9 +395,16 @@ static unique_ptr<FunctionData> QuantilePredictAggBind(ClientContext &context, A
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "quantile_fit_predict_agg",
-            {"fit_intercept", "tau"});
+            {"fit_intercept", "tau", "alpha"});
         if (opts.tau.has_value()) {
             result->tau = opts.tau.value();
+        }
+        if (opts.alpha.has_value()) {
+            result->alpha = opts.alpha.value();
+            if (!(std::isfinite(result->alpha) && result->alpha >= 0.0)) {
+                throw InvalidInputException("quantile_fit_predict_agg: alpha must be a finite number >= 0, got %g",
+                                            result->alpha);
+            }
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
@@ -413,9 +426,16 @@ static unique_ptr<FunctionData> QuantilePredictAggBindWithSplit(ClientContext &c
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "quantile_fit_predict_agg",
-            {"fit_intercept", "tau"});
+            {"fit_intercept", "tau", "alpha"});
         if (opts.tau.has_value()) {
             result->tau = opts.tau.value();
+        }
+        if (opts.alpha.has_value()) {
+            result->alpha = opts.alpha.value();
+            if (!(std::isfinite(result->alpha) && result->alpha >= 0.0)) {
+                throw InvalidInputException("quantile_fit_predict_agg: alpha must be a finite number >= 0, got %g",
+                                            result->alpha);
+            }
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
