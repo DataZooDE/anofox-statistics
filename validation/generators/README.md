@@ -144,6 +144,9 @@ same directory; see the header of each script.
 `make_reference_icc.R` (needs `psych`) (re)writes `icc_reference.test`: `icc_agg`
 with all six Shrout & Fleiss types against `psych::ICC(lmer = FALSE)`, each ICC
 also recomputed from the two-way ANOVA mean squares in base R.
+`make_reference_tost.R` (base R only) prints the reference values of the TOST
+variants (#293) held by `tost_reference.test`; the test is written by hand from
+its output.
 
 ## `generate_issue107_tests.R`
 

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include "map_options_parser.hpp"
@@ -1841,6 +1842,62 @@ TostCorrelationMapOptions TostCorrelationMapOptions::ParseFromValue(const Value 
 			    result.spearman = ExtractChoice(val, "method", {"pearson", "spearman"}) == "spearman";
 		    }
 	    });
+}
+
+TostVariantMapOptions TostVariantMapOptions::ParseFromValue(const Value &map_value, const string &function_name,
+                                                            const vector<string> &extra_keys) {
+	static const vector<OptionKeyDef> extra_defs = {{"mu", {}},
+	                                                {"p0", {"p"}},
+	                                                {"trim", {"trim_proportion", "tr"}},
+	                                                {"n_bootstrap", {"bootstrap_samples", "n_boot"}},
+	                                                KEY_SEED};
+	vector<OptionKeyDef> keys = {KEY_CONFIDENCE, KEY_TOST_ALPHA, KEY_TOST_DELTA, KEY_TOST_LOWER, KEY_TOST_UPPER};
+	for (auto &def : extra_defs) {
+		if (std::find(extra_keys.begin(), extra_keys.end(), string(def.canonical)) != extra_keys.end()) {
+			keys.push_back(def);
+		}
+	}
+	auto result = ParseTestOptions<TostVariantMapOptions>(
+	    map_value, function_name, keys, [](TostVariantMapOptions &result, const string &key, const Value &val) {
+		    if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "alpha") {
+			    result.alpha = ExtractTostAlpha(val);
+		    } else if (key == "delta") {
+			    result.delta = ExtractDouble(val);
+		    } else if (key == "bound_lower") {
+			    result.bound_lower = ExtractDouble(val);
+		    } else if (key == "bound_upper") {
+			    result.bound_upper = ExtractDouble(val);
+		    } else if (key == "mu") {
+			    result.mu = ExtractDouble(val);
+		    } else if (key == "p0") {
+			    result.p0 = ExtractDouble(val);
+		    } else if (key == "trim") {
+			    result.trim = ExtractDouble(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+	if (result.delta && !(*result.delta > 0.0 && std::isfinite(*result.delta))) {
+		throw InvalidInputException("%s: delta must be a finite number > 0, got %g", function_name, *result.delta);
+	}
+	if (result.mu && !std::isfinite(*result.mu)) {
+		throw InvalidInputException("%s: mu must be finite", function_name);
+	}
+	if (result.p0 && !(*result.p0 >= 0.0 && *result.p0 <= 1.0)) {
+		throw InvalidInputException("%s: p0 must be in [0, 1], got %g", function_name, *result.p0);
+	}
+	if (result.trim && !(*result.trim >= 0.0 && *result.trim < 0.5)) {
+		throw InvalidInputException("%s: trim must be in [0, 0.5), got %g", function_name, *result.trim);
+	}
+	if (result.n_bootstrap && *result.n_bootstrap < 100) {
+		throw InvalidInputException("%s: n_bootstrap must be at least 100, got %u", function_name,
+		                            *result.n_bootstrap);
+	}
+	return result;
 }
 
 YuenMapOptions YuenMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {

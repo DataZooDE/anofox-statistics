@@ -2175,6 +2175,47 @@ bool anofox_tost_correlation(AnofoxDataArray x, AnofoxDataArray y, double rho_nu
                              AnofoxTostResult *out_result, AnofoxError *out_error);
 
 /**
+ * Options of the TOST variants (#293); each kind reads only its own fields.
+ */
+typedef struct {
+	double bound_lower;
+	double bound_upper;
+	double alpha;
+	/** One-sample t: hypothesised mean. One proportion: hypothesised p0. */
+	double mu;
+	/** Yuen: proportion trimmed from each tail */
+	double trim;
+	/** Bootstrap: number of resamples */
+	size_t n_bootstrap;
+	uint64_t seed;
+	bool has_seed;
+} AnofoxTostVariantOptions;
+
+/** Kinds of anofox_tost_variant */
+typedef enum {
+	ANOFOX_TOST_ONE_SAMPLE = 0,
+	ANOFOX_TOST_WILCOXON_PAIRED = 1,
+	ANOFOX_TOST_WILCOXON_TWO_SAMPLE = 2,
+	ANOFOX_TOST_YUEN = 3,
+	ANOFOX_TOST_BOOTSTRAP = 4,
+} AnofoxTostVariantKind;
+
+/**
+ * TOST variant on samples (NaN entries dropped). One-sample t tests x against
+ * options.mu (y ignored); paired Wilcoxon pairs x and y; the others compare x
+ * (group 1) with y (group 2).
+ */
+bool anofox_tost_variant(int32_t kind, AnofoxDataArray x, AnofoxDataArray y, AnofoxTostVariantOptions options,
+                         AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
+ * TOST for one proportion (two_sample false: successes1 of trials1 against
+ * options.mu as p0) or for the difference of two proportions (group 1 - group 2).
+ */
+bool anofox_tost_prop(size_t successes1, size_t trials1, size_t successes2, size_t trials2, bool two_sample,
+                      AnofoxTostVariantOptions options, AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
  * Wilcoxon signed-rank test options
  */
 typedef struct {

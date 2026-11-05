@@ -56,6 +56,17 @@ Breaking changes are called out explicitly.
   - `ridge_fit[_agg]`, `ridge_fit_predict[_agg]`, `ridge_augment_agg`, `ridge_*_by`:
     conditioning-aware lambda (`conditioning`, `lambda_small`, `cond_threshold`): `lambda_small`
     when `kappa(X'X) <= cond_threshold`, `alpha` otherwise.
+- **The remaining TOST equivalence tests (#293):** `tost_one_sample_agg`, `tost_prop_one_agg`,
+  `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg` and
+  `tost_bootstrap_agg` (anofox-statistics `equivalence`), with the `tost_t_test_agg` result
+  STRUCT. The equivalence bounds are required (`delta` or both `bound_lower` / `bound_upper`;
+  no default, unlike the older TOST aggregates). Two-group variants take any two BIGINT or
+  VARCHAR labels; the bootstrap is seeded (default 42) and independent of row order.
+
+### Fixed
+
+- The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
+  (it had no SQL caller before #293).
 
 ### Changed
 

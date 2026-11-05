@@ -589,6 +589,30 @@ struct TostCorrelationMapOptions {
 };
 
 /**
+ * Options of the TOST variants (#293): tost_one_sample_agg ('mu'),
+ * tost_prop_one_agg ('p0'), tost_prop_two_agg, tost_wilcoxon_paired_agg,
+ * tost_wilcoxon_agg, tost_yuen_agg ('trim') and tost_bootstrap_agg
+ * ('n_bootstrap', 'seed'). Every function takes the bounds and alpha keys;
+ * a key outside `extra_keys` is rejected.
+ */
+struct TostVariantMapOptions {
+	std::optional<double> confidence_level;
+	std::optional<double> alpha;
+	std::optional<double> delta;
+	std::optional<double> bound_lower;
+	std::optional<double> bound_upper;
+	std::optional<double> mu;
+	std::optional<double> p0;
+	std::optional<double> trim;
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<uint64_t> seed;
+
+	//! `extra_keys`: canonical names among "mu", "p0", "trim", "n_bootstrap", "seed".
+	static TostVariantMapOptions ParseFromValue(const Value &map_value, const string &function_name,
+	                                            const vector<string> &extra_keys);
+};
+
+/**
  * Options for Yuen trimmed-mean test
  */
 struct YuenMapOptions {

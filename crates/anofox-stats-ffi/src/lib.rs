@@ -10813,3 +10813,5 @@ pub use ttest_ffi::*;
 // Option pass-throughs (#305).
 mod passthrough_ffi;
 pub use passthrough_ffi::*;
+mod tost_ffi;
+pub use tost_ffi::*;
