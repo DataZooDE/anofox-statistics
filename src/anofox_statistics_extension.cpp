@@ -128,6 +128,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLogisticAggregateFunction(loader);
     RegisterGlmScoreTestAggregateFunction(loader);
     RegisterLrTestFunction(loader);
+    RegisterWaldAnovaFunctions(loader);
 
     // Register ALM aggregate functions
     RegisterAlmAggregateFunction(loader);

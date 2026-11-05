@@ -1,0 +1,297 @@
+# name: test/sql/regression/test_wald_anova_fastbw.test
+# description: wald_anova and fastbw (#311): relations to the per-coefficient tests, term
+#              labels, NULL handling, aliased coefficients, groups, invalid models and
+#              options. R reference values: test/sql/reference/wald_anova_reference.test.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i, 'g' || (i % 2) AS g, (i % 7) * 0.3 AS x1, sin(i)::DOUBLE AS x2, cos(i * 0.5) AS x3,
+    (i % 7) * 0.6 AS x1b, ((i * 7) % 5)::DOUBLE AS cnt,
+    1.0 + (i % 7) * 0.15 + sin(i) + ((i * 13) % 11) / 5.0 AS y
+FROM range(40) t(i);
+
+statement ok
+CREATE TABLE m AS SELECT ols_fit_agg(y, [x1, x2, x3], {'compute_inference': true}) AS ols,
+    poisson_fit_agg(cnt, [x1, x2, x3], {'compute_inference': true}) AS pois FROM d;
+
+# ---- wald_anova ------------------------------------------------------------
+
+# Default terms: one per coefficient (x1 .. xk), then TOTAL; an OLS model gets F tests
+# (the default 'auto') and the ERROR row. A one-column F equals the squared t value.
+query IIIIII
+SELECT list_transform(t, lambda r: r.label), list_transform(t, lambda r: r.kind),
+       list_transform(t, lambda r: r.method)[1], t[4].columns, t[1].df2, t[5].df1
+FROM (SELECT wald_anova(ols) AS t FROM m);
+----
+[x1, x2, x3, TOTAL, ERROR]	[main_effect, main_effect, main_effect, total, error]	Wald F	[1, 2, 3]	36.0	36.0
+
+query III
+SELECT bool_and(abs(t[k].statistic - ols.t_values[k] ^ 2) < 1e-9),
+       bool_and(abs(t[k].p_value - ols.p_values[k]) < 1e-9),
+       bool_and(abs(t[k].partial_ss - t[k].chi_square * ols.residual_std_error ^ 2) < 1e-9)
+FROM (SELECT ols, wald_anova(ols) AS t FROM m), range(1, 4) r(k);
+----
+true	true	true
+
+# The overall F of the TOTAL row is the model F test; the ERROR row carries the
+# residual sum of squares and mean square.
+query III
+SELECT abs(t[4].statistic - ols.f_statistic) < 1e-9, abs(t[5].mean_sq - ols.residual_std_error ^ 2) < 1e-9,
+       t[5].statistic IS NULL AND t[5].p_value IS NULL
+FROM (SELECT ols, wald_anova(ols) AS t FROM m);
+----
+true	true	true
+
+# test := 'chisq' on the same model: chi-square tests, no ERROR row; chi_square_minus_df.
+query IIII
+SELECT len(t), list_transform(t, lambda r: r.method)[1], t[1].df2 IS NULL,
+       abs(t[2].chi_square_minus_df - (ols.t_values[2] ^ 2 - 1)) < 1e-9
+FROM (SELECT ols, wald_anova(ols, NULL, {'test': 'chisq'}) AS t FROM m);
+----
+4	Wald chi-square	true	true
+
+# A GLM gets chi-square tests by default (a one-column chi-square is z^2) ...
+query II
+SELECT list_transform(t, lambda r: r.method)[1], abs(t[1].statistic - pois.z_values[1] ^ 2) < 1e-8
+FROM (SELECT pois, wald_anova(pois) AS t FROM m);
+----
+Wald chi-square	true
+
+# ... and F tests on request (F = chi-square / df on the model's df_residual).
+query II
+SELECT abs(t[4].statistic - t[4].chi_square / 3) < 1e-12, t[4].df2 = pois.df_residual
+FROM (SELECT pois, wald_anova(pois, NULL, {'test': 'F'}) AS t FROM m);
+----
+true	true
+
+# Term labels: equal labels form one term (in order of first appearance); a NULL label
+# keeps the coefficient out of every test.
+query IIII
+SELECT list_transform(t, lambda r: r.label), t[1].columns, t[1].df1, t[2].columns
+FROM (SELECT wald_anova(ols, ['b', NULL, 'b'], {'test': 'chisq'}) AS t FROM m);
+----
+[b, TOTAL]	[1, 3]	2.0	[1, 3]
+
+query II
+SELECT list_transform(t, lambda r: r.label), list_transform(t, lambda r: r.term)
+FROM (SELECT wald_anova(ols, ['b', 'a', 'b'], {'test': 'chisq'}) AS t FROM m);
+----
+[b, a, TOTAL]	[b, a, NULL]
+
+# Nonlinear columns of a term get a ' Nonlinear' row, the totals a TOTAL NONLINEAR row
+# once two terms have one.
+query II
+SELECT list_transform(t, lambda r: trim(r.label)), t[2].columns
+FROM (SELECT wald_anova(ols, ['a', 'a', 'b'], {'nonlinear': [false, true, false], 'test': 'chisq'}) AS t FROM m);
+----
+[a, Nonlinear, b, TOTAL]	[2]
+
+# An interaction (MAP or STRUCT form) of two one-column terms: the rms rows.
+statement ok
+CREATE TABLE mi AS SELECT ols_fit_agg(y, [x1, x2, x1 * x2], {'compute_inference': true}) AS f FROM d;
+
+query II
+SELECT list_transform(t, lambda r: trim(r.label)) = ['x1  (Factor+Higher Order Factors)', 'All Interactions',
+       'x2  (Factor+Higher Order Factors)', 'All Interactions', 'x1 * x2  (Factor+Higher Order Factors)', 'TOTAL'],
+       t[1].columns
+FROM (SELECT wald_anova(f, ['x1', 'x2', 'x1:x2'], {'interactions': MAP {'x1:x2': ['x1', 'x2']}, 'test': 'chisq'}) AS t FROM mi);
+----
+true	[1, 3]
+
+query I
+SELECT wald_anova(f, ['x1', 'x2', 'x1:x2'], {'interactions': MAP {'x1:x2': ['x1', 'x2']}})
+     = wald_anova(f, ['x1', 'x2', 'x1:x2'], {'interactions': {'x1:x2': ['x1', 'x2']}})
+FROM mi;
+----
+true
+
+# Per group.
+query II
+SELECT g, len(wald_anova(logistic_fit_agg((cnt > 2)::DOUBLE, [x1, x2], {'compute_inference': true})))
+FROM d GROUP BY g ORDER BY g;
+----
+g0	3
+g1	3
+
+# A hand-written model literal (intercept first in vcov): z^2 = 9 and 4, TOTAL 13.
+query III
+SELECT t[1].statistic, t[2].statistic, t[3].statistic
+FROM (SELECT wald_anova({'coefficients': [1.5, -0.4], 'intercept': 0.5, 'vcov': [1, 0, 0, 0, 0.25, 0, 0, 0, 0.04]}) AS t);
+----
+9.0	4.0	13.0
+
+# Without an intercept the covariance has one row per coefficient.
+query I
+SELECT (wald_anova({'coefficients': [1.5, -0.4], 'vcov': [0.25, 0, 0, 0.04]}))[3].statistic;
+----
+13.0
+
+# NULL model (empty group) and NULL coefficients give NULL.
+query I
+SELECT wald_anova(ols_fit_agg(y, [x1, x2], {'compute_inference': true}) FILTER (WHERE false)) IS NULL FROM d;
+----
+true
+
+query I
+SELECT wald_anova({'coefficients': NULL::DOUBLE[], 'vcov': [1.0]}) IS NULL;
+----
+true
+
+# An aliased (not estimated) coefficient in a term gives NULL; labelled NULL it is left out.
+query II
+SELECT wald_anova(f) IS NULL, len(wald_anova(f, ['a', NULL, 'b'])) FROM
+    (SELECT ols_fit_agg(y, [x1, x1b, x2], {'compute_inference': true}) AS f FROM d);
+----
+true	4
+
+# ---- fastbw ----------------------------------------------------------------
+
+# AIC rule (default): x3 is deleted (chi-square - 2 df < 0), x1 and x2 stay; the kept
+# coefficients are the full fit's adjusted by -V_io V_oo^-1 b_o, deleted ones are 0.
+query IIIIII
+SELECT list_transform(b.deleted, lambda s: s.term), b.kept_terms, b.coefficients[3], b.rule, b.type,
+       abs(b.deleted[1].aic - (b.deleted[1].residual_chi_square - 2)) < 1e-12
+FROM (SELECT fastbw(ols) AS b FROM m);
+----
+[x3]	[x1, x2]	0.0	aic	residual	true
+
+# The first deletion's chi-square is the Wald test of the term (here t^2).
+query I
+SELECT abs(b.deleted[1].chi_square - ols.t_values[3] ^ 2) < 1e-9 FROM (SELECT ols, fastbw(ols) AS b FROM m);
+----
+true
+
+# P rule: delete while p > sls. With sls = 0.99 nothing goes, with sls = 0.01 only x3.
+# A huge AIC penalty deletes every term: the reduced model is the intercept only.
+query III
+SELECT len((fastbw(ols, NULL, {'rule': 'p', 'sls': 0.99})).deleted),
+       (fastbw(ols, NULL, {'rule': 'p', 'sls': 0.01})).kept_terms,
+       (fastbw(ols, NULL, {'k_aic': 1000})).kept_terms
+FROM m;
+----
+0	[x1, x2]	[]
+
+# A NULL label forces the coefficient into the model (rms fastbw(force = ...)).
+query II
+SELECT b.kept_terms, b.coefficients[2] <> 0
+FROM (SELECT fastbw(ols, ['a', NULL, 'c'], {'k_aic': 1000}) AS b FROM m);
+----
+[]	true
+
+# type 'individual' applies the rule to the term's own test.
+query I
+SELECT list_transform((fastbw(ols, NULL, {'type': 'individual', 'aics': 1, 'k_aic': 3})).deleted, lambda s: s.term) FROM m;
+----
+[x3]
+
+query I
+SELECT fastbw(ols_fit_agg(y, [x1, x2], {'compute_inference': true}) FILTER (WHERE false)) IS NULL FROM d;
+----
+true
+
+# ---- invalid input -----------------------------------------------------------
+
+statement error
+SELECT wald_anova(ols_fit_agg(y, [x1, x2])) FROM d;
+----
+vcov is NULL
+
+statement error
+SELECT wald_anova({'coefficients': [1.0, 2.0]});
+----
+no coefficient covariance
+
+statement error
+SELECT wald_anova(42);
+----
+model must be the STRUCT
+
+statement error
+SELECT wald_anova(ols, ['a', 'b']) FROM m;
+----
+terms has 2 labels but the model has 3 coefficients
+
+statement error
+SELECT wald_anova(ols, [NULL::VARCHAR, NULL, NULL]) FROM m;
+----
+terms has no non-NULL label
+
+statement error
+SELECT wald_anova(ols, ['a', 'b', 'c'], {'nonlinear': [true]}) FROM m;
+----
+nonlinear has 1 flags but the model has 3 coefficients
+
+statement error
+SELECT wald_anova(ols, ['a', 'b', 'c'], {'test': 'z'}) FROM m;
+----
+option 'test' must be 'auto', 'chisq' or 'F'
+
+statement error
+SELECT wald_anova(ols, ['a', 'b', 'c'], {'bogus': 1}) FROM m;
+----
+unknown option 'bogus'
+
+statement error
+SELECT wald_anova(ols, ['a', 'b', 'c'], {'interactions': MAP {'c': ['a', 'z']}}) FROM m;
+----
+interaction label 'z' is not one of the term labels
+
+statement error
+SELECT wald_anova(ols, ['a', 'b', 'c'], {'interactions': MAP {'c': ['a']}}) FROM m;
+----
+must map to a list of its two factor labels
+
+statement error
+SELECT wald_anova(ols, NULL, {'interactions': MAP {'x3': ['x1', 'x2']}}) FROM m;
+----
+needs term labels
+
+# Two one-column factors make a one-column product; two columns do not fit.
+statement error
+SELECT wald_anova(ols, ['a', 'ab', 'ab'], {'interactions': MAP {'ab': ['a', 'a']}}) FROM m;
+----
+interaction
+
+statement error
+SELECT wald_anova({'coefficients': [1.0, 2.0, 3.0, 4.0], 'vcov': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]},
+                  ['x1', 'x2', 'x1:x2', 'x1:x2'], {'interactions': MAP {'x1:x2': ['x1', 'x2']}});
+----
+interaction 'x1:x2' has 2 columns
+
+# An interaction's factor must be a main effect.
+statement error
+SELECT wald_anova(f, ['x1', 'x2', 'x1:x2'], {'interactions': MAP {'x1:x2': ['x1', 'x1:x2']}}) FROM mi;
+----
+its factors must be main-effect terms
+
+statement error
+SELECT wald_anova(ols, list_value(i::VARCHAR, 'b', 'c')) FROM m, d;
+----
+terms must be a constant
+
+statement error
+SELECT fastbw(ols, NULL, {'rule': 'bic'}) FROM m;
+----
+option 'rule' must be 'aic' or 'p'
+
+statement error
+SELECT fastbw(ols, NULL, {'type': 'both'}) FROM m;
+----
+option 'type' must be 'residual' or 'individual'
+
+statement error
+SELECT fastbw(ols, NULL, {'sls': 1.5}) FROM m;
+----
+option 'sls' must be in (0, 1)
+
+statement error
+SELECT fastbw(ols, NULL, {'k_aic': -1}) FROM m;
+----
+option 'k_aic' must be finite and >= 0
+
+statement error
+SELECT fastbw(ols, NULL, {'nonlinear': [true, true, true]}) FROM m;
+----
+unknown option 'nonlinear'

@@ -265,6 +265,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp
     src/scalar_functions/lr_test.cpp
+    src/scalar_functions/wald_anova.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
