@@ -157,6 +157,12 @@ of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_ag
 `mauchly.test` and the Greenhouse-Geisser epsilon, cross-checked against
 `afex::aov_ez` when afex is installed, e.g. in `~/R/userlib`).
 
+`make_reference_pca.R` (base R only) (re)writes `pca_reference.test`:
+`pca_agg`, `pca_transform` and `pca_by` against `prcomp` / `predict.prcomp`
+on `USArrests` and a wide (n < d) matrix. prcomp's arbitrary component signs
+are flipped to the extension's convention (largest absolute loading positive)
+before the comparison.
+
 ## `generate_issue107_tests.R`
 
 An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and

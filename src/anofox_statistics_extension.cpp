@@ -235,6 +235,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
     RegisterPathAggregateFunctions(loader);
+    // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
+    RegisterPcaFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

@@ -116,6 +116,17 @@ Breaking changes are called out explicitly.
   (`two_way_anova`, `repeated_measures_anova`). The Huynh-Feldt correction is not exposed
   yet: the upstream epsilon disagrees with car / afex / ez.
 
+### Added
+
+- **Principal component analysis (#303):** `pca_agg(x DOUBLE[] [, {'n_components': k}])`
+  returns STRUCT(sdev, proportion_of_variance, loadings, center, n_components, n_features,
+  n_observations) as R's `prcomp(x, center = TRUE, scale. = FALSE)`; `pca_transform(model, x)`
+  scores a row (`predict.prcomp`); the `pca_by(source, group_col, x_cols)` table macro returns
+  every row with its scores per group. Upstream anofox-statistics `multivariate::pca`; each
+  component's sign is fixed so its largest absolute loading is positive. Reference values
+  against `prcomp` in `test/sql/reference/pca_reference.test`. `scale` is not supported yet
+  (upstream `pca` does not scale).
+
 ### Changed
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /

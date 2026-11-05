@@ -166,6 +166,8 @@ unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const v
                                                      const string &sql, const string &description,
                                                      const string &example, const vector<string> &categories);
 void RegisterCurveMacros(ExtensionLoader &loader);
+// Principal component analysis: pca_agg, pca_transform, pca_by (#303)
+void RegisterPcaFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

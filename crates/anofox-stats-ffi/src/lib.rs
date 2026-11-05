@@ -10814,3 +10814,6 @@ pub use null_distributions_ffi::*;
 
 // Two-way and repeated-measures ANOVA (#297).
 mod anova_ffi;
+
+mod pca_ffi;
+pub use pca_ffi::*;
