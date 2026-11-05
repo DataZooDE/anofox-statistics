@@ -47,7 +47,7 @@ true	true	true
 
 # A large L1 penalty removes every slope; the intercept is then a sample quantile
 query II
-SELECT list_max(list_transform(m.coefficients, c -> abs(c))) < 1e-9, m.tau
+SELECT list_max(list_transform(m.coefficients, lambda c: abs(c))) < 1e-9, m.tau
 FROM (SELECT quantile_fit_agg(y, [x1, x2], {'tau': 0.25, 'alpha': 100}) AS m FROM d);
 ----
 true	0.25

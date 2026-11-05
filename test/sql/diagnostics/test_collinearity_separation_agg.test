@@ -48,7 +48,7 @@ b	moderate	false	4	8
 # indices start at 1 and increase.
 query III
 SELECT
-    bool_and(abs(list_sum(list_transform(r.variance_proportions, p -> p[j])) - 1) < 1e-10),
+    bool_and(abs(list_sum(list_transform(r.variance_proportions, lambda p: p[j])) - 1) < 1e-10),
     r.condition_indices[1] = 1,
     list_sort(r.condition_indices) = r.condition_indices
 FROM (SELECT condition_diagnostic_agg([x1, x2, x3]) AS r FROM d WHERE g = 'a') s, range(1, 5) t(j)
@@ -197,7 +197,7 @@ b	false	3	8
 
 # Without separation every coefficient is finite and the direction is zero.
 query II
-SELECT list_sum(list_transform(r.infinite, v -> abs(v))), list_sum(list_transform(r.direction, v -> abs(v)))
+SELECT list_sum(list_transform(r.infinite, lambda v: abs(v))), list_sum(list_transform(r.direction, lambda v: abs(v)))
 FROM (SELECT detect_separation_agg(yb, [x1, x2]) AS r FROM d WHERE g = 'b') s;
 ----
 0.0	0.0
