@@ -3792,6 +3792,88 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/* ============================================================================
+ * Embedding drift and multivariate two-sample tests (#302)
+ * A sample is n_rows embeddings of dim doubles each, row-major.
+ * ============================================================================ */
+
+/**
+ * Options of anofox_embedding_drift; each method reads only its own. Must match
+ * EmbeddingDriftOptionsFFI in crates/anofox-stats-ffi/src/embedding_ffi.rs.
+ */
+typedef struct {
+	/** evidently's drift test of each component (ratio); NULL for "wasserstein" */
+	const char *component_test;
+	/** Fixed threshold; NaN for evidently's default */
+	double threshold;
+	/** Bootstrap quantile; NaN for evidently's default */
+	double quantile;
+	/** Per-component threshold (ratio); NaN for the test's default */
+	double component_threshold;
+	size_t n_bootstrap;
+	uint64_t seed;
+	/** 0 distance, 1 ratio, 2 mmd */
+	int32_t method;
+	/** 0 euclidean, 1 cosine, 2 cityblock, 3 chebyshev */
+	int32_t metric;
+	bool bootstrap;
+	bool has_seed;
+} AnofoxEmbeddingDriftOptions;
+
+/** Result of anofox_embedding_drift. Must match EmbeddingDriftResultFFI. */
+typedef struct {
+	double score;
+	double threshold;
+	size_t n1;
+	size_t n2;
+	size_t dim;
+	bool drifted;
+} AnofoxEmbeddingDriftResult;
+
+/**
+ * evidently's embedding drift of current against reference. The options are
+ * parsed before the samples are looked at: a call with empty samples validates
+ * them (INVALID_INPUT for a bad name, otherwise insufficient data).
+ */
+bool anofox_embedding_drift(const double *reference, size_t n_reference, const double *current, size_t n_current,
+                            size_t dim, AnofoxEmbeddingDriftOptions options, AnofoxEmbeddingDriftResult *out_result,
+                            AnofoxError *out_error);
+
+/** Options of anofox_multivariate_two_sample. Must match MultivariateTestOptionsFFI. */
+typedef struct {
+	/** Bandwidth of the gaussian / laplacian kernel */
+	double bandwidth;
+	/** Polynomial kernel (scale x.y + offset)^degree */
+	double scale;
+	double offset;
+	size_t n_permutations;
+	uint64_t seed;
+	uint32_t degree;
+	/** MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial */
+	int32_t kernel;
+	bool has_seed;
+} AnofoxMultivariateTestOptions;
+
+/** Result of anofox_multivariate_two_sample. Must match MultivariateTestResultFFI. */
+typedef struct {
+	double statistic;
+	double p_value;
+	size_t n1;
+	size_t n2;
+	size_t dim;
+	size_t n_permutations;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxMultivariateTestResult;
+
+/**
+ * Multivariate two-sample permutation test of x against y. kind: 0 energy
+ * distance, 1 MMD with options.kernel.
+ */
+bool anofox_multivariate_two_sample(int32_t kind, const double *x, size_t n_x, const double *y, size_t n_y,
+                                    size_t dim, AnofoxMultivariateTestOptions options,
+                                    AnofoxMultivariateTestResult *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

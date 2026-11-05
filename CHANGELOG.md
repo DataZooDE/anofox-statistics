@@ -29,6 +29,16 @@ Breaking changes are called out explicitly.
   `STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`: the per-category
   shares the divergences compare. Reference values: base R
   (`validation/generators/make_reference_drift_categorical.R`), cross-checked against scipy.
+- **Embedding drift and multivariate two-sample tests (#302, anofox-statistics 0.7).**
+  `embedding_drift_agg(embedding DOUBLE[], group | is_reference, {'method': 'distance' |
+  'ratio' | 'mmd', ...})` runs evidently's embedding drift methods (distance between the mean
+  embeddings with euclidean / cosine / cityblock / chebyshev, share of drifted components,
+  MMD with the median bandwidth) with a fixed or seeded bootstrap threshold and returns
+  `STRUCT(method, score, threshold, drifted, n1, n2, dim)`. `energy_distance_test_agg(x
+  DOUBLE[], group [, options])` and `mmd_test_agg(x DOUBLE[], group [, {'kernel': ...}])` are
+  the multivariate energy distance and MMD permutation tests (the 1-D `energy_distance_agg`
+  / `mmd_agg` are unchanged). All vectors of a call must have the same length. Reference
+  values: base R (`validation/generators/make_reference_embedding_drift.R`).
 
 ### Changed
 

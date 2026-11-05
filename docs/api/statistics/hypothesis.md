@@ -711,6 +711,84 @@ SELECT (dataset_drift_agg(d, 0.5)).dataset_drift
 FROM (VALUES (true), (false), (true)) t(d);
 ```
 
+### embedding_drift_agg, energy_distance_test_agg, mmd_test_agg
+
+```
+embedding_drift_agg(embedding DOUBLE[], group | is_reference BOOLEAN, [options]) -> STRUCT(method, score, threshold, drifted, n1, n2, dim)
+energy_distance_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ...)
+mmd_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ...)
+```
+
+Drift and two-sample tests on vectors, such as text or image embeddings: one `DOUBLE[]`
+per row. Every vector in a call must have the same length (an error otherwise). Rows
+with a NULL vector, a NULL group, or a NULL or NaN element are skipped. One group, or an
+empty group, gives NULL. `group` is a BIGINT or VARCHAR label with two values. For
+`embedding_drift_agg` the reference is the smaller label unless the `reference` option
+names it, and `group` may instead be a BOOLEAN `is_reference` (TRUE rows are the
+reference). For the two tests, group 1 (`n1`) is the smaller label. The seeded results
+(bootstrap, permutations) do not depend on the row order.
+
+`embedding_drift_agg` is evidently's embedding drift
+(`legacy/metrics/data_drift/embedding_drift_methods.py`). `n1` is the reference size,
+`n2` the current size and `dim` the vector length. The drift is `score > threshold`:
+
+| method | score | default threshold |
+|---|---|---|
+| `distance` (default) | `metric` between the mean vectors: `euclidean` (default), `cosine` (1 − cosine similarity), `cityblock`, `chebyshev` | 0.2 |
+| `ratio` | share of the dimensions that drift, each tested as a numeric column with `component_test` (as `column_drift_agg`) | 0.2 |
+| `mmd` | unbiased MMD² with the Gaussian kernel `exp(-‖a − b‖² / s²)`, `s` the median distance between reference and current rows (floored at 0) | 0.015 |
+
+With `'bootstrap': true` (`distance`, `mmd`) the threshold is the `quantile` of the scores
+between two with-replacement resamples of the reference, of sizes `m²/(m + n)` and
+`mn/(m + n)`, over `n_bootstrap` resamples. evidently's PCA reduction (`pca_components`)
+and its classifier method (`model`) are not part of this function.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group (not with a BOOLEAN `is_reference`) |
+| method | `distance` | `distance`, `ratio` or `mmd` |
+| metric (alias `dist`) | `euclidean` | `distance` only |
+| threshold | per method, see above | Fixed threshold (not with `bootstrap`) |
+| bootstrap | false | Bootstrapped threshold (`distance`, `mmd`) |
+| n_bootstrap (alias `n_boot`) | 100 | Bootstrap resamples |
+| quantile (alias `quantile_probability`) | 0.95 (`distance`), 0.05 (`mmd`) | Quantile of the bootstrap scores, in [0, 1] |
+| component_test (alias `drift_method`) | `wasserstein` | `ratio` only: evidently's test name, as in `column_drift_agg` |
+| component_threshold (alias `drift_threshold`) | the test's default | `ratio` only |
+| seed (alias `random_state`) | 42 | Seed of the bootstrap and of permutation component tests |
+
+`energy_distance_test_agg` is the multivariate energy distance test (Székely and Rizzo).
+The statistic is `2 E‖X − Y‖ − E‖X − X'‖ − E‖Y − Y'‖`, with the within-sample means taken
+over distinct pairs. `energy::eqdist.etest` reports `n1 n2 / (n1 + n2)` times the
+version with the means over all pairs, so its value differs by that scale and by the
+zero diagonal. `mmd_test_agg` is the unbiased MMD² (Gretton et al.). Both p-values are
+seeded permutation p-values `(1 + #{permuted ≥ observed}) / (1 + n_permutations)`. Both
+also carry the unified test fields. The cost is O(n_permutations · N² · dim) for N rows.
+
+| Key | Default | Description |
+|---|---|---|
+| n_permutations (alias `permutations`) | 1000 | Permutations |
+| seed (alias `random_state`) | 42 | Seed of the permutations |
+| kernel | `gaussian` | `mmd_test_agg` only: `gaussian` `exp(-‖a − b‖² / (2 h²))`, `laplacian` `exp(-‖a − b‖₁ / h)`, `linear` `a·b`, `polynomial` `(scale a·b + offset)^degree` |
+| bandwidth (alias `sigma`) | 1 | `h` of the gaussian / laplacian kernel. It is not chosen from the data, so set it to the scale of the distances |
+| degree, scale, offset | 2, 1, 1 | Polynomial kernel |
+
+```sql
+CREATE OR REPLACE TABLE emb AS
+SELECT 0 AS grp, [sin(0.7*i), cos(1.3*i), 0.1*(i % 5)] AS e FROM range(30) r(i)
+UNION ALL
+SELECT 1, [sin(0.9*i) + 0.4, cos(1.1*i) - 0.2, 0.1*(i % 7) + 0.1] FROM range(25) r(i);
+
+SELECT embedding_drift_agg(e, grp)                                  AS distance, -- 0.497 > 0.2: drifted
+       embedding_drift_agg(e, grp = 0, {'metric': 'cosine'})        AS cosine,   -- is_reference
+       embedding_drift_agg(e, grp, {'method': 'ratio'})             AS ratio,    -- 3 of 3 dimensions
+       embedding_drift_agg(e, grp, {'method': 'mmd', 'bootstrap': true}) AS mmd
+FROM emb;
+
+SELECT (energy_distance_test_agg(e, grp, {'n_permutations': 999})).p_value AS energy_p,
+       (mmd_test_agg(e, grp, {'kernel': 'gaussian', 'bandwidth': 1.0})).p_value AS mmd_p
+FROM emb;
+```
+
 ## Forecast Evaluation
 
 ### diebold_mariano_agg
