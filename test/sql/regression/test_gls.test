@@ -1,0 +1,340 @@
+# name: test/sql/regression/test_gls.test
+# description: gls_fit_agg / gls_augment_agg (#315): result shape, options, NULL handling, row-order invariance, edge cases and errors
+# group: [regression]
+
+require anofox_statistics
+
+# 15 patients x 6 visits; visits 2 of patient 3 and 5 of patient 7 are missing.
+statement ok
+CREATE TABLE v AS
+SELECT 'p' || lpad((i // 6)::VARCHAR, 2, '0') AS patient, ['ctl', 'trt', 'trt'][(i // 6) % 3 + 1] AS arm,
+       (i % 6 + 1) AS week, (i % 6 + 1) + ((i * 7) % 5) / 10.0 AS t,
+       0.5 + ((i * 13) % 11) / 4.0 AS dose,
+       (1.5 + 0.8 * (0.5 + ((i * 13) % 11) / 4.0) - 0.2 * (i % 6 + 1) + ((i // 6) % 4) * 0.4
+        + (((i * 37) % 17) - 8) / 9.0 * (1 + (i // 6) % 3 / 2.0))::DOUBLE AS y
+FROM range(90) r(i)
+WHERE i NOT IN (14, 46);
+
+# ---- result shape: stable fields, inference NULL without compute_inference
+query IIIIIIII
+SELECT r.correlation, r.variance, r.method, len(r.coefficients), len(r.correlation_params), r.std_errors IS NULL,
+       r.model_type, r.n_groups
+FROM (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) AS r FROM v);
+----
+ar1	constant	REML	2	1	true	gls	15
+
+query IIIII
+SELECT r.n_observations, r.n_features, r.n_params, r.df_residual, len(r.vcov)
+FROM (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) AS r FROM v);
+----
+88	2	5	85.0	9
+
+# compute_inference: t tests on N - p df, intercept inference, var-cov intervals around the estimates
+query IIIII
+SELECT len(r.std_errors) = 2, abs(r.t_values[1] - r.coefficients[1] / r.std_errors[1]) < 1e-12,
+       r.intercept_std_error > 0,
+       r.correlation_conf_low[1] < r.correlation_params[1] AND r.correlation_params[1] < r.correlation_conf_high[1],
+       r.sigma_conf_low < r.sigma AND r.sigma < r.sigma_conf_high
+FROM (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1', 'compute_inference': true}) AS r FROM v);
+----
+true	true	true	true	true
+
+# the standard errors are the square roots of the vcov diagonal (intercept first)
+query II
+SELECT abs(r.intercept_std_error - sqrt(r.vcov[1])) < 1e-12, abs(r.std_errors[2] - sqrt(r.vcov[9])) < 1e-12
+FROM (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1', 'compute_inference': true}) AS r FROM v);
+----
+true	true
+
+# tidy() works on the model STRUCT
+query I
+SELECT array_to_string(list_transform(tidy(gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1', 'compute_inference': true}), ['dose', 'week']), lambda e: e.term), ',')
+FROM v;
+----
+(Intercept),dose,week
+
+# ---- every correlation structure fits; parameter counts
+query III
+SELECT 'independent', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'independent'}) AS r FROM v)
+UNION ALL
+SELECT 'compound_symmetry', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'compound_symmetry'}) AS r FROM v)
+UNION ALL
+SELECT 'car1', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'car1'}) AS r FROM v)
+UNION ALL
+SELECT 'exponential', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'exponential'}) AS r FROM v)
+UNION ALL
+SELECT 'gaussian', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'gaussian'}) AS r FROM v)
+UNION ALL
+SELECT 'linear', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'linear'}) AS r FROM v)
+UNION ALL
+SELECT 'spherical', len(r.correlation_params), r.converged FROM (SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'spherical'}) AS r FROM v)
+ORDER BY 1;
+----
+car1	1	true
+compound_symmetry	1	true
+exponential	1	true
+gaussian	1	true
+independent	0	true
+linear	1	true
+spherical	1	true
+
+# nugget: a second correlation parameter
+query I
+SELECT len((gls_fit_agg(y, [dose], patient, t, {'correlation': 'exponential', 'nugget': true})).correlation_params) FROM v;
+----
+2
+
+# unstructured over weeks 1-4: 4 * 3 / 2 correlations
+query I
+SELECT len((gls_fit_agg(y, [dose], patient, week, {'correlation': 'unstructured'})).correlation_params) FROM v WHERE week <= 4;
+----
+6
+
+# aliases: cs, symm, MAP options, reml := false = method ml
+query III
+SELECT (gls_fit_agg(y, [dose], patient, week, {'correlation': 'cs'})).correlation,
+       (gls_fit_agg(y, [dose], patient, week, MAP {'correlation': 'ar1', 'reml': 'false'})).method,
+       (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1', 'method': 'ML'})).log_likelihood
+     = (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1', 'reml': false})).log_likelihood
+FROM v;
+----
+compound_symmetry	ML	true
+
+# ML and REML differ
+query I
+SELECT (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1', 'method': 'ml'})).log_likelihood
+    <> (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1'})).log_likelihood FROM v;
+----
+true
+
+# ---- variance functions
+query IIII
+SELECT r.variance, len(r.variance_params), r.variance_strata, r.variance_reference
+FROM (SELECT gls_fit_agg(y, [dose], patient, week, arm, {'correlation': 'ar1', 'variance': 'ident'}) AS r FROM v);
+----
+ident	1	[trt]	ctl
+
+query III
+SELECT r.variance, len(r.variance_params), r.variance_strata IS NULL
+FROM (SELECT gls_fit_agg(y, [dose], patient, week, dose, {'variance': 'power'}) AS r FROM v);
+----
+power	1	true
+
+query II
+SELECT r.variance, len(r.variance_params)
+FROM (SELECT gls_fit_agg(y, [dose], patient, week, dose, {'variance': 'exp'}) AS r FROM v);
+----
+exp	1
+
+# a covariate with variance 'constant' is ignored
+query I
+SELECT (gls_fit_agg(y, [dose], patient, week, arm, {'correlation': 'ar1'})).log_likelihood
+     = (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1'})).log_likelihood FROM v;
+----
+true
+
+# ---- no intercept, no features
+query II
+SELECT r.intercept IS NULL, len(r.coefficients)
+FROM (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1', 'fit_intercept': false}) AS r FROM v);
+----
+true	2
+
+query II
+SELECT len(r.coefficients), r.intercept IS NOT NULL
+FROM (SELECT gls_fit_agg(y, []::DOUBLE[], patient, week, {'correlation': 'ar1'}) AS r FROM v);
+----
+0	true
+
+# ---- variogram (nlme::Variogram): one class per distance 1..5; 15 * 5 lag-1 pairs less 4 for the two missed visits
+query III
+SELECT len(r.variogram), list_transform(r.variogram, lambda b: b.dist), r.variogram[1].n_pairs
+FROM (SELECT gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1', 'variogram': 20}) AS r FROM v);
+----
+5	[1.0, 2.0, 3.0, 4.0, 5.0]	71
+
+query I
+SELECT (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1'})).variogram IS NULL FROM v;
+----
+true
+
+query I
+SELECT len((gls_fit_agg(y, [dose], patient, week, {'variogram': 20, 'variogram_residuals': 'normalized'})).variogram) FROM v;
+----
+5
+
+# ---- GROUP BY: one model per group; subject of any type
+query II
+SELECT arm, (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1'})).n_groups FROM v GROUP BY arm ORDER BY arm;
+----
+ctl	5
+trt	10
+
+query I
+SELECT abs((gls_fit_agg(y, [dose], patient[2:]::INTEGER, week, {'correlation': 'ar1'})).log_likelihood
+     - (gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1'})).log_likelihood) < 1e-8 FROM v;
+----
+true
+
+# ---- the fit does not depend on the row order
+query II
+SELECT (SELECT (gls_fit_agg(y, [dose, week], patient, week, arm, {'correlation': 'ar1', 'variance': 'ident'} ORDER BY y)).coefficients FROM v)
+     = (SELECT (gls_fit_agg(y, [dose, week], patient, week, arm, {'correlation': 'ar1', 'variance': 'ident'} ORDER BY -y)).coefficients FROM v),
+       (SELECT (gls_fit_agg(y, [dose, week], patient, week, arm, {'correlation': 'ar1', 'variance': 'ident'} ORDER BY y)).variance_reference FROM v)
+     = (SELECT (gls_fit_agg(y, [dose, week], patient, week, arm, {'correlation': 'ar1', 'variance': 'ident'} ORDER BY -y)).variance_reference FROM v);
+----
+true	true
+
+# ---- NULL handling: a row with a NULL y, x, x element, subject, time or (used) covariate is left out
+query I
+SELECT (gls_fit_agg(y2, [dose], patient2, week2, {'correlation': 'ar1'})).n_observations FROM (
+    SELECT CASE WHEN week = 1 AND patient = 'p00' THEN NULL ELSE y END AS y2,
+           CASE WHEN week = 2 AND patient = 'p00' THEN NULL ELSE patient END AS patient2,
+           CASE WHEN week = 3 AND patient = 'p00' THEN NULL ELSE week END AS week2, dose FROM v);
+----
+85
+
+query I
+SELECT (gls_fit_agg(y, [CASE WHEN week = 1 THEN NULL ELSE dose END], patient, week)).n_observations FROM v;
+----
+73
+
+query I
+SELECT (gls_fit_agg(y, CASE WHEN week = 1 THEN NULL ELSE [dose] END, patient, week)).n_observations FROM v;
+----
+73
+
+query I
+SELECT (gls_fit_agg(y, [dose], patient, week, CASE WHEN week = 1 THEN NULL ELSE arm END, {'variance': 'ident'})).n_observations FROM v;
+----
+73
+
+# ---- degenerate data: NULL
+query I
+SELECT gls_fit_agg(y, [dose], patient, week) IS NULL FROM v WHERE false;
+----
+true
+
+query I
+SELECT gls_fit_agg(y, [dose], patient, week) IS NULL FROM v WHERE patient = 'p00' AND week <= 2;
+----
+true
+
+# compound symmetry with one row per subject, unstructured with a single time, AR(1) with tied times
+query III
+SELECT gls_fit_agg(y, [dose], patient || week, week, {'correlation': 'cs'}) IS NULL,
+       gls_fit_agg(y, [dose], patient, 1, {'correlation': 'unstructured'}) IS NULL,
+       gls_fit_agg(y, [dose], patient, 1, {'correlation': 'ar1'}) IS NULL
+FROM v;
+----
+true	true	true
+
+# ---- gls_augment_agg: one STRUCT per frame row
+query IIIII
+SELECT count(*), bool_and((a).is_training), bool_and((a).se_fit > 0),
+       bool_and(abs((a).fitted + (a).residual - y) < 1e-9), count((a).normalized_residual)
+FROM (SELECT y, l[rn] AS a FROM (
+    SELECT y, row_number() OVER w AS rn,
+           gls_augment_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) OVER w AS l
+    FROM v WINDOW w AS (ORDER BY patient, week ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)));
+----
+88	true	true	true	88
+
+# augment matches the fit: x'b with the fitted coefficients
+query I
+SELECT bool_and(abs((a).fitted - (m.intercept + m.coefficients[1] * dose + m.coefficients[2] * week)) < 1e-9)
+FROM (SELECT dose, week, l[rn] AS a FROM (
+    SELECT dose, week, row_number() OVER w AS rn,
+           gls_augment_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) OVER w AS l
+    FROM v WINDOW w AS (ORDER BY patient, week ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))),
+     (SELECT gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) AS m FROM v);
+----
+true
+
+# a row without y is not training but still gets fitted / se_fit; a row without x gets NULLs
+query IIIIII
+SELECT (l[1]).is_training, (l[1]).fitted IS NOT NULL, (l[1]).se_fit IS NOT NULL, (l[1]).residual IS NULL,
+       (l[2]).fitted IS NULL, (l[2]).is_training
+FROM (SELECT gls_augment_agg(y2, x2, patient, week, {'correlation': 'ar1'}) OVER w AS l FROM (
+    SELECT patient, week, CASE WHEN patient = 'p00' AND week = 1 THEN NULL ELSE y END AS y2,
+           CASE WHEN patient = 'p00' AND week = 2 THEN NULL ELSE [dose] END AS x2 FROM v)
+    WINDOW w AS (ORDER BY patient, week ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+LIMIT 1;
+----
+false	true	true	true	true	false
+
+# ---- invalid options and arguments: errors
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'foo': 1}) FROM v;
+----
+unknown option 'foo'
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar2'}) FROM v;
+----
+unknown correlation 'ar2'
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'variance': 'weird'}) FROM v;
+----
+unknown variance 'weird'
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'method': 'bayes'}) FROM v;
+----
+unknown method 'bayes'
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'correlation': 'ar1', 'nugget': true}) FROM v;
+----
+nugget applies to the spatial correlations
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'variance': 'ident'}) FROM v;
+----
+needs the variance_covariate argument
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, NULL, {'variance': 'power'}) FROM v;
+----
+needs a variance covariate, got NULL
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, arm, {'variance': 'power'}) FROM v;
+----
+must be numeric
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, dose - dose, {'variance': 'power'}) FROM v;
+----
+varPower covariate must be finite and non-zero
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, t, {'correlation': 'ar1'}) FROM v;
+----
+AR(1) needs integer times
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'confidence_level': 1.5}) FROM v;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'max_iterations': 0}) FROM v;
+----
+max_iterations
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'variogram_residuals': 'raw'}) FROM v;
+----
+unknown variogram_residuals 'raw'
+
+statement error
+SELECT gls_fit_agg(y, CASE WHEN week = 1 THEN [dose] ELSE [dose, week] END, patient, week) FROM v;
+----
+Inconsistent feature count
+
+statement error
+SELECT gls_fit_agg(y, [dose], patient, week, {'correlation': c}) FROM v, (VALUES ('ar1')) s(c);
+----
+constant

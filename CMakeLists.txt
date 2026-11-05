@@ -203,6 +203,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/accuracy_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
+    src/aggregate_functions/gls_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
     src/aggregate_functions/negbinom_aggregate.cpp
     src/aggregate_functions/tweedie_aggregate.cpp

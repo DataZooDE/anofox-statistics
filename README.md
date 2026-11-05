@@ -84,6 +84,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | Survival curves | `kaplan_meier_agg`, `kaplan_meier_by`, `log_rank_test_agg` | Kaplan-Meier curves with confidence bands per stratum, log-rank test | [survival_curves](docs/api/survival/survival_curves.md) |
 | GLM results | `family`, `link` fields | Every GLM result struct ends with its `family` and `link`, so `predict` returns response-scale predictions | [model_tools](docs/api/regression/model_tools.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_fit_by` | Random intercepts / slopes over grouping factors | [glmm](docs/api/glm/glmm.md) |
+| Generalized least squares | `gls_fit_agg`, `gls_fit_by` | Correlated / heteroscedastic errors within subjects (`nlme::gls`) | [gls](docs/api/regression/gls.md) |
 | EB shrinkage | `eb_shrink_agg`, `eb_shrink_by` | Empirical-Bayes partial pooling of per-group estimates | [eb_shrink](docs/api/glm/eb_shrink.md) |
 
 ### Prediction

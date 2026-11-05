@@ -10845,3 +10845,6 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+// Generalized least squares, nlme::gls (#315)
+mod gls_ffi;
+pub use gls_ffi::*;

@@ -52,6 +52,23 @@ Breaking changes are called out explicitly.
   (`terms`), `cox_glance_by` (`summary`) and `cox_augment_by` (`obs`). Reference values:
   `survival::coxph` / `cox.zph` / `survfit` / `residuals` and `rms::cph`
   (`validation/generators/make_reference_cox.R`).
+- **Generalized least squares, `nlme::gls` (#315).** `gls_fit_agg(y, x, subject, time
+  [, variance_covariate], options)` on anofox-regression's `solvers::gls::GlsRegressor`:
+  errors correlated within each subject (`'correlation'`: `independent`,
+  `compound_symmetry` (`corCompSymm`), `ar1` (`corAR1`, integer times), `car1`
+  (`corCAR1`), `exponential` / `gaussian` / `linear` / `spherical` with an optional
+  `'nugget'`, `unstructured` (`corSymm`)), a variance function of `variance_covariate`
+  (`'variance'`: `ident` (`varIdent`, a stratum of any type), `power` (`varPower`), `exp`
+  (`varExp`)), REML (default) or ML (`'method'`). Returns the coefficients with t tests
+  on N - p df, `sigma`, the natural-scale `correlation_params` / `variance_params`
+  (`variance_strata` / `variance_reference` for varIdent), logLik / AIC / BIC, `vcov`,
+  the approximate var-cov intervals of `intervals.gls` (with `compute_inference`) and,
+  with `'variogram': k`, the empirical semivariogram (`nlme::Variogram`). The window
+  aggregate `gls_augment_agg` returns per-row `fitted`, `se_fit` (sqrt(x' V x)),
+  `residual`, `pearson_residual` and `normalized_residual`. Table macros `gls_fit_by`,
+  `gls_tidy_by` (`terms`), `gls_glance_by` (`summary`), `gls_augment_by` (`obs`).
+  Reference values from `nlme::gls`, `intervals`, `Variogram` and `resid`
+  (`validation/generators/make_reference_gls.R`).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap

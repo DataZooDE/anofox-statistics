@@ -125,6 +125,7 @@ fitted model struct).
 | Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_augment_agg` | `cox_fit_by`, `cox_tidy_by` (`terms`), `cox_glance_by` (`summary`), `cox_augment_by` (`obs`), scalar `cox_survival` | [Cox](api/survival/cox.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Generalized least squares (`nlme::gls`) | `gls_fit_agg`, `gls_augment_agg` | `gls_fit_by`, `gls_tidy_by` (`terms`), `gls_glance_by` (`summary`), `gls_augment_by` (`obs`) | [GLS](api/regression/gls.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 | Likelihood-ratio / score tests, profile CIs | `lr_test` (scalar), `glm_score_test_agg`, `profile_ci` option on the GLM fits | `glm_score_test_by` | [Likelihood tests](api/glm/likelihood.md) |

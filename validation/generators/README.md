@@ -268,3 +268,16 @@ data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
 `cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
 `survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
 on `survival::lung` and `survival::heart`.
+## `make_reference_gls.R`
+
+```bash
+Rscript validation/generators/make_reference_gls.R
+```
+
+Requires `nlme`. It (re)writes `test/sql/reference/gls_reference.test`:
+`gls_fit_agg` / `gls_augment_agg` (#315) against `nlme::gls` with `corAR1`,
+`corCompSymm`, `corCAR1`, `corExp` (with and without nugget) and `corSymm`,
+`varIdent`, `varPower` and `varExp`, REML and ML, without intercept;
+`intervals(fit)` (coefficients and var-cov), `Variogram(fit)`, `fitted` /
+`resid(type = "pearson" / "normalized")`, `sqrt(x' vcov(fit) x)` and
+`anova(full, reduced)` for `lr_test`.

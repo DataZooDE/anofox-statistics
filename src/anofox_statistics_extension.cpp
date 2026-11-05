@@ -120,6 +120,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterCollinearitySeparationAggregateFunctions(loader);
     RegisterOlsAnovaTableAggregateFunction(loader);
     RegisterGlmmAggregateFunction(loader);
+    RegisterGlsFunctions(loader);
     RegisterAftScalarFunctions(loader);
     RegisterCoxFunctions(loader);
     RegisterBinomialAggregateFunction(loader);
