@@ -923,10 +923,6 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"conditioning", {"conditioning_aware"}},
 	    {"lambda_small", {}},
 	    {"cond_threshold", {"condition_threshold"}},
-		    }
-	    });
-}
-
 	    {"profile_ci", {}},
 	};
 	return table;
@@ -2193,10 +2189,6 @@ McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string
 	    });
 }
 
-		    }
-	    });
-}
-
 TwoWayAnovaMapOptions TwoWayAnovaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {{"terms", {"term_names"}}};
 	return ParseTestOptions<TwoWayAnovaMapOptions>(
@@ -2230,10 +2222,6 @@ RmAnovaMapOptions RmAnovaMapOptions::ParseFromValue(const Value &map_value, cons
 			                                           result.sphericity = ExtractBool(val);
 		                                           }
 	                                           });
-}
-
-		    }
-	    });
 }
 
 EmbeddingDriftMapOptions EmbeddingDriftMapOptions::ParseFromValue(const Value &map_value,
