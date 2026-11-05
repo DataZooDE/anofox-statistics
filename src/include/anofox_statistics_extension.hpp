@@ -129,6 +129,7 @@ void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader);
 void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader);
 void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
+void RegisterBootstrapMeanCiAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
 void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader);
 void RegisterChisqGofAggregateFunction(ExtensionLoader &loader);

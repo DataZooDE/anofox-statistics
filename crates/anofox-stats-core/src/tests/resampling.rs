@@ -128,6 +128,39 @@ impl Default for BootstrapOptions {
     }
 }
 
+/// Resampling scheme of [`bootstrap_mean`], mapped onto the `block_length`
+/// encoding of `anofox_statistics::bootstrap_mean_ci` (0 IID, >= 2 circular
+/// block bootstrap).
+///
+/// Upstream's stationary bootstrap is reachable only with an expected block
+/// length of 1 (`block_length == 1`), which resamples like the IID bootstrap,
+/// so it is not offered here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapMethod {
+    /// IID (nonparametric) bootstrap
+    Iid,
+    /// Circular block bootstrap with fixed blocks of `block_length >= 2`
+    CircularBlock { block_length: usize },
+}
+
+impl BootstrapMethod {
+    /// The upstream `block_length` argument for this method.
+    pub fn upstream_block_length(&self) -> StatsResult<usize> {
+        match *self {
+            BootstrapMethod::Iid => Ok(0),
+            BootstrapMethod::CircularBlock { block_length } if block_length >= 2 => {
+                Ok(block_length)
+            }
+            BootstrapMethod::CircularBlock { block_length } => {
+                Err(StatsError::InvalidInput(format!(
+                    "block_length must be >= 2 for the circular block bootstrap, got {}",
+                    block_length
+                )))
+            }
+        }
+    }
+}
+
 /// Bootstrap mean confidence interval
 ///
 /// Percentile bootstrap (delegates to `anofox_statistics::bootstrap_mean_ci`):
@@ -228,6 +261,17 @@ mod tests {
                 ..Default::default()
             };
             assert!(bootstrap_mean(&data, &opts).is_err());
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_method_block_length() {
+        assert_eq!(BootstrapMethod::Iid.upstream_block_length().unwrap(), 0);
+        let cbb = BootstrapMethod::CircularBlock { block_length: 4 };
+        assert_eq!(cbb.upstream_block_length().unwrap(), 4);
+        for l in [0, 1] {
+            let m = BootstrapMethod::CircularBlock { block_length: l };
+            assert!(m.upstream_block_length().is_err());
         }
     }
 

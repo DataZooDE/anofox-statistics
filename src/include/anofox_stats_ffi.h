@@ -3710,6 +3710,30 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
 
+/**
+ * Result of anofox_bootstrap_mean_ci (#294). Must match BootstrapMeanResultFFI
+ * in crates/anofox-stats-ffi/src/bootstrap_ffi.rs.
+ */
+typedef struct {
+	double estimate;
+	double std_error;
+	double conf_low;
+	double conf_high;
+	double conf_level;
+	size_t n;
+	size_t n_bootstrap;
+	size_t block_length; /* 0 for the IID bootstrap */
+} AnofoxBootstrapMeanResult;
+
+/**
+ * Percentile bootstrap confidence interval of the mean of data (NaN entries are
+ * dropped; for the block bootstrap the order of data is the series order).
+ * method: 0 IID, 1 circular block bootstrap with block_length >= 2.
+ */
+bool anofox_bootstrap_mean_ci(AnofoxDataArray data, int32_t method, size_t n_bootstrap, double confidence_level,
+                              size_t block_length, uint64_t seed, bool has_seed,
+                              AnofoxBootstrapMeanResult *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif
