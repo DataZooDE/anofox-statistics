@@ -5,6 +5,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/duckdb_compat.hpp"
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
@@ -128,7 +129,7 @@ static void QtukeyImpl(DataChunk &args, ExpressionState &state, Vector &result) 
 static void RegisterScalar(ExtensionLoader &loader, const string &name, vector<ScalarFunction> overloads,
                            const string &description, const string &example, const vector<string> &parameter_names,
                            const vector<LogicalType> &parameter_types) {
-	ScalarFunctionSet set(name);
+	ScalarFunctionSet set(AsDuckName(name));
 	for (auto &f : overloads) {
 		MarkFallible(f);
 		set.AddFunction(f);

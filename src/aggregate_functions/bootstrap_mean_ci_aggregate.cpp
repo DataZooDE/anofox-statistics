@@ -33,9 +33,12 @@ namespace duckdb {
 
 static constexpr const char *BOOTSTRAP_MEAN_CI_AGG = "bootstrap_mean_ci_agg";
 
-// Six doubles, then two sizes (no padding on 64-bit or wasm32).
+// Six doubles, then two sizes, padded to the alignment of double (wasm32 with 4-byte
+// size_t: 56 bytes, no padding; Rust's repr(C) lays out BootstrapMeanResultFFI the same way).
 static_assert(offsetof(AnofoxBootstrapMeanResult, n) == 6 * sizeof(double) &&
-                  sizeof(AnofoxBootstrapMeanResult) == 6 * sizeof(double) + 2 * sizeof(size_t),
+                  sizeof(AnofoxBootstrapMeanResult) ==
+                      (6 * sizeof(double) + 2 * sizeof(size_t) + alignof(double) - 1) / alignof(double) *
+                          alignof(double),
               "AnofoxBootstrapMeanResult must match BootstrapMeanResultFFI in crates/anofox-stats-ffi/src/bootstrap_ffi.rs");
 
 //! FFI method codes of anofox_bootstrap_mean_ci.
