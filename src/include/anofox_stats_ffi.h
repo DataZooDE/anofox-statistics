@@ -4191,6 +4191,10 @@ typedef struct {
 	double gg_df1;
 	double gg_df2;
 	double gg_p_value;
+	double hf_epsilon;
+	double hf_df1;
+	double hf_df2;
+	double hf_p_value;
 	/** Unified test fields of the uncorrected F test (#159); keep last */
 	AnofoxTestSummaryFFI unified;
 } AnofoxRmAnovaResult;

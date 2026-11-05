@@ -228,12 +228,13 @@ FROM (SELECT spa_test_agg(b, [m1, m2, m3, m4, m5], {'n_bootstrap': 20000, 'block
 ----
 true	true	true	true	true	true	true	true
 
-# Only models that are clearly worse than the benchmark: T_SPA = max(0, ...) = 0.
-query II
-SELECT r.statistic, r.best_model
+# Only models that are clearly worse than the benchmark: T_SPA = max(0, ...) = 0 and every
+# p-value is P(T* >= 0) = 1.
+query IIIII
+SELECT r.statistic, r.best_model, r.p_value_lower, r.p_value_consistent, r.p_value_upper
 FROM (SELECT spa_test_agg(b, [m4, m5], {'n_bootstrap': 999, 'block_length': 4} ORDER BY t) AS r FROM spa);
 ----
-0.0	1
+0.0	1	1.0	1.0	1.0
 
 statement ok
 CREATE TABLE mspe (t INTEGER, e0 DOUBLE, e1 DOUBLE, e2 DOUBLE, e3 DOUBLE);

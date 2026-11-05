@@ -79,7 +79,9 @@ spa <- function(D, l, idx_list) {
     m <- colMeans(D[idx, , drop = FALSE])
     vapply(g, function(gg) max(0, sqrt(n) * (m - gg) / om), 0)
   }, numeric(3))
-  list(stat = stat, best = which.max(z), p = rowMeans(Tb > stat))
+  # P(T* >= T_SPA): ties (T* = T_SPA = 0, both floored at 0) count, so all three
+  # p-values are 1 when no model beats the benchmark (anofox-statistics 0.8.2).
+  list(stat = stat, best = which.max(z), p = rowMeans(Tb >= stat))
 }
 # Stationary bootstrap indices (geometric block lengths, wrap-around), as
 # boot::tsboot(sim = "geom").
@@ -140,12 +142,14 @@ emit("")
 # Only the clearly worse models: T_SPA = 0.
 r0 <- spa(D[, 4:5], l_spa, list(seq_len(n)))
 stopifnot(r0$stat == 0)
-emit("# Only models that are clearly worse than the benchmark: T_SPA = max(0, ...) = 0.")
-emit("query II")
-emit("SELECT r.statistic, r.best_model
+stopifnot(all(r0$p == 1))
+emit("# Only models that are clearly worse than the benchmark: T_SPA = max(0, ...) = 0 and every")
+emit("# p-value is P(T* >= 0) = 1.")
+emit("query IIIII")
+emit("SELECT r.statistic, r.best_model, r.p_value_lower, r.p_value_consistent, r.p_value_upper
 FROM (SELECT spa_test_agg(b, [m4, m5], {'n_bootstrap': 999, 'block_length': 4} ORDER BY t) AS r FROM spa);")
 emit("----")
-emit(sprintf("0.0\t%d", r0$best))
+emit(sprintf("0.0\t%d\t%s", r0$best, paste(sprintf("%.1f", r0$p), collapse = "\t")))
 emit("")
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,13 @@ CREATE TABLE rm4 AS SELECT y::DOUBLE AS y, s::BIGINT AS s, c FROM (VALUES
  (40,7,'c1'), (41,7,'c2'), (48,7,'c3'), (55,7,'c4'), (48,8,'c1'), (52,8,'c2'),
  (56,8,'c3'), (74,8,'c4')) t(y, s, c);
 
+# 10 subjects x 3 conditions, nearly spherical (Huynh-Feldt epsilon 1.127, capped at 1)
+statement ok
+CREATE TABLE rm3 AS SELECT unnest(v) AS y, s::BIGINT AS s, unnest(['c1', 'c2', 'c3']) AS c FROM (VALUES
+ ([19.6, 19.6, 20.6], 1), ([20.9, 21.9, 21.5], 2), ([16.9, 18.2, 19.0], 3), ([22.6, 23.4, 25.8], 4),
+ ([22.1, 22.2, 20.7], 5), ([17.5, 18.1, 18.2], 6), ([21.4, 21.9, 22.2], 7), ([23.2, 21.3, 23.3], 8),
+ ([22.5, 21.8, 23.9], 9), ([19.7, 20.1, 20.9], 10)) t(v, s);
+
 # 6 subjects x 2 conditions
 statement ok
 CREATE TABLE rm2 AS SELECT y::DOUBLE AS y, s::BIGINT AS s, c FROM (VALUES
@@ -86,9 +93,10 @@ sex:diet	true	true	true	true	true	true
 # ---------------------------------------------------------------------------
 # repeated_measures_anova_agg, 4 conditions
 # R: summary(aov(y ~ cond + Error(subject / cond)))
-#    mauchly.test(lm(w ~ 1), X = ~1)$statistic (W); chi-square
-#    -(n - 1 - (2p^2 + p + 2) / (6p)) log W with p = k - 1, pchisq(., p(p+1)/2 - 1)
-#    GG epsilon from the eigenvalues of the contrast covariance; afex::aov_ez agrees
+#    mauchly.test(lm(w ~ 1), X = ~1): W and p-value (with the second-order term);
+#    chi-square -(n - 1 - (2p^2 + p + 2) / (6p)) log W with p = k - 1
+#    GG / HF epsilons from the eigenvalues of the contrast covariance (HF with the
+#    Lecoutre correction); afex::aov_ez agrees on W, p, epsilons and corrected p-values
 # ---------------------------------------------------------------------------
 statement ok
 CREATE TABLE rm4_r AS SELECT repeated_measures_anova_agg(y, s, c) AS r FROM rm4;
@@ -101,19 +109,37 @@ FROM rm4_r;
 ----
 true	true	true	true	true	true	true	true
 
-query IIIIIII
+query IIIIIIIIII
 SELECT rel_ok(r.mauchly_w, 0.050779758665512362), rel_ok(r.mauchly_statistic, 17.053695438471543),
-       r.mauchly_df = 5, rel_ok(r.mauchly_p_value, 0.0043990798901871169),
+       r.mauchly_df = 5, rel_ok(r.mauchly_p_value, 0.0050241249235412049),
        rel_ok(r.gg_epsilon, 0.5163544344870411), rel_ok(r.gg_p_value, 1.6243747739126217e-07),
-       rel_ok(r.gg_df1, 0.5163544344870411 * 3) AND rel_ok(r.gg_df2, 0.5163544344870411 * 21)
+       rel_ok(r.gg_df1, 0.5163544344870411 * 3) AND rel_ok(r.gg_df2, 0.5163544344870411 * 21),
+       rel_ok(r.hf_epsilon, 0.63551807736627497), rel_ok(r.hf_p_value, 7.8171998334784485e-09),
+       rel_ok(r.hf_df1, 1.9065542320988249) AND rel_ok(r.hf_df2, 13.345879624691774)
 FROM rm4_r;
 ----
-true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true
 
 query IIIIII
 SELECT r.method, r.n, r.n_subjects, r.n_conditions, r.n_excluded_subjects, r.effect_name FROM rm4_r;
 ----
 Repeated measures ANOVA	8	8	4	0	partial_eta_squared
+
+# ---------------------------------------------------------------------------
+# repeated_measures_anova_agg, 3 conditions: the Huynh-Feldt epsilon 1.127
+# (car / afex print it uncorrected) is capped at 1, so the HF test is the
+# uncorrected one, as the HF p-value of car / afex
+# ---------------------------------------------------------------------------
+query IIIIIIIIIIIIII
+SELECT rel_ok(r.statistic, 4.1297351265636921), r.df1 = 2, r.df2 = 18, rel_ok(r.p_value, 0.033410186561043206),
+       rel_ok(r.ss_condition, 5.2086666666666677), rel_ok(r.ss_error, 11.351333333333338),
+       rel_ok(r.mauchly_w, 0.90038701846067148), rel_ok(r.mauchly_statistic, 0.83944470062633458),
+       r.mauchly_df = 2, rel_ok(r.mauchly_p_value, 0.65722927398681275),
+       rel_ok(r.gg_epsilon, 0.90941087163179513), rel_ok(r.gg_p_value, 0.038428776202689245),
+       r.hf_epsilon = 1 AND r.hf_df1 = 2 AND r.hf_df2 = 18, rel_ok(r.hf_p_value, 0.033410186561043206)
+FROM (SELECT repeated_measures_anova_agg(y, s, c) AS r FROM rm3);
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # ---------------------------------------------------------------------------
 # repeated_measures_anova_agg, 2 conditions (no sphericity test)
@@ -122,7 +148,7 @@ Repeated measures ANOVA	8	8	4	0	partial_eta_squared
 query IIIIIIII
 SELECT rel_ok(r.statistic, 17.099644128113869), r.df1 = 1, r.df2 = 5, rel_ok(r.p_value, 0.0090393771708362682),
        rel_ok(r.ss_condition, 3.2033333333333189), rel_ok(r.ss_error, 0.93666666666666298),
-       rel_ok(r.ss_subjects, 15.329999999999997), r.mauchly_w IS NULL AND r.gg_p_value IS NULL
+       rel_ok(r.ss_subjects, 15.329999999999997), r.mauchly_w IS NULL AND r.gg_p_value IS NULL AND r.hf_epsilon IS NULL AND r.hf_p_value IS NULL
 FROM (SELECT repeated_measures_anova_agg(y, s, c) AS r FROM rm2);
 ----
 true	true	true	true	true	true	true	true

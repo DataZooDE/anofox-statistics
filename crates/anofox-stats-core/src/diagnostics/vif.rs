@@ -1,11 +1,12 @@
 //! Variance inflation factors: the ordinary VIF and the generalized VIF (GVIF)
 //! of Fox & Monette (1992). The math is anofox-regression's
-//! (`diagnostics::variance_inflation_factor` / `diagnostics::generalized_vif`);
+//! (`diagnostics::variance_inflation_factor` / `diagnostics::generalized_vif_terms`);
 //! this module only validates the feature columns, drops incomplete rows and
 //! builds the design matrix.
 
 use crate::errors::{StatsError, StatsResult};
-use anofox_regression::diagnostics::{generalized_vif, variance_inflation_factor};
+pub use anofox_regression::diagnostics::GvifTerm;
+use anofox_regression::diagnostics::{generalized_vif_terms, variance_inflation_factor};
 use faer::Mat;
 
 /// Validate the feature columns and return the design matrix of the complete
@@ -45,7 +46,10 @@ fn complete_design(x: &[Vec<f64>]) -> StatsResult<Mat<f64>> {
 /// For each feature j, `VIF_j = 1 / (1 - R²_j)` with `R²_j` from regressing
 /// feature j on all other features (with an intercept), as `car::vif` reports
 /// it for an `lm` fit. Rows with a non-finite value in any feature are left
-/// out.
+/// out. Degenerate designs follow upstream: `inf` for a column that is
+/// aliased with the intercept and the other columns (a constant column, every
+/// column when there are no more rows than features), a finite VIF on the
+/// span of the remaining columns for the others.
 ///
 /// # Arguments
 /// * `x` - Feature arrays, each Vec<f64> is one feature column
@@ -54,41 +58,14 @@ fn complete_design(x: &[Vec<f64>]) -> StatsResult<Mat<f64>> {
 /// * Vector of VIF values, one per feature
 pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
     let design = complete_design(x)?;
-    if design.ncols() == 1 {
-        // No other feature to correlate with.
-        return Ok(vec![1.0]);
-    }
-    if saturated(&design) {
-        return Ok(vec![f64::INFINITY; design.ncols()]);
-    }
     Ok(variance_inflation_factor(&design).iter().copied().collect())
-}
-
-/// With an intercept and no more complete rows than features (and at least
-/// two), every auxiliary regression of one feature on the others fits
-/// exactly: R² = 1 and the VIF is infinite. Upstream (anofox-regression
-/// 0.11.0) reports 1 there, for n < 3 and when the auxiliary fit has more
-/// parameters than rows, so the extension keeps its documented `inf`.
-fn saturated(design: &Mat<f64>) -> bool {
-    let n = design.nrows();
-    n >= 2 && n <= design.ncols()
-}
-
-/// Generalized VIF of one term (a group of feature columns).
-#[derive(Debug, Clone, PartialEq)]
-pub struct GvifTerm {
-    /// Number of columns in the term (`Df` in `car::vif`).
-    pub df: usize,
-    /// `GVIF = det(R11) det(R22) / det(R)`.
-    pub gvif: f64,
-    /// `GVIF^(1/(2 df))`, comparable across terms of different size.
-    pub gvif_adj: f64,
 }
 
 /// Result of [`compute_gvif`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct GvifResult {
-    /// One entry per term, in term-index order.
+    /// One entry per term, in term-index order: GVIF, `Df` and
+    /// `GVIF^(1/(2 Df))` as `car::vif` reports them.
     pub terms: Vec<GvifTerm>,
     /// Number of complete rows used.
     pub n_observations: usize,
@@ -137,22 +114,8 @@ pub fn compute_gvif(
     let mut order: Vec<usize> = (0..x.len()).collect();
     order.sort_by_key(|&j| term_of_column[j]);
     let grouped = Mat::from_fn(design.nrows(), design.ncols(), |i, j| design[(i, order[j])]);
-    let gvif = if saturated(&grouped) {
-        vec![f64::INFINITY; n_terms]
-    } else {
-        generalized_vif(&grouped, &sizes)
-    };
-    let terms = sizes
-        .iter()
-        .zip(gvif)
-        .map(|(&df, g)| GvifTerm {
-            df,
-            gvif: g,
-            gvif_adj: g.powf(1.0 / (2.0 * df as f64)),
-        })
-        .collect();
     Ok(GvifResult {
-        terms,
+        terms: generalized_vif_terms(&grouped, &sizes),
         n_observations: design.nrows(),
     })
 }
@@ -221,6 +184,22 @@ mod tests {
     }
 
     #[test]
+    fn test_vif_constant_column_only_that_one_infinite() {
+        let x = gvif_data();
+        let mut with_const = x[..3].to_vec();
+        with_const.push(vec![2.0; 30]);
+        let vif = compute_vif(&with_const).unwrap();
+        let reference = compute_vif(&x[..3]).unwrap();
+        assert!(vif[3].is_infinite());
+        for (v, r) in vif[..3].iter().zip(&reference) {
+            assert!((v - r).abs() < 1e-9 * r);
+        }
+        let gvif = compute_gvif(&with_const, &[0, 0, 1, 2], 3).unwrap();
+        assert!(gvif.terms[0].gvif.is_finite() && gvif.terms[1].gvif.is_finite());
+        assert!(gvif.terms[2].gvif.is_infinite() && gvif.terms[2].adjusted_gvif.is_infinite());
+    }
+
+    #[test]
     fn test_vif_drops_incomplete_rows() {
         let x = vec![
             vec![1.0, 2.0, 3.0, f64::NAN, 5.0, 6.0, 7.0],
@@ -260,7 +239,7 @@ mod tests {
         for (g, v) in gvif.terms.iter().zip(&vif) {
             assert_eq!(g.df, 1);
             assert!((g.gvif - v).abs() < 1e-9 * v);
-            assert!((g.gvif_adj - v.sqrt()).abs() < 1e-9 * v);
+            assert!((g.adjusted_gvif - v.sqrt()).abs() < 1e-9 * v);
         }
     }
 

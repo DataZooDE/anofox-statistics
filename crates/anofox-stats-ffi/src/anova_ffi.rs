@@ -75,6 +75,10 @@ pub struct RmAnovaResultFFI {
     pub gg_df1: f64,
     pub gg_df2: f64,
     pub gg_p_value: f64,
+    pub hf_epsilon: f64,
+    pub hf_df1: f64,
+    pub hf_df2: f64,
+    pub hf_p_value: f64,
     /// Unified test fields of the uncorrected F test (#159); keep last.
     pub unified: TestSummaryFFI,
 }
@@ -82,12 +86,14 @@ pub struct RmAnovaResultFFI {
 impl From<&RmAnovaResult> for RmAnovaResultFFI {
     fn from(r: &RmAnovaResult) -> Self {
         let nan = f64::NAN;
-        let gg = r.greenhouse_geisser.unwrap_or(SphericityCorrection {
+        let missing = SphericityCorrection {
             epsilon: nan,
             df1: nan,
             df2: nan,
             p_value: nan,
-        });
+        };
+        let gg = r.greenhouse_geisser.unwrap_or(missing);
+        let hf = r.huynh_feldt.unwrap_or(missing);
         Self {
             ss_condition: r.ss_condition,
             df_condition: r.df_condition,
@@ -110,6 +116,10 @@ impl From<&RmAnovaResult> for RmAnovaResultFFI {
             gg_df1: gg.df1,
             gg_df2: gg.df2,
             gg_p_value: gg.p_value,
+            hf_epsilon: hf.epsilon,
+            hf_df1: hf.df1,
+            hf_df2: hf.df2,
+            hf_p_value: hf.p_value,
             unified: TestSummaryFFI::from(&r.unified),
         }
     }

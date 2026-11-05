@@ -27,16 +27,16 @@ FROM (SELECT spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'block_length': 
 1	2	60	199	4.0	Superior predictive ability test	greater	true	true	true
 
 # Per group: 'a' rejects H0 with every p-value. In 'b' no model is better
-# (T_SPA = max(0, ...) = 0), the upper (Reality Check) p-value does not reject;
-# the lower and consistent p-values are degenerate at T_SPA = 0 (see the docs).
-query IIIII
+# (T_SPA = max(0, ...) = 0) and all three p-values are P(T* >= 0) = 1.
+query IIIIII
 SELECT g, (r).p_value < 0.05, (r).p_value_upper < 0.05, (r).statistic > 0,
-    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper
+    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper,
+    (r).statistic > 0 OR ((r).p_value_lower = 1 AND (r).p_value_consistent = 1 AND (r).p_value_upper = 1)
 FROM (SELECT g, spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'seed': 3} ORDER BY t) AS r FROM fc GROUP BY g)
 ORDER BY g;
 ----
-a	true	true	true	true
-b	true	false	false	true
+a	true	true	true	true	true
+b	false	false	false	true	true
 
 # Default options: block length T^(1/3), 1000 bootstrap samples, fixed default seed.
 query III

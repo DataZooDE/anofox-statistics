@@ -64,6 +64,14 @@ h3 <- round(cos(h1), 6)
 v_hi <- vif(lm(sin(2 * h1) ~ h1 + h2 + h3))
 vec <- function(v) paste0("[", paste(num(v), collapse = ", "), "]")
 
+# Aliased columns (anofox-regression 0.11.1): car::vif stops with "there are
+# aliased coefficients in the model". The extension reports inf for the
+# aliased columns / terms and, for the others, car::vif on the design without
+# the aliased columns: a constant column k = 2, and an exact dependency
+# dep = age + 2 rb (age, rb and dep aliased, income not).
+fit_reg <- lm(y ~ age + income + region)
+v_reg <- vif(fit_reg)
+
 # Incomplete rows: NaN / NULL in different columns of different rows. The
 # extension leaves each such row out as a whole; car::vif on the complete cases.
 dirty <- d[, c("id", "age", "income", "rb", "e2")]
@@ -168,6 +176,36 @@ out <- c(
   "----",
   as.character(n_cc),
   "",
+  "# Aliased columns: inf for those, car::vif without them for the others",
+  "# vif_agg with a constant column: car::vif(lm(y ~ age + income + rb)) and inf",
+  checks("vif_agg (constant column) vs car::vif without it", "vd",
+         sprintf("(vif_agg([age, income, rb, 2.0]))[%d]", 1:3), unname(v_3), 1e-8),
+  "query II",
+  "SELECT isinf((vif_agg([age, income, rb, 2.0]))[4]), isinf((vif([[1.0, 2.0, 3.0, 4.0], [5.0, 5.0, 5.0, 5.0]]))[2]) FROM vd;",
+  "----",
+  "true\ttrue",
+  "",
+  "# Exact dependency dep = age + 2 rb: age, rb, dep inf; income = car::vif(lm(y ~ age + income + rb))",
+  checks("vif_agg (exact dependency) income vs car::vif without the aliased column", "vd",
+         "(vif_agg([age, income, rb, age + 2 * rb]))[2]", unname(v_3["income"]), 1e-8),
+  "query III",
+  "SELECT isinf(v[1]), isinf(v[3]), isinf(v[4]) FROM (SELECT vif_agg([age, income, rb, age + 2 * rb]) AS v FROM vd);",
+  "----",
+  "true\ttrue\ttrue",
+  "",
+  "# gvif_agg with a constant term: car::vif(lm(y ~ age + income + region)) and inf for k",
+  "statement ok",
+  paste0("CREATE TABLE g_const AS SELECT gvif_agg([age, income, rb, rc, 2.0], ",
+         "{'terms': ['age', 'income', 'region', 'region', 'k']}) AS g FROM vd;"),
+  "",
+  checks("gvif_agg (constant term) GVIF vs car::vif without it", "g_const",
+         c(sprintf("g[%d].gvif", 1:3), sprintf("g[%d].gvif_adj", 1:3)),
+         c(unname(v_reg[, "GVIF"]), unname(v_reg[, "GVIF^(1/(2*Df))"])), 1e-8),
+  "query TIII",
+  "SELECT g[4].term, g[4].df, isinf(g[4].gvif), isinf(g[4].gvif_adj) FROM g_const;",
+  "----",
+  "k\t1\ttrue\ttrue",
+  "",
   "# Near-collinear features: car::vif reports a large finite VIF (> 1e4)",
   checks("vif vs car::vif (near-collinear)",
          sprintf("(SELECT vif([%s, %s, %s]) AS v)", vec(h1), vec(h2), vec(h3)),
@@ -176,4 +214,4 @@ out <- c(
 
 writeLines(out, file.path(out_dir, "vif_reference.test"))
 cat("wrote", file.path(out_dir, "vif_reference.test"), "\n")
-print(v_num); print(v_fac); print(v_3); print(v_hi)
+print(v_num); print(v_fac); print(v_3); print(v_hi); print(v_reg)

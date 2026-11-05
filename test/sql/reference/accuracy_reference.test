@@ -212,15 +212,19 @@ FROM (SELECT val_prob_agg(y, p) r FROM d);
 true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # Probabilities of exactly 1 (i = 0, y = 1) and 0 (i = 2, y = 1) are left out of the
-# logistic calibration. R keeps them in the deviance of U (U = Inf, U:p = 0, Q = -Inf
-# here), upstream does not, so u, u_chisq, u_p and q are NULL until upstream follows R.
-query IIIIIIIIIIIIII
+# logistic calibration, but kept in the deviance of U as R does: the prediction 0 for an
+# event gives U = Inf, U:p = 0 and Q = -Inf (anofox-regression 0.11.1).
+query IIIIIIIIIIIIIIIIII
 SELECT close(r.dxy, 0.92463768115942),
        close(r.c, 0.96231884057971),
        close(r.r2, 0.486723083289803),
        close(r.d, 0.419167812953069),
        close(r.d_chisq, 16.9283768922166),
        close(r.d_p, 3.88169487208767e-05),
+       r.u = 'inf'::DOUBLE,
+       r.u_chisq = 'inf'::DOUBLE,
+       r.u_p = 0,
+       r.q = '-inf'::DOUBLE,
        close(r.brier, 0.1531575),
        close(r.intercept, 0.395683601353857),
        close(r.slope, 4.15441363534747),
@@ -231,12 +235,32 @@ SELECT close(r.dxy, 0.92463768115942),
        close(r.s_p, 0.039505359815515)
 FROM (SELECT val_prob_agg(y, CASE i WHEN 0 THEN 1.0 WHEN 2 THEN 0.0 ELSE p END) r FROM d);
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
-query IIII
-SELECT r.u IS NULL, r.u_chisq IS NULL, r.u_p IS NULL, r.q IS NULL FROM (SELECT val_prob_agg(y, CASE i WHEN 0 THEN 1.0 WHEN 2 THEN 0.0 ELSE p END) r FROM d);
+# 1 for an event (i = 0), 0 and 1 for non-events (i = 5, 6): these rows drop out of the
+# deviance of U as in R (sum(..., na.rm = TRUE)), so U and Q stay finite.
+query IIIIIIIIIIIIIIIIII
+SELECT close(r.dxy, 0.916666666666667),
+       close(r.c, 0.958333333333333),
+       close(r.r2, 0.457204402160318),
+       close(r.d, 0.376697726784044),
+       close(r.d_chisq, 14.9378158910096),
+       close(r.d_p, 0.000111113290512388),
+       close(r.u, 0.312828288725323),
+       close(r.u_chisq, 13.5746466828369),
+       close(r.u_p, 0.00112798396501623),
+       close(r.q, 0.0638694380587216),
+       close(r.brier, 0.149375),
+       close(r.intercept, 0.426284411999167),
+       close(r.slope, 4.03809434800062),
+       close(r.emax, 0.301936464182272),
+       close(r.e90, 0.282488871844998),
+       close(r.eavg, 0.189646460849162),
+       close(r.s_z, -1.9577226209014),
+       close(r.s_p, 0.0502625693994085)
+FROM (SELECT val_prob_agg(y, CASE i WHEN 0 THEN 1.0 WHEN 5 THEN 0.0 WHEN 6 THEN 1.0 ELSE p END) r FROM d);
 ----
-true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # ---------------------------------------------------------------------------
 # gini_md_agg — Hmisc::GiniMd; GiniMd(lp) is the lrm g-index

@@ -55,11 +55,6 @@ pub fn r2_measures(lr: f64, p: f64, n: f64, ess: Option<f64>) -> R2Measures {
     acc::r2_measures(lr, p, n, ess)
 }
 
-/// Effective sample size `n (1 - sum P_k^3)` of category frequencies `freqs`.
-pub fn effective_sample_size(n: f64, freqs: &[f64]) -> f64 {
-    acc::effective_sample_size(n, freqs)
-}
-
 /// `rms::lrm` stats of a binary model from its response and linear predictor.
 pub fn lrm_stats(y: &[f64], lp: &[f64], weights: Option<&[f64]>, df: f64) -> StatsResult<LrmStats> {
     acc::lrm_stats(y, lp, weights, df).map_err(convert)

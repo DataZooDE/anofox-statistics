@@ -52,6 +52,9 @@ v <- val.prob(pr, y, pl = FALSE); for (k in seq_along(v)) p(names(v)[k], v[k])
 cat("## val.prob(p2, y): p2 = p with p2[1] = 1 (i = 0, y = 1) and p2[3] = 0 (i = 2, y = 1)\n")
 p2 <- pr; p2[1] <- 1; p2[3] <- 0
 v <- suppressWarnings(val.prob(p2, y, pl = FALSE)); for (k in seq_along(v)) p(names(v)[k], v[k])
+cat("## val.prob(p3, y): p3[1] = 1 (i = 0, y = 1), p3[6] = 0 (i = 5, y = 0), p3[7] = 1 (i = 6, y = 0)\n")
+p3 <- pr; p3[1] <- 1; p3[6] <- 0; p3[7] <- 1
+v <- suppressWarnings(val.prob(p3, y, pl = FALSE)); for (k in seq_along(v)) p(names(v)[k], v[k])
 
 cat("## GiniMd\n"); p("GiniMd(x1)", GiniMd(x1)); p("GiniMd(lp)", GiniMd(lp))
 cat("## R2Measures(lr = 10, p = 2, n = 100, ess = 60)\n")

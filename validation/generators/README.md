@@ -226,3 +226,14 @@ Requires `sandwich`, `lmtest` and `rms`. It (re)writes
 (#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
 clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
 `rms::robcov`.
+
+## `make_reference_wls_hc.R`
+
+```bash
+Rscript validation/generators/make_reference_wls_hc.R
+```
+
+Requires `sandwich` and `lmtest`. It (re)writes `test/sql/reference/wls_hc.test`:
+the heteroskedasticity-consistent inference of `wls_fit_agg(y, x, w, {'hc_type': ...})`
+without a cluster against `sandwich::vcovHC(lm(..., weights = w), type = "HC0".."HC3")`
+with `lmtest::coeftest` / `coefci`, with and without an intercept.

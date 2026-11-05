@@ -207,10 +207,13 @@ values is an error.
 
 
 `vif` and `vif_agg` match `car::vif` for an `lm` fit with an intercept. Rows with
-a NaN in any feature are left out. A feature's VIF is `inf` when it is an exact
-linear combination of the others or constant; every VIF is `inf` when there
-are no more complete rows than features. `vif_agg` returns NULL with fewer than two
-features or three complete rows.
+a NaN in any feature are left out. A feature's VIF is `inf` when it is aliased:
+an exact linear combination of the intercept and the other features, in
+particular a constant feature; every VIF is `inf` when there are no more complete
+rows than features. The other features keep a finite VIF, computed on the span
+of the remaining features: it equals `car::vif` on the design without the aliased
+features (`car::vif` itself stops with "there are aliased coefficients in the
+model"). `vif_agg` returns NULL with fewer than two features or three complete rows.
 
 ### gvif_agg
 
@@ -234,8 +237,11 @@ compare with the usual VIF thresholds.
 Without `terms` every column is its own term (`x1`, `x2`, ...) and `gvif` is the
 ordinary VIF. A row is skipped when the list or one of its elements is NULL;
 rows with a NaN are left out. The result is NULL with fewer than two columns
-or three complete rows. Every term is `inf` when the columns are exactly collinear, a
-column is constant, or there are no more complete rows than columns.
+or three complete rows. A term is `inf` when a combination of its columns is exactly
+explained by the intercept and the other columns (e.g. it holds a constant column or
+is part of an exact linear dependency), and every term is `inf` when there are no
+more complete rows than columns. The other terms keep a finite GVIF, equal to
+`car::vif` on the design without the aliased columns.
 
 ```sql
 CREATE OR REPLACE TABLE gvif_demo AS
