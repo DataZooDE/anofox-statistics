@@ -174,6 +174,9 @@ unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const v
                                                      const string &sql, const string &description,
                                                      const string &example, const vector<string> &categories);
 void RegisterCurveMacros(ExtensionLoader &loader);
+// Ordinal regression: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict,
+// ordinal_fit_predict_by, continuation_ratio_fit_predict_by (#313)
+void RegisterOrdinalFunctions(ExtensionLoader &loader);
 // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
 void RegisterPcaFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);

@@ -4559,6 +4559,126 @@ bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y
                                 bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
                                 double *out_upper, double *out_intercept, AnofoxError *out_error);
 
+/* ---- Ordinal regression (#313) ---- */
+
+/**
+ * Options of anofox_ordinal_fit. Must match OrdinalOptionsFFI in
+ * crates/anofox-stats-ffi/src/ordinal_ffi.rs.
+ */
+typedef struct {
+	double penalty;   /* rms orm penalty lambda, >= 0 (0: none) */
+	double tolerance; /* > 0 */
+	uint32_t link;    /* 0 logistic, 1 probit, 2 loglog, 3 cloglog, 4 cauchit */
+	uint32_t max_iterations;
+	uint32_t offset_column; /* 1-based column of x used as offset, 0: none */
+	int32_t po_test;        /* -1 auto (at most 50 levels), 0 no, 1 yes */
+} AnofoxOrdinalOptions;
+
+/**
+ * A fitted cumulative link model (rms::orm parametrisation
+ * P(Y >= y_{j+1}) = F(alpha_j + x'beta)). Must match OrdinalFitResultFFI.
+ * levels / counts: n_levels values; intercepts / intercept_std_errors:
+ * n_levels - 1 (intercept_std_errors NULL when not computed); coefficients,
+ * std_errors, z_values, p_values: n_features. po_*: NaN when the
+ * proportional-odds score test was not computed. Release with
+ * anofox_free_ordinal_result.
+ */
+typedef struct {
+	double *levels;
+	double *counts;
+	double *intercepts;
+	double *intercept_std_errors;
+	double *coefficients;
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	size_t n_levels;
+	size_t n_features;
+	size_t n_observations;
+	double log_likelihood;
+	double penalized_log_likelihood;
+	double null_log_likelihood;
+	double lr_chisq;
+	double lr_df;
+	double lr_p_value;
+	double aic;
+	double po_statistic;
+	double po_df;
+	double po_p_value;
+	uint32_t iterations;
+	bool converged;
+} AnofoxOrdinalFitResult;
+
+/**
+ * A fitted continuation-ratio model (rms::cr.setup + lrm). coefficients:
+ * intercept, cohort effects (cohorts 2..k-1), slopes, then each
+ * cohort-specific column's slope differences (cohorts 2..k-1); std_errors,
+ * z_values, p_values alike (n_coefficients each). Must match
+ * ContinuationRatioFitResultFFI. Release with
+ * anofox_free_continuation_ratio_result.
+ */
+typedef struct {
+	double *levels;
+	double *coefficients;
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	size_t n_levels;
+	size_t n_coefficients;
+	size_t n_features;
+	size_t n_observations;
+	size_t n_records;
+	double log_likelihood;
+	double aic;
+	uint32_t iterations;
+	bool converged;
+} AnofoxContinuationRatioFitResult;
+
+/**
+ * Cumulative link model (upstream OrdinalRegressor) of the ordered response y
+ * (its distinct values are the levels) on the x columns, with optional case
+ * weights (NULL: unweighted). Fewer than two rows or levels is
+ * INSUFFICIENT_DATA.
+ */
+bool anofox_ordinal_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                        const double *weights, AnofoxOrdinalOptions options, AnofoxOrdinalFitResult *out_result,
+                        AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_ordinal_fit. */
+void anofox_free_ordinal_result(AnofoxOrdinalFitResult *result);
+
+/**
+ * Continuation-ratio model (upstream ContinuationRatioRegressor) of y (at
+ * least three levels) on the x columns, with optional case weights and the
+ * 0-based cohort-specific columns. Fewer than three levels is
+ * INSUFFICIENT_DATA.
+ */
+bool anofox_continuation_ratio_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                                   const double *weights, const uint64_t *cohort_specific, size_t n_cohort_specific,
+                                   AnofoxContinuationRatioFitResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_continuation_ratio_fit. */
+void anofox_free_continuation_ratio_result(AnofoxContinuationRatioFitResult *result);
+
+/**
+ * One row x (the columns of the fit, including an offset column) under a
+ * stored cumulative link model: n_levels category probabilities to out_proba,
+ * n_levels - 1 exceedance probabilities P(Y >= y_{j+1}) to out_exceedance,
+ * the mean to out_mean and the most probable level's index to out_class.
+ * offset_column: 1-based (0: none).
+ */
+bool anofox_ordinal_predict(uint32_t link, const double *levels, size_t n_levels, const double *intercepts,
+                            const double *coefficients, size_t n_coefficients, uint64_t offset_column,
+                            const double *x, size_t x_len, double *out_proba, double *out_exceedance,
+                            double *out_mean, size_t *out_class, AnofoxError *out_error);
+
+/** As anofox_ordinal_predict for a stored continuation-ratio model. */
+bool anofox_continuation_ratio_predict(const double *levels, size_t n_levels, const double *coefficients,
+                                       size_t n_coefficients, const uint64_t *cohort_specific,
+                                       size_t n_cohort_specific, const double *x, size_t x_len, double *out_proba,
+                                       double *out_exceedance, double *out_mean, size_t *out_class,
+                                       AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

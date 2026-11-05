@@ -261,6 +261,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/pls_fit_predict_aggregate.cpp
     src/aggregate_functions/isotonic_fit_predict_aggregate.cpp
     src/aggregate_functions/quantile_fit_predict_aggregate.cpp
+    src/aggregate_functions/ordinal_aggregate.cpp
     src/aggregate_functions/pca_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp

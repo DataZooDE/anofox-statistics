@@ -226,3 +226,15 @@ Requires `sandwich`, `lmtest` and `rms`. It (re)writes
 (#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
 clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
 `rms::robcov`.
+
+## `make_reference_ordinal.R`
+
+```bash
+Rscript validation/generators/make_reference_ordinal.R
+```
+
+Requires `rms`, `MASS` and `numDeriv`. It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `ordinal_reference.test` | `ordinal_fit_agg` (five links, case weights, offset, penalty, proportional-odds score test), `ordinal_predict` / `predict` (`prob`, `exceedance`, `mean`, `class`), `continuation_ratio_fit_agg` (equal and cohort-specific slopes, case weights) (#313) | `rms::orm`, `MASS::polr`, `predict.orm`, `predict.polr(type = "class")`, `rms::cr.setup` + `lrm`; the score test is `U' I^-1 U` of the partial proportional-odds log-likelihood by numDeriv, as upstream's validation |

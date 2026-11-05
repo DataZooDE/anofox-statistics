@@ -165,6 +165,10 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
 // R predict.lm(se.fit = TRUE, interval = ...) for OLS / WLS / Ridge, and for the
 // GLMs predict.glm(se.fit = TRUE) with the interval built on the link scale and
 // mapped through the inverse link (anofox_predict_se -> upstream predict_se).
+// Ordinal models (#313) are predicted by ordinal_aggregate.cpp.
+bool IsOrdinalModelType(const LogicalType &type);
+unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
+                                            vector<unique_ptr<Expression>> &arguments, const char *fn_name);
 namespace {
 
 enum class ModelKind : uint8_t { LINEAR, ISOTONIC };
@@ -235,6 +239,11 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 		throw InvalidInputException("predict(model, x): model must be the STRUCT returned by a *_fit_agg or *_fit "
 		                            "function, got %s",
 		                            ReturnTypeOf(*arguments[0]).ToString());
+	}
+	// An ordinal_fit_agg / continuation_ratio_fit_agg model: the most probable level or,
+	// with {'type': 'prob' | 'exceedance' | 'mean'}, the probabilities or the mean (#313).
+	if (IsOrdinalModelType(ReturnTypeOf(*arguments[0]))) {
+		return OrdinalPredictBind(context, bound_function, arguments, "predict");
 	}
 	// Numeric fields of a hand-written model literal (e.g. DECIMAL) are cast to DOUBLE.
 	{

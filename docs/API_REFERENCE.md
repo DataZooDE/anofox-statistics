@@ -118,7 +118,8 @@ fitted model struct).
 | Logistic | `logistic_fit_agg` | `logistic_fit_predict_by` | [Logistic](api/glm/logistic.md) |
 | Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
-| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
+| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) | [Ordinal](api/glm/ordinal.md) |
+| Ordinal (cumulative link, continuation ratio) | `ordinal_fit_agg`, `continuation_ratio_fit_agg` | `ordinal_predict`, `ordinal_fit_predict_by`, `continuation_ratio_fit_predict_by` | [Ordinal](api/glm/ordinal.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
