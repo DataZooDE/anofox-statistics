@@ -96,6 +96,7 @@ void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);
 void RegisterAicBicFunctions(ExtensionLoader &loader);
 void RegisterJarqueBeraFunction(ExtensionLoader &loader);
+void RegisterNullDistributionFunctions(ExtensionLoader &loader);
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);

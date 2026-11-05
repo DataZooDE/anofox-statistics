@@ -1,0 +1,154 @@
+# name: test/sql/scalar/test_null_distributions.test
+# description: #304 auc_null_quantile, auc_null_p_value, ptukey, qtukey: behaviour, NULLs, edge cases, errors
+# group: [scalar]
+
+require anofox_statistics
+
+# =============================================================================
+# auc_null_quantile / auc_null_p_value
+# =============================================================================
+
+# Upstream doc examples: qwilcox(0.95, 10, 10) = 72; 1 of choose(7, 3) rankings gives AUC 1.
+query III
+SELECT auc_null_quantile(0.95, 10, 10), auc_null_p_value(0.0, 3, 4), abs(auc_null_p_value(1.0, 3, 4) - 1 / 35) < 1e-15;
+----
+0.72	1.0	true
+
+# The null distribution is symmetric around 0.5.
+query I
+SELECT abs(auc_null_quantile(0.05, 8, 11) + auc_null_quantile(0.95, 8, 11) - 1.0) < 0.05;
+----
+true
+
+# p-value decreases as the AUC grows; vectorised over a column.
+query II
+SELECT count(*), bool_and(pv <= prev_pv) FROM (
+  SELECT auc_null_p_value(a, 6, 9) AS pv,
+         lag(auc_null_p_value(a, 6, 9), 1, 1.0) OVER (ORDER BY a) AS prev_pv
+  FROM (SELECT unnest(range(0, 55)) / 54.0 AS a));
+----
+55	true
+
+# Integer arguments of other widths are accepted.
+query I
+SELECT auc_null_quantile(0.5, 5::INTEGER, 5::SMALLINT);
+----
+0.48
+
+# NULL in any argument gives NULL; other rows are unaffected.
+query IIII
+SELECT auc_null_quantile(NULL, 3, 4), auc_null_quantile(0.5, NULL, 4), auc_null_p_value(0.5, 3, NULL),
+       auc_null_p_value(NULL::DOUBLE, NULL::BIGINT, NULL::BIGINT);
+----
+NULL	NULL	NULL	NULL
+
+query II
+SELECT n, auc_null_quantile(p, n, 4) FROM (VALUES (0.5, 3), (NULL, 3), (0.5, NULL), (1.0, 2)) t(p, n) ORDER BY ALL;
+----
+2	1.0
+3	0.5
+3	NULL
+NULL	NULL
+
+# Invalid arguments raise.
+statement error
+SELECT auc_null_quantile(1.5, 3, 4);
+----
+prob must be in [0, 1]
+
+statement error
+SELECT auc_null_quantile(0.5, 0, 4);
+----
+at least one positive and one negative
+
+statement error
+SELECT auc_null_p_value(-0.1, 3, 4);
+----
+auc must be in [0, 1]
+
+statement error
+SELECT auc_null_p_value(0.5, -3, 4);
+----
+must be non-negative
+
+statement error
+SELECT auc_null_p_value(0.5, 3, 0);
+----
+at least one positive and one negative
+
+# =============================================================================
+# ptukey / qtukey
+# =============================================================================
+
+# n_ranges defaults to 1 and lower_tail to true.
+query II
+SELECT ptukey(3.5, 3, 12) = ptukey(3.5, 3, 12, 1), ptukey(3.5, 3, 12) = ptukey(3.5, 3, 12, 1, true);
+----
+true	true
+
+query I
+SELECT abs(ptukey(3.5, 3, 12) + ptukey(3.5, 3, 12, 1, false) - 1.0) < 1e-15;
+----
+true
+
+# Round trip qtukey(ptukey(q)) ~= q (R's secant stopping rule, eps 1e-4).
+query I
+SELECT bool_and(abs(qtukey(ptukey(q, 4, 15), 4, 15) - q) < 1e-3) FROM (SELECT unnest([1.0, 2.0, 3.0, 4.5, 6.0]) AS q);
+----
+true
+
+# Boundaries as R: ptukey(q <= 0) = 0, ptukey(Inf) = 1, qtukey(0) = 0, qtukey(1) = Inf.
+query IIIII
+SELECT ptukey(0, 3, 12), ptukey(-1, 3, 12), ptukey('inf'::DOUBLE, 3, 12), qtukey(0, 3, 12), qtukey(1, 3, 12);
+----
+0.0	0.0	1.0	0.0	inf
+
+query II
+SELECT qtukey(1, 3, 12, 1, false), qtukey(0, 3, 12, 1, false);
+----
+0.0	inf
+
+# Large df approaches the infinite-df limit.
+query I
+SELECT abs(qtukey(0.95, 3, 100000) - 3.314) < 1e-3;
+----
+true
+
+# NaN propagates; NULL gives NULL.
+query II
+SELECT isnan(ptukey('nan'::DOUBLE, 3, 12)), isnan(qtukey(0.5, 'nan'::DOUBLE, 12));
+----
+true	true
+
+query IIII
+SELECT ptukey(NULL, 3, 12), ptukey(3.5, NULL, 12), qtukey(0.95, 3, 12, NULL), qtukey(0.95, 3, 12, 1, NULL);
+----
+NULL	NULL	NULL	NULL
+
+query II
+SELECT q, ptukey(q, 3, 12) IS NULL FROM (VALUES (1.0), (NULL), (2.0)) t(q) ORDER BY ALL;
+----
+1.0	false
+2.0	false
+NULL	true
+
+# Invalid parameters raise (R returns NaN with a warning).
+statement error
+SELECT ptukey(3.5, 1, 12);
+----
+requires n_means >= 2, df >= 2 and n_ranges >= 1
+
+statement error
+SELECT ptukey(3.5, 3, 1);
+----
+requires n_means >= 2, df >= 2 and n_ranges >= 1
+
+statement error
+SELECT qtukey(0.95, 3, 12, 0);
+----
+requires n_means >= 2, df >= 2 and n_ranges >= 1
+
+statement error
+SELECT qtukey(1.5, 3, 12);
+----
+p must be in [0, 1]

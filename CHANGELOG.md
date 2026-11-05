@@ -74,6 +74,11 @@ Breaking changes are called out explicitly.
   `spcor.test`. `semi_partial_cor_agg` takes at most one control for now: upstream
   anofox-statistics 0.7.0 residualizes y on several controls one at a time, which is not the
   OLS residual when the controls are correlated.
+- **AUC null distribution and Tukey distribution functions (#304).** Scalars
+  `auc_null_quantile(p, n_pos, n_neg)` and `auc_null_p_value(auc, n_pos, n_neg)` (the AUC
+  of a random classifier, exact from the Mann-Whitney distribution: R `qwilcox` / `pwilcox`
+  divided by `n_pos · n_neg`), and `ptukey(q, n_means, df [, n_ranges [, lower_tail]])` /
+  `qtukey(p, ...)` (R's studentized range distribution), from anofox-statistics.
 
 ### Changed
 
