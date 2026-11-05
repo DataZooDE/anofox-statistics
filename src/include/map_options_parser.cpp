@@ -1665,6 +1665,7 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 		break;
 	case 10: // chisq_drift_agg
 	case 11: // g_drift_agg
+	case -3: // category_proportions_agg
 		keys = {KEY_REFERENCE};
 		break;
 	case -2: // column_drift_agg

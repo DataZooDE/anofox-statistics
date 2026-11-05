@@ -357,6 +357,7 @@ skipped. One group, or an empty group, gives NULL. Every result also carries the
 | `jensen_shannon_agg` | `jensenshannon` | numeric or VARCHAR | Jensen-Shannon distance |
 | `hellinger_agg` | `hellinger` | numeric or VARCHAR | Hellinger distance |
 | `tvd_agg` | `TVD` | numeric or VARCHAR | Total variation distance + permutation p-value |
+| `category_proportions_agg` | (shares) | numeric or VARCHAR | Share of each category in both groups |
 | `z_drift_agg` | `z` | numeric or VARCHAR | Two-proportion z test |
 | `chisq_drift_agg` | `chisquare` | numeric or VARCHAR | Chi-squared goodness-of-fit against the reference shares |
 | `g_drift_agg` | `g_test` | numeric or VARCHAR | G goodness-of-fit against the reference shares |
@@ -495,7 +496,11 @@ Binning:
 - `'quantile'` uses `n_bins` bins at the reference quantiles (R type 7), the classic
   credit-scoring PSI. The outer edges are open, so current values outside the
   reference range fall into the first or last bin. Tied breaks are merged.
-- VARCHAR values always get one bin per category.
+- VARCHAR values always get one bin per category: the categories are the labels seen
+  in either group, sorted by byte order (DuckDB's default `ORDER BY`). They go to
+  upstream's `*_categorical` variants, so a label missing from one group is an empty bin
+  (zero-filled for PSI and KL). Only `'auto'` and `'categorical'` binning apply.
+  `category_proportions_agg` returns the shares p and q these divergences use.
 
 `drift` is `statistic ≥ threshold`, with evidently's default threshold 0.1.
 
@@ -515,6 +520,23 @@ SELECT (psi_agg(v, grp, {'binning': 'quantile', 'n_bins': 10})).psi AS psi_decil
 FROM drift;
 ```
 
+On string labels (here `'amber'` only occurs in the reference and `'violet'` only in the
+current sample):
+
+```sql
+CREATE OR REPLACE TABLE colors AS
+SELECT 'ref' AS grp, ['red','green','blue','amber'][((i*7) % 11) % 4 + 1] AS s FROM range(60) r(i)
+UNION ALL
+SELECT 'cur' AS grp, ['red','green','blue','violet'][((i*5) % 13) % 4 + 1] AS s FROM range(45) r(i);
+
+SELECT (psi_agg(s, grp, {'reference': 'ref'})).psi                AS psi,       -- 3.247
+       (kl_divergence_agg(s, grp, {'reference': 'ref'})).kl       AS kl,        -- 1.549
+       (jensen_shannon_agg(s, grp, {'reference': 'ref'})).distance AS js,       -- 0.385
+       (hellinger_agg(s, grp, {'reference': 'ref'})).distance     AS hellinger, -- 0.462
+       (tvd_agg(s, grp, {'reference': 'ref'})).statistic          AS tvd        -- 0.267
+FROM colors;
+```
+
 ### tvd_agg
 
 `tvd_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(statistic, p_value, n_categories, n1, n2, method, ...)`
@@ -529,6 +551,28 @@ the same table. On the example data, TVD gives p ≈ 0.29, while `chisq_test_agg
 | reference | smaller label | Reference group |
 | n_permutations (alias `permutations`) | 1000 | Number of permutations |
 | seed (alias `random_state`) | 42 | Seed of the permutation draw |
+
+### category_proportions_agg
+
+`category_proportions_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`
+
+The share of each category in the reference (`p_reference`) and the current group
+(`p_current`), over the categories seen in either group, in sorted order (upstream
+`category_proportions`). These are the p and q of `psi_agg`, `kl_divergence_agg`,
+`jensen_shannon_agg`, `hellinger_agg` and `tvd_agg` on categories, before any zero fill,
+so they show which categories drive the drift. `categories` is a `VARCHAR[]` for VARCHAR
+values and a `DOUBLE[]` (one category per distinct value) for numeric values. The
+result has no unified test fields: it is not a test.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+
+```sql
+SELECT r.categories, r.p_reference, r.p_current
+FROM (SELECT category_proportions_agg(s, grp, {'reference': 'ref'}) AS r FROM colors);
+-- [amber, blue, green, red, violet], [0.2, 0.283, 0.25, 0.267, 0.0], [0.0, 0.244, 0.222, 0.311, 0.222]
+```
 
 ### z_drift_agg, chisq_drift_agg, g_drift_agg
 

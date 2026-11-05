@@ -3734,6 +3734,25 @@ typedef struct {
 bool anofox_dataset_drift(const bool *drifted, size_t len, double drift_share, AnofoxDatasetDriftResult *out_result,
                           AnofoxError *out_error);
 
+/**
+ * Drift statistic between two samples of category labels (#301), given as dense
+ * codes in label order (NaN entries are dropped): upstream's *_categorical
+ * divergences and tvd_test. kind: PSI, KL, Jensen-Shannon, Hellinger or TVD;
+ * options.binning is ignored.
+ */
+bool anofox_drift_test_categorical(int32_t kind, AnofoxDataArray reference, AnofoxDataArray current,
+                                   AnofoxDriftOptions options, AnofoxDriftResult *out_result, AnofoxError *out_error);
+
+/**
+ * Proportions of the reference and the current sample per category (#301,
+ * upstream category_proportions), given dense codes in label order (NaN entries
+ * are dropped). Writes n_categories values to each of out_p (reference) and
+ * out_q (current), in code order; fails unless the samples have exactly
+ * n_categories distinct codes.
+ */
+bool anofox_category_proportions(AnofoxDataArray reference, AnofoxDataArray current, size_t n_categories,
+                                 double *out_p, double *out_q, AnofoxError *out_error);
+
 /* ============================================================================
  * Per-term ANOVA table of an OLS fit (issue #231)
  * ============================================================================ */

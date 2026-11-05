@@ -10,6 +10,10 @@
 // (numeric or VARCHAR categories), column_drift_agg (evidently's per-column
 // drift: default test choice, thresholds and drift rules) and
 // dataset_drift_agg (evidently's share-of-drifted-columns rule).
+// #301: VARCHAR values of psi_agg, kl_divergence_agg, jensen_shannon_agg,
+// hellinger_agg and tvd_agg go to upstream's *_categorical variants and
+// tvd_test on the labels; category_proportions_agg returns the per-category
+// shares of both groups (upstream category_proportions).
 
 #include <algorithm>
 #include <cmath>
@@ -35,8 +39,9 @@
 
 namespace duckdb {
 
-static constexpr int DRIFT_AD = -1;     // ad_test_agg; the others are AnofoxDriftKind
-static constexpr int DRIFT_COLUMN = -2; // column_drift_agg
+static constexpr int DRIFT_AD = -1;          // ad_test_agg; the others are AnofoxDriftKind
+static constexpr int DRIFT_COLUMN = -2;      // column_drift_agg
+static constexpr int DRIFT_PROPORTIONS = -3; // category_proportions_agg
 
 static bool IsDivergence(int kind) {
 	return kind == ANOFOX_DRIFT_PSI || kind == ANOFOX_DRIFT_KL || kind == ANOFOX_DRIFT_JENSEN_SHANNON ||
@@ -46,7 +51,24 @@ static bool IsDivergence(int kind) {
 //! Kinds that accept VARCHAR (categorical) values.
 static bool AcceptsCategories(int kind) {
 	return IsDivergence(kind) || kind == ANOFOX_DRIFT_TVD || kind == ANOFOX_DRIFT_Z || kind == ANOFOX_DRIFT_CHISQ ||
-	       kind == ANOFOX_DRIFT_G || kind == DRIFT_COLUMN;
+	       kind == ANOFOX_DRIFT_G || kind == DRIFT_COLUMN || kind == DRIFT_PROPORTIONS;
+}
+
+//! Kinds whose VARCHAR values go to upstream's label variants (#301).
+static bool UsesLabelVariant(int kind) {
+	return IsDivergence(kind) || kind == ANOFOX_DRIFT_TVD;
+}
+
+//! category_proportions_agg: the categories have the value type.
+static LogicalType ProportionsResultType(const LogicalType &value_type) {
+	child_list_t<LogicalType> c;
+	c.push_back(make_pair("categories", LogicalType::LIST(value_type)));
+	c.push_back(make_pair("p_reference", LogicalType::LIST(LogicalType::DOUBLE)));
+	c.push_back(make_pair("p_current", LogicalType::LIST(LogicalType::DOUBLE)));
+	c.push_back(make_pair("n_categories", LogicalType::BIGINT));
+	c.push_back(make_pair("n1", LogicalType::BIGINT));
+	c.push_back(make_pair("n2", LogicalType::BIGINT));
+	return LogicalType::STRUCT(std::move(c));
 }
 
 //===--------------------------------------------------------------------===//
@@ -399,6 +421,81 @@ static void FinalizeColumnDrift(const DriftAggregateState &state, const DriftBin
 	FlatDataMut<int64_t>(StructEntry(entries[6]))[row] = static_cast<int64_t>(r.n2);
 }
 
+//! Append the doubles to the LIST(DOUBLE) child of row.
+static void SetDoubleList(Vector &list_vec, idx_t row, const vector<double> &values) {
+	auto offset = ListVector::GetListSize(list_vec);
+	ListVector::Reserve(list_vec, offset + values.size());
+	auto child = FlatDataMut<double>(ListVector::GetEntry(list_vec));
+	for (idx_t j = 0; j < values.size(); j++) {
+		child[offset + j] = values[j];
+	}
+	auto &entry = FlatDataMut<list_entry_t>(list_vec)[row];
+	entry.offset = offset;
+	entry.length = values.size();
+	ListVector::SetListSize(list_vec, offset + values.size());
+}
+
+//! category_proportions_agg (#301): the shares of each category in the
+//! reference (slot ref) and the current group, over the sorted categories of
+//! both. Numeric values are coded by rank here (one category per distinct
+//! value); the shares come from upstream.
+static void FinalizeProportions(DriftAggregateState &state, const DriftBindData &bind, idx_t ref, bool categorical,
+                                Vector &result, idx_t row) {
+	vector<double> distinct; // numeric values: the sorted distinct values
+	idx_t k;
+	if (categorical) {
+		k = state.categories.labels.size();
+	} else {
+		for (idx_t g = 0; g < 2; g++) {
+			distinct.insert(distinct.end(), state.values[g].begin(), state.values[g].end());
+		}
+		std::sort(distinct.begin(), distinct.end());
+		distinct.erase(std::unique(distinct.begin(), distinct.end()), distinct.end());
+		for (idx_t g = 0; g < 2; g++) {
+			for (auto &v : state.values[g]) {
+				v = static_cast<double>(std::lower_bound(distinct.begin(), distinct.end(), v) - distinct.begin());
+			}
+		}
+		k = distinct.size();
+	}
+	vector<double> p(k), q(k);
+	AnofoxError error;
+	if (!anofox_category_proportions(AsArray(state.values[ref]), AsArray(state.values[1 - ref]), k, p.data(),
+	                                 q.data(), &error)) {
+		ThrowUnlessDegenerate(bind.name.c_str(), error);
+		FlatVector::SetNull(result, row, true);
+		return;
+	}
+	auto &entries = StructVector::GetEntries(result);
+	auto &categories = StructEntry(entries[0]);
+	auto offset = ListVector::GetListSize(categories);
+	ListVector::Reserve(categories, offset + k);
+	auto &child = ListVector::GetEntry(categories);
+	if (categorical) {
+		// Code c is the c-th smallest label (CanonicalizeCategories).
+		auto &labels = state.categories.labels;
+		vector<idx_t> order(k);
+		std::iota(order.begin(), order.end(), idx_t(0));
+		std::sort(order.begin(), order.end(), [&](idx_t a, idx_t b) { return labels[a] < labels[b]; });
+		for (idx_t j = 0; j < k; j++) {
+			FlatDataMut<string_t>(child)[offset + j] = StringVector::AddString(child, *labels[order[j]].str_value);
+		}
+	} else {
+		for (idx_t j = 0; j < k; j++) {
+			FlatDataMut<double>(child)[offset + j] = distinct[j];
+		}
+	}
+	auto &entry = FlatDataMut<list_entry_t>(categories)[row];
+	entry.offset = offset;
+	entry.length = k;
+	ListVector::SetListSize(categories, offset + k);
+	SetDoubleList(StructEntry(entries[1]), row, p);
+	SetDoubleList(StructEntry(entries[2]), row, q);
+	FlatDataMut<int64_t>(StructEntry(entries[3]))[row] = static_cast<int64_t>(k);
+	FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = static_cast<int64_t>(state.values[ref].size());
+	FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(state.values[1 - ref].size());
+}
+
 static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                           idx_t offset) {
 	auto &bind = aggr_input_data.bind_data->Cast<DriftBindData>();
@@ -451,6 +548,11 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 				state.Reset();
 				continue;
 			}
+			if (bind.kind == DRIFT_PROPORTIONS) {
+				FinalizeProportions(state, bind, ref, categorical, result, row);
+				state.Reset();
+				continue;
+			}
 			AnofoxDriftOptions o;
 			auto &t = bind.options.t;
 			o.t = t ? t->data() : nullptr;
@@ -470,8 +572,14 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			auto method = bind.options.method.value_or("auto");
 			o.cvm_method = method == "exact" ? 1 : method == "asymptotic" ? 2 : 0;
 			o.binning = IsDivergence(bind.kind) ? BinningCode(bind, categorical) : 0;
-			success = anofox_drift_test(bind.kind, AsArray(state.values[ref]), AsArray(state.values[1 - ref]), o, &r,
-			                            &error);
+			if (categorical && UsesLabelVariant(bind.kind)) {
+				// Category labels (#301): upstream's *_categorical / tvd_test.
+				success = anofox_drift_test_categorical(bind.kind, AsArray(state.values[ref]),
+				                                        AsArray(state.values[1 - ref]), o, &r, &error);
+			} else {
+				success = anofox_drift_test(bind.kind, AsArray(state.values[ref]), AsArray(state.values[1 - ref]), o,
+				                            &r, &error);
+			}
 		}
 		if (!success) {
 			ThrowUnlessDegenerate(bind.name.c_str(), error);
@@ -602,6 +710,8 @@ static const char *DriftName(int kind) {
 		return "chisq_drift_agg";
 	case ANOFOX_DRIFT_G:
 		return "g_drift_agg";
+	case DRIFT_PROPORTIONS:
+		return "category_proportions_agg";
 	default:
 		return "column_drift_agg";
 	}
@@ -610,7 +720,11 @@ static const char *DriftName(int kind) {
 template <int KIND>
 static unique_ptr<FunctionData> DriftBind(ClientContext &context, AggregateBindFunction &function,
                                           vector<unique_ptr<Expression>> &arguments) {
-	SetReturnTypeOf(function, DriftResultType(KIND));
+	// category_proportions_agg: the categories keep the value type (the
+	// arguments are not cast to the overload's types yet).
+	auto value_type = arguments[0]->return_type.id() == LogicalTypeId::VARCHAR ? LogicalType::VARCHAR
+	                                                                           : LogicalType::DOUBLE;
+	SetReturnTypeOf(function, KIND == DRIFT_PROPORTIONS ? ProportionsResultType(value_type) : DriftResultType(KIND));
 	auto bind = make_uniq<DriftBindData>();
 	bind->kind = KIND;
 	bind->name = DriftName(KIND);
@@ -915,6 +1029,12 @@ void RegisterDriftAggregateFunctions(ExtensionLoader &loader) {
 	             "by reference size, number of distinct values and column type) and compares the score (a p-value or "
 	             "a distance) with the test's threshold by evidently's drift rule.",
 	             "{'test': 'auto', 'threshold': 0.05}", true});
+	RegisterDrift<DRIFT_PROPORTIONS>(
+	    loader, {"category_proportions_agg",
+	             "Shares of each category in the reference and the current group, over the sorted categories seen "
+	             "in either group (upstream category_proportions): the inputs of psi_agg, kl_divergence_agg, "
+	             "jensen_shannon_agg, hellinger_agg and tvd_agg on categories.",
+	             "{'reference': 0}", true});
 	RegisterDatasetDrift(loader);
 }
 

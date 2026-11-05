@@ -10,14 +10,19 @@
 //!   evidently's per-column drift (default test choice, thresholds, drift
 //!   rules) and the dataset drift share (#300, anofox-statistics 0.7)
 //!
-//! Categorical data reaches these wrappers as numeric category codes; the
-//! divergences then bin with [`Binning::Categorical`] (one bin per code).
+//! Numeric category codes reach [`drift_test`]; the divergences then bin with
+//! [`Binning::Categorical`] (one bin per code). Category labels (VARCHAR
+//! values, #301) reach [`drift_test_categorical`] and
+//! [`category_proportions`], which call upstream's `*_categorical` variants,
+//! `tvd_test` and `category_proportions` on the labels (any `Ord` type; the
+//! extension passes dense codes in label order).
 
 use super::{convert_error, UnifiedTestResult};
-use crate::StatsResult;
+use crate::{StatsError, StatsResult};
 use anofox_tests::drift::{
     chisq_drift_numeric, column_drift_categorical, column_drift_numeric, g_drift_numeric,
-    z_test_numeric,
+    hellinger_categorical, jensen_shannon_categorical, kl_divergence_categorical, psi_categorical,
+    tvd_test, z_test_numeric, DivergenceResult, TvdResult,
 };
 pub use anofox_tests::drift::{
     Binning, ColumnDrift, DatasetDrift, DriftOptions as ColumnDriftOptions, DriftTest, ZeroFill,
@@ -137,6 +142,21 @@ impl DriftResult {
     }
 }
 
+fn from_divergence(r: &DivergenceResult, m: usize, n: usize) -> DriftResult {
+    let mut d = DriftResult::new(r.statistic, m, n, UnifiedTestResult::from(r));
+    d.n_bins = r.n_bins;
+    if let Some(divergence) = r.divergence {
+        d.statistic2 = divergence;
+    }
+    d
+}
+
+fn from_tvd(r: &TvdResult, m: usize, n: usize) -> DriftResult {
+    let mut d = DriftResult::new(r.statistic, m, n, UnifiedTestResult::from(r));
+    d.n_bins = r.n_categories;
+    d
+}
+
 /// Two-sample drift statistic of `current` against `reference`.
 pub fn drift_test(
     kind: DriftKind,
@@ -200,19 +220,12 @@ pub fn drift_test(
                 _ => hellinger(reference, current, options.binning),
             }
             .map_err(convert_error)?;
-            let mut d = DriftResult::new(r.statistic, m, n, UnifiedTestResult::from(&r));
-            d.n_bins = r.n_bins;
-            if let Some(divergence) = r.divergence {
-                d.statistic2 = divergence;
-            }
-            d
+            from_divergence(&r, m, n)
         }
         DriftKind::Tvd => {
             let r = tvd_test_numeric(reference, current, options.n_permutations, options.seed)
                 .map_err(convert_error)?;
-            let mut d = DriftResult::new(r.statistic, m, n, UnifiedTestResult::from(&r));
-            d.n_bins = r.n_categories;
-            d
+            from_tvd(&r, m, n)
         }
         DriftKind::Z => {
             let r =
@@ -247,6 +260,52 @@ pub fn drift_test(
         }
     };
     Ok(r)
+}
+
+/// Drift statistic between two samples of category labels (#301): upstream
+/// `psi_categorical`, `kl_divergence_categorical`, `jensen_shannon_categorical`,
+/// `hellinger_categorical` (one bin per category seen in either sample) and
+/// `tvd_test`. Only those five kinds take labels; the options read are the
+/// zero fill (PSI, KL), the base (KL, Jensen-Shannon) and the permutations and
+/// seed (TVD).
+pub fn drift_test_categorical<T: Ord>(
+    kind: DriftKind,
+    reference: &[T],
+    current: &[T],
+    options: &DriftOptions,
+) -> StatsResult<DriftResult> {
+    let (m, n) = (reference.len(), current.len());
+    let r = match kind {
+        DriftKind::Psi => psi_categorical(reference, current, options.zero_fill),
+        DriftKind::KlDivergence => {
+            kl_divergence_categorical(reference, current, options.base, options.zero_fill)
+        }
+        DriftKind::JensenShannon => jensen_shannon_categorical(reference, current, options.base),
+        DriftKind::Hellinger => hellinger_categorical(reference, current),
+        DriftKind::Tvd => {
+            let r = tvd_test(reference, current, options.n_permutations, options.seed)
+                .map_err(convert_error)?;
+            return Ok(from_tvd(&r, m, n));
+        }
+        _ => {
+            return Err(StatsError::InvalidInput(format!(
+                "{:?} does not take category labels",
+                kind
+            )))
+        }
+    }
+    .map_err(convert_error)?;
+    Ok(from_divergence(&r, m, n))
+}
+
+/// Proportions `(p, q)` of the reference and the current sample per category,
+/// over the sorted distinct categories of both samples (upstream
+/// `category_proportions`).
+pub fn category_proportions<T: Ord>(
+    reference: &[T],
+    current: &[T],
+) -> StatsResult<(Vec<f64>, Vec<f64>)> {
+    anofox_tests::drift::category_proportions(reference, current).map_err(convert_error)
 }
 
 /// evidently's drift of one column of `current` against `reference`
@@ -354,6 +413,45 @@ mod tests {
         let ad = anderson_darling_ksamp(&[x, y], true).unwrap();
         assert!((ad.statistic - 3.6104).abs() < 1e-4);
         assert_eq!((ad.n1, ad.n2), (90, 2));
+    }
+
+    #[test]
+    fn categorical_labels() {
+        // validation/generators/make_reference_drift_categorical.R
+        let (_, _, xc, yc) = data();
+        let label = |v: &[f64]| -> Vec<String> { v.iter().map(|c| format!("c{c}")).collect() };
+        let (xl, yl) = (label(&xc), label(&yc));
+        let opts = DriftOptions {
+            n_permutations: 1000,
+            seed: Some(42),
+            ..Default::default()
+        };
+        // Labels give the numeric-code values (one bin per category).
+        for kind in [
+            DriftKind::Psi,
+            DriftKind::KlDivergence,
+            DriftKind::JensenShannon,
+            DriftKind::Hellinger,
+            DriftKind::Tvd,
+        ] {
+            let a = drift_test(kind, &xc, &yc, &opts).unwrap();
+            let b = drift_test_categorical(kind, &xl, &yl, &opts).unwrap();
+            assert!((a.statistic - b.statistic).abs() < 1e-14, "{kind:?}");
+            assert_eq!((a.n_bins, b.n1, b.n2), (b.n_bins, 50, 40), "{kind:?}");
+            assert_eq!(a.p_value.is_nan(), b.p_value.is_nan(), "{kind:?}");
+        }
+        let psi = drift_test_categorical(DriftKind::Psi, &xl, &yl, &opts).unwrap();
+        assert!((psi.statistic - 1.56548983794208).abs() < 1e-10);
+        let js = drift_test_categorical(DriftKind::JensenShannon, &xl, &yl, &opts).unwrap();
+        assert!((js.statistic2 - js.statistic.powi(2)).abs() < 1e-15);
+        assert!(drift_test_categorical(DriftKind::Ks, &xl, &yl, &opts).is_err());
+        let empty: [&str; 0] = [];
+        assert!(drift_test_categorical(DriftKind::Psi, &empty, &["a"], &opts).is_err());
+
+        let (p, q) = category_proportions(&["b", "a", "b", "a"], &["c", "b"]).unwrap();
+        assert_eq!(p, vec![0.5, 0.5, 0.0]);
+        assert_eq!(q, vec![0.0, 0.5, 0.5]);
+        assert!(category_proportions(&empty, &["a"]).is_err());
     }
 
     #[test]

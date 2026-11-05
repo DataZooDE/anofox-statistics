@@ -3,9 +3,9 @@
 
 use super::*;
 use anofox_stats_core::tests::drift::{
-    anderson_darling_ksamp, column_drift, dataset_drift, drift_test, Alternative, Binning,
-    ColumnDrift, ColumnDriftOptions, CvmMethod, DatasetDrift, DriftKind, DriftOptions, DriftResult,
-    DriftTest, ZeroFill,
+    anderson_darling_ksamp, category_proportions, column_drift, dataset_drift, drift_test,
+    drift_test_categorical, Alternative, Binning, ColumnDrift, ColumnDriftOptions, CvmMethod,
+    DatasetDrift, DriftKind, DriftOptions, DriftResult, DriftTest, ZeroFill,
 };
 use libc::c_char;
 use std::ffi::CStr;
@@ -193,6 +193,123 @@ pub unsafe extern "C" fn anofox_drift_test(
             Ok(r) => {
                 *out_result = DriftResultFFI::from(&r);
                 true
+            }
+            Err(e) => {
+                set_error(out_error, &e);
+                false
+            }
+        }
+    })
+}
+
+/// Category codes of a DataArray (NaN entries are dropped). The codes are
+/// small non-negative integers in label order, so their order is the label
+/// order upstream sorts the categories by.
+///
+/// # Safety
+/// `a` must be a valid DataArray.
+unsafe fn category_codes(a: &DataArray) -> Vec<i64> {
+    a.to_vec()
+        .into_iter()
+        .filter(|v| !v.is_nan())
+        .map(|v| v as i64)
+        .collect()
+}
+
+/// Drift statistic between two samples of category labels (#301), given as
+/// dense codes in label order (NaN entries are dropped): upstream's
+/// `*_categorical` divergences and `tvd_test`. `kind`: 4 PSI, 5 KL,
+/// 6 Jensen-Shannon, 7 Hellinger, 8 TVD; `options.binning` is ignored.
+///
+/// # Safety
+/// - `reference` and `current` must be valid DataArrays
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_drift_test_categorical(
+    kind: i32,
+    reference: DataArray,
+    current: DataArray,
+    options: DriftOptionsFFI,
+    out_result: *mut DriftResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let Some(kind) = drift_kind(kind).filter(|k| {
+            matches!(
+                k,
+                DriftKind::Psi
+                    | DriftKind::KlDivergence
+                    | DriftKind::JensenShannon
+                    | DriftKind::Hellinger
+                    | DriftKind::Tvd
+            )
+        }) else {
+            invalid_input(out_error, "invalid categorical drift test kind");
+            return false;
+        };
+        let opts = match drift_options(&options) {
+            Ok(o) => o,
+            Err(msg) => {
+                invalid_input(out_error, msg);
+                return false;
+            }
+        };
+        let (r, c) = (category_codes(&reference), category_codes(&current));
+        match drift_test_categorical(kind, &r, &c, &opts) {
+            Ok(r) => {
+                *out_result = DriftResultFFI::from(&r);
+                true
+            }
+            Err(e) => {
+                set_error(out_error, &e);
+                false
+            }
+        }
+    })
+}
+
+/// Proportions of the reference and the current sample per category (#301,
+/// upstream `category_proportions`), given dense codes in label order (NaN
+/// entries are dropped). Writes `n_categories` values to each of `out_p`
+/// (reference) and `out_q` (current), in code order; errors when the samples
+/// do not have exactly `n_categories` distinct codes.
+///
+/// # Safety
+/// - `reference` and `current` must be valid DataArrays
+/// - `out_p` and `out_q` must point to `n_categories` doubles
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_category_proportions(
+    reference: DataArray,
+    current: DataArray,
+    n_categories: usize,
+    out_p: *mut f64,
+    out_q: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if out_p.is_null() || out_q.is_null() {
+            invalid_input(out_error, "null output pointer");
+            return false;
+        }
+        let (r, c) = (category_codes(&reference), category_codes(&current));
+        match category_proportions(&r, &c) {
+            Ok((p, q)) if p.len() == n_categories => {
+                slice::from_raw_parts_mut(out_p, n_categories).copy_from_slice(&p);
+                slice::from_raw_parts_mut(out_q, n_categories).copy_from_slice(&q);
+                true
+            }
+            Ok((p, _)) => {
+                invalid_input(
+                    out_error,
+                    &format!("expected {} categories, found {}", n_categories, p.len()),
+                );
+                false
             }
             Err(e) => {
                 set_error(out_error, &e);

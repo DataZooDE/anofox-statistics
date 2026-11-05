@@ -21,6 +21,14 @@ Breaking changes are called out explicitly.
   `dataset_drift_by(source, group_col, columns)` table macro apply evidently's
   share-of-drifted-columns rule. Reference values: base R
   (`validation/generators/make_reference_drift_evidently.R`), cross-checked against scipy.
+- **Drift on category labels (#301, anofox-statistics 0.7).** VARCHAR values of `psi_agg`,
+  `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg` and `tvd_agg` now go to
+  upstream's `*_categorical` variants and `tvd_test` on the labels (same result shape and
+  values as before; one bin per label, sorted by byte order). New
+  `category_proportions_agg(category, group [, {'reference': ...}])` returns
+  `STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`: the per-category
+  shares the divergences compare. Reference values: base R
+  (`validation/generators/make_reference_drift_categorical.R`), cross-checked against scipy.
 
 ### Changed
 

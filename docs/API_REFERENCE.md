@@ -136,7 +136,7 @@ fitted model struct).
 | ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg`, `z_drift_agg`, `chisq_drift_agg`, `g_drift_agg`, `column_drift_agg`, `dataset_drift_agg`, `dataset_drift_by` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
+| Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg`, `category_proportions_agg`, `z_drift_agg`, `chisq_drift_agg`, `g_drift_agg`, `column_drift_agg`, `dataset_drift_agg`, `dataset_drift_by` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
