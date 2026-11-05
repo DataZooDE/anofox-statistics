@@ -296,6 +296,11 @@ struct RegressionMapOptions {
 	std::optional<bool> conditioning;      // Ridge conditioning-aware lambda
 	std::optional<double> lambda_small;    // Ridge: lambda on a well-conditioned design (implies conditioning)
 	std::optional<double> cond_threshold;  // Ridge: kappa(X'X) threshold (implies conditioning)
+};
+
+/**
+	// GLM profile-likelihood confidence intervals (#310)
+	std::optional<bool> profile_ci;        // 'profile_ci': confint(glm) profile intervals
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

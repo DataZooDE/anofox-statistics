@@ -189,6 +189,18 @@ Breaking changes are called out explicitly.
   for multiway clustering; `hc_type` picks the type (HC0-HC3, default HC1) and the new `cadjust`
   option the `G/(G-1)` adjustment. The result adds `vcov_type` and `n_clusters`.
 
+### Added
+
+- **Likelihood-ratio and score tests, profile-likelihood intervals (#310).** `lr_test(model_full,
+  model_reduced)` compares two nested fitted model STRUCTs (R's `anova(test = "LRT")` /
+  `lmtest::lrtest`: deviance difference for binomial / Poisson, scaled by the full model's
+  dispersion for Gamma / Tweedie, `-2 log L` otherwise) and `lr_test(model)` tests a fit against
+  its null model; incompatible models (type, family, rows, parameter count) are errors.
+  `glm_score_test_agg` / `glm_score_test_by` give Rao's score test for adding predictors to a GLM
+  (`anova(test = "Rao")`, z values of `statmod::glm.scoretest`). The GLM fit aggregates accept
+  `profile_ci := true` for profile-likelihood intervals (`confint(glm)`). All from
+  anofox-regression's `inference::likelihood`.
+
 ### Changed
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /

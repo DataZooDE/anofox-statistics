@@ -37,6 +37,7 @@ logistic_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 | `confidence_level` | DOUBLE | `0.95` | Interval level |
 | `glm_lambda` | DOUBLE | `0.0` | L2 (ridge) penalty strength |
 | `offset` | INTEGER | none | 1-based index into `x` of an offset column (coefficient fixed at 1, removed from the design) |
+| `profile_ci` | BOOLEAN | `false` | Profile-likelihood confidence intervals (R's `confint(glm)`) in place of the Wald ones; implies `compute_inference`, needs an unpenalized fit. See [Likelihood tests](likelihood.md#profile_ci-option) |
 | `feature_names`, `prior`, `vcov` | | | See [Explicit priors](priors.md) |
 
 The link is always logit. Use [`binomial_fit_agg`](binomial.md) for probit or

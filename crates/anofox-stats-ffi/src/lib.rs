@@ -10829,3 +10829,7 @@ pub use accuracy_ffi::*;
 // Cluster-robust covariance of OLS / WLS fits (#309).
 mod cluster_ffi;
 pub use cluster_ffi::*;
+
+// Likelihood-ratio / score tests and profile CIs (#310).
+mod likelihood_ffi;
+pub use likelihood_ffi::*;

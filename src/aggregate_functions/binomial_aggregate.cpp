@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -40,6 +41,7 @@ struct BinomialAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	BinomialAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_BINOMIAL_LINK_LOGIT), max_iterations(100),
@@ -59,6 +61,7 @@ struct BinomialAggregateBindData : public FunctionData {
 	GlmPriorBindData prior_opts;
 	double glm_lambda = 0.0;
 	idx_t offset_column = 0;
+	bool profile_ci = false;
 	bool fit_intercept = true;
 	BinomialLink link = BinomialLink::LOGIT;
 	uint32_t max_iterations = 100;
@@ -71,6 +74,7 @@ struct BinomialAggregateBindData : public FunctionData {
 		result->prior_opts = prior_opts;
 		result->glm_lambda = glm_lambda;
 		result->offset_column = offset_column;
+		result->profile_ci = profile_ci;
 		result->fit_intercept = fit_intercept;
 		result->link = link;
 		result->max_iterations = max_iterations;
@@ -84,7 +88,7 @@ struct BinomialAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<BinomialAggregateBindData>();
 		return fit_intercept == o.fit_intercept && link == o.link && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && offset_column == o.offset_column;
+		       confidence_level == o.confidence_level && offset_column == o.offset_column && profile_ci == o.profile_ci;
 	}
 };
 
@@ -178,6 +182,7 @@ static void BinomialAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 		state.compute_inference = bind_data.compute_inference;
 		state.glm_lambda = bind_data.glm_lambda;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 		state.confidence_level = bind_data.confidence_level;
 
 		auto y_idx = y_data.sel->get_index(i);
@@ -249,6 +254,7 @@ static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, Agg
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -336,6 +342,11 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
+		if (state.profile_ci) {
+			ApplyProfileConfint("binomial_fit_agg", AnofoxLikelihoodFamily {2, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
+		}
 
 		idx_t struct_idx = 0;
 
@@ -380,7 +391,7 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 	if (arguments.size() >= 3) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "binomial_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "binomial_link", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "binomial_link", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -399,6 +410,10 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 		}
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
+		}
+		result->profile_ci = ProfileCiOption(opts, "binomial_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
 		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();

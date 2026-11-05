@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -41,6 +42,7 @@ struct NegBinomAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	NegBinomAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), max_iterations(100), tolerance(1e-8),
@@ -62,6 +64,7 @@ struct NegBinomAggregateBindData : public FunctionData {
 	double theta = std::numeric_limits<double>::quiet_NaN();
 	double glm_lambda = 0.0;
 	idx_t offset_column = 0;
+	bool profile_ci = false;
 	bool fit_intercept = true;
 	uint32_t max_iterations = 100;
 	double tolerance = 1e-8;
@@ -79,6 +82,7 @@ struct NegBinomAggregateBindData : public FunctionData {
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
 		result->offset_column = offset_column;
+		result->profile_ci = profile_ci;
 		return std::move(result);
 	}
 
@@ -86,7 +90,7 @@ struct NegBinomAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<NegBinomAggregateBindData>();
 		return fit_intercept == o.fit_intercept && max_iterations == o.max_iterations && tolerance == o.tolerance &&
 		       compute_inference == o.compute_inference && confidence_level == o.confidence_level &&
-		       offset_column == o.offset_column;
+		       offset_column == o.offset_column && profile_ci == o.profile_ci;
 	}
 };
 
@@ -167,6 +171,7 @@ static void NegBinomAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 		state.theta = bind_data.theta;
 		state.glm_lambda = bind_data.glm_lambda;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 		state.confidence_level = bind_data.confidence_level;
 
 		auto y_idx = y_data.sel->get_index(i);
@@ -238,6 +243,7 @@ static void NegBinomAggCombine(Vector &source_vector, Vector &target_vector, Agg
 			target.glm_lambda = source.glm_lambda;
 			target.theta = source.theta;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -326,6 +332,11 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
+		if (state.profile_ci) {
+			ApplyProfileConfint("negbinom_fit_agg", AnofoxLikelihoodFamily {3, 0, core_result.dispersion}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
+		}
 
 		idx_t struct_idx = 0;
 
@@ -369,7 +380,7 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 	if (arguments.size() >= 3) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "negbinom_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "theta", "glm_lambda", "feature_names", "prior", "vcov"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "theta", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -391,6 +402,10 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 		}
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
+		}
+		result->profile_ci = ProfileCiOption(opts, "negbinom_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
 		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();

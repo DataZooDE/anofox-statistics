@@ -16,6 +16,7 @@ mod huber;
 mod interval;
 mod isotonic;
 mod lars;
+mod likelihood;
 mod lm_dynamic;
 mod lowess;
 mod ls_state;
@@ -72,6 +73,10 @@ pub use interval::{
 };
 pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
+pub use likelihood::{
+    glm_profile_confint, glm_score_test, lr_test, model_lr_test, GlmFamilySpec, GlmScoreTestResult,
+    LrTestResult, ModelLikelihood,
+};
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
 pub use ls_state::{

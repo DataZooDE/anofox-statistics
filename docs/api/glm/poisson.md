@@ -52,6 +52,7 @@ poisson_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE [, options MAP]) -> STRUCT
 | `confidence_level` | DOUBLE | `0.95` | Confidence level for the intervals |
 | `glm_lambda` | DOUBLE | `0.0` | L2 (ridge) penalty strength; 0 disables it |
 | `offset` | INTEGER | none | 1-based index into `x` of a column used as an offset: added to the linear predictor with coefficient fixed at 1 and removed from the design. Values are used as-is, so take logs upstream for the log link (e.g. `log(exposure)`). |
+| `profile_ci` | BOOLEAN | `false` | Profile-likelihood confidence intervals (R's `confint(glm)`) in place of the Wald ones; implies `compute_inference`, needs an unpenalized fit. See [Likelihood tests](likelihood.md#profile_ci-option) |
 | `feature_names`, `prior`, `vcov` | | | Explicit coefficient priors; see [Explicit priors](priors.md) |
 
 **Returns:**
