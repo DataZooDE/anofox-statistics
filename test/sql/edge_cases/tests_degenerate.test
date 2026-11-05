@@ -27,7 +27,7 @@ CREATE TABLE d_inf AS SELECT * REPLACE (CASE WHEN i = 4 THEN 'inf'::DOUBLE WHEN 
 # Empty input and a single row -> NULL
 # =============================================================================
 
-foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) mcnemar_agg(g,c1%2) cramers_v_agg(c1,c2)
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) t_test_one_sample_agg(v) t_test_paired_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) mcnemar_agg(g,c1%2) cramers_v_agg(c1,c2)
 
 query II
 SELECT (SELECT ${call} FROM d WHERE false) IS NULL,
@@ -50,7 +50,7 @@ true	1.0
 # Constant data and +-Inf values: no error, and a sane p-value
 # =============================================================================
 
-foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) fisher_exact_agg(g,c1%2) mcnemar_agg(g,c1%2)
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) t_test_one_sample_agg(v) t_test_paired_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) fisher_exact_agg(g,c1%2) mcnemar_agg(g,c1%2)
 
 query II
 SELECT (SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value) OR r.p_value BETWEEN 0 AND 1

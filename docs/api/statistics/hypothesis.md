@@ -79,6 +79,55 @@ SELECT t_test_agg(outcome, treatment_group, {'alternative': 'less'}) AS result
 FROM experiment;
 ```
 
+### t_test_one_sample_agg
+
+One-sample t-test of H0: mean(x) = `mu` (R `t.test(x, mu = mu)`), with Cohen's d
+`(mean(x) - mu) / sd(x)` as `effect_size`. NULL and NaN values are skipped; fewer
+than two values give NULL.
+
+**Signature:**
+```text
+t_test_one_sample_agg(x DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options:** `alternative` ('two_sided', 'less', 'greater'), `confidence_level`
+(default 0.95), `mu` (default 0.0). `kind` and `paired` do not apply and raise an error.
+
+**Returns:** `statistic`, `p_value`, `df`, `effect_size` (Cohen's d), `ci_lower`,
+`ci_upper` (two-sided CI of the mean at `confidence_level`, also for one-sided alternatives, as `t_test_agg`), `n`, `method`
+(`One Sample t-test`), `alternative`, then the unified fields (`estimate` is the
+sample mean, `effect_name` is `cohens_d`).
+
+### t_test_paired_agg
+
+Paired t-test of H0: mean(x - y) = `mu` (R `t.test(x, y, paired = TRUE, mu = mu)`),
+with Cohen's d_z `(mean(d) - mu) / sd(d)` of the differences `d = x - y` as
+`effect_size`. A row whose `x` or `y` is NULL or NaN is dropped as a pair; fewer
+than two pairs give NULL. Options and result fields as `t_test_one_sample_agg`
+(`method` is `Paired t-test`, `estimate` the mean difference).
+
+**Signature:**
+```text
+t_test_paired_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Example:**
+```sql
+CREATE OR REPLACE TABLE crossover AS
+SELECT i AS subject,
+       (70 + (i * 13) % 7)::DOUBLE AS before,
+       (70 + (i * 13) % 7 + 1.2 + ((i * 7) % 5 - 2) / 4.0)::DOUBLE AS after
+FROM range(20) r(i);
+
+-- Did the score change? (H0: mean(before - after) = 0)
+SELECT r.statistic, r.df, r.p_value, r.estimate, r.ci_lower, r.ci_upper, r.effect_size
+FROM (SELECT t_test_paired_agg(before, after) AS r FROM crossover);
+
+-- Is the mean score after treatment above 72?
+SELECT r.statistic, r.p_value, r.effect_size
+FROM (SELECT t_test_one_sample_agg(after, {'mu': 72, 'alternative': 'greater'}) AS r FROM crossover);
+```
+
 ### one_way_anova_agg
 
 One-way Analysis of Variance for comparing means across multiple groups.
@@ -205,6 +254,24 @@ Wilcoxon signed-rank test for paired samples.
 **Signature:**
 ```text
 wilcoxon_signed_rank_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Returns:** `statistic` (V), `p_value`, `ci_lower`, `ci_upper`, `n`, `method`,
+`alternative`, `rank_biserial`, then the unified fields (`effect_size` = `rank_biserial`,
+`effect_name` = `rank_biserial`).
+
+`rank_biserial` is the matched-pairs rank-biserial correlation `(T- - T+) / (T+ + T-)`,
+where `T+` / `T-` are the rank sums of `|x - y|` over positive / negative differences
+(zero differences dropped, average ranks for ties). It lies in [-1, 1] and is
+positive when `y` tends to be larger than `x` -- the sign convention of
+`mann_whitney_u_agg`'s rank-biserial; R `effectsize::rank_biserial(x, y, paired = TRUE)`
+reports the opposite sign. NULL when every difference is zero.
+
+```sql
+SELECT r.statistic, r.p_value, r.rank_biserial
+FROM (SELECT wilcoxon_signed_rank_agg(before, after) AS r
+      FROM (VALUES (68.5, 70.2), (72.3, 74.5), (69.1, 68.3), (71.8, 73.9),
+                   (67.2, 69.4), (73.5, 75.8), (70.2, 72.1), (68.9, 71.2)) t(before, after));
 ```
 
 ### brunner_munzel_agg

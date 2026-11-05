@@ -2035,6 +2035,20 @@ bool anofox_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTTestOp
                    AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
+ * One-sample t-test of H0: mean(x) = options.mu (#299); var_equal is ignored.
+ * effect_size is Cohen's d = (mean - mu) / sd.
+ */
+bool anofox_t_test_one_sample(AnofoxDataArray x, AnofoxTTestOptions options, AnofoxTestResult *out_result,
+                              AnofoxError *out_error);
+
+/**
+ * Paired t-test of H0: mean(x - y) = options.mu (#299); var_equal is ignored.
+ * effect_size is Cohen's d_z = (mean(d) - mu) / sd(d).
+ */
+bool anofox_t_test_paired(AnofoxDataArray x, AnofoxDataArray y, AnofoxTTestOptions options,
+                          AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
  * Shapiro-Wilk normality test
  */
 bool anofox_shapiro_wilk(AnofoxDataArray data, AnofoxTestResult *out_result, AnofoxError *out_error);

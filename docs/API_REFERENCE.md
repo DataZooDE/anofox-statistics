@@ -131,7 +131,7 @@ fitted model struct).
 | Category | Functions | Page |
 |----------|-----------|------|
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Parametric | `t_test_agg`, `t_test_one_sample_agg`, `t_test_paired_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
@@ -1170,6 +1170,8 @@ FROM reg_data;
 | Function | Signature | Options | Returns |
 |----------|-----------|---------|---------|
 | `t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative` ('two_sided'), `confidence_level` (0.95), `kind` ('welch'; or 'student', alias `var_equal`), `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `t_test_one_sample_agg` | `(x DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
+| `t_test_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
 | `one_way_anova_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
 | `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `brown_forsythe_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
@@ -1189,7 +1191,7 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `mann_whitney_u_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level`, `continuity_correction` (alias `correction`) | `statistic, p_value, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `kruskal_wallis_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
-| `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
+| `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method, alternative, rank_biserial` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000), `seed` (42) | `statistic, p_value, n1, n2, method` |
 

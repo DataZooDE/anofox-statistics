@@ -254,7 +254,8 @@ static unique_ptr<FunctionData> TTestAggBind(ClientContext &context, AggregateBi
             throw InvalidInputException(
                 "t_test_agg: 'paired': true is not supported -- t_test_agg(value, group) compares two "
                 "independent samples and has no pairing information. For paired data use "
-                "tost_paired_agg(x, y, ...) (equivalence) or wilcoxon_signed_rank_agg(x, y, ...) (difference).");
+                "t_test_paired_agg(x, y, ...), tost_paired_agg(x, y, ...) (equivalence) or "
+                "wilcoxon_signed_rank_agg(x, y, ...) (nonparametric).");
         }
     }
 

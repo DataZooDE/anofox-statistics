@@ -10,6 +10,17 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **`t_test_one_sample_agg(x [, options])` and `t_test_paired_agg(x, y [, options])`** (#299):
+  one-sample and paired t-tests (R `t.test(x, mu =)`, `t.test(x, y, paired = TRUE)`) with
+  Cohen's d / d_z as `effect_size`; options `alternative`, `confidence_level`, `mu`.
+- **`wilcoxon_signed_rank_agg` reports `rank_biserial`** (#299), the matched-pairs
+  rank-biserial correlation, as a new STRUCT field after `alternative` and in the unified
+  `effect_size` / `effect_name`. Positive when `y` tends to be larger (the sign convention of
+  `mann_whitney_u_agg`; R `effectsize` uses the opposite sign). Code that reads the whole
+  STRUCT positionally sees one more field.
+
 ### Changed
 
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
