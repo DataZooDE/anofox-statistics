@@ -12,6 +12,16 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **`pspline_fit_agg(y, x [, options])`, `pspline_fit_predict_agg(y, x [, split] [, options])`,
+  `pspline_fit_predict_by` and `pspline_prediction_by` (#316).** P-spline smoothing of `y` on a
+  single `x` from anofox-regression `PSplineRegressor`, mgcv's
+  `gam(y ~ s(x, bs = "ps", k, m = c(2, penalty_order)), method = "GCV.Cp")`: options `n_basis`
+  (alias `k`), `penalty_order`, `lambda` (default: GCV). `pspline_fit_agg` returns the smooth
+  and its standard error at the distinct `x`, the coefficients, `lambda`, `edf`, `sigma2` and
+  `r_squared`; the fit-predict forms add a prediction (default) or confidence interval
+  (`interval`, `confidence_level`) and extend the smooth linearly beyond the data. Upstream does
+  not expose the fitted basis, so prediction at new `x` goes through the fit-predict forms.
+
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,

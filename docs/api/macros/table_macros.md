@@ -32,6 +32,7 @@ passed through and the prediction columns appended.
 | `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
+| `pspline_fit_predict_by` | `pspline_fit_predict_agg` | one row per input row, prediction (or confidence) interval |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
 | `glmm_tidy_by` | `glmm_fit_agg` + `tidy` | one row per fixed effect, variance component and BLUP (`terms`) |
 | `glmm_glance_by` | `glmm_fit_agg` | one row per fit statistic (`summary`) |
@@ -74,6 +75,7 @@ Some macros differ:
 ```text
 wls_fit_predict_by(source, group_col, y_col, x_cols, weight_col, options := NULL, split := NULL, order_by := NULL)
 isotonic_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL, order_by := NULL)   -- single x column
+pspline_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL, order_by := NULL)    -- single x column
 
 -- GLM macros (fit the model per group, then predict(model, x) on every row); no order_by
 binomial_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
@@ -369,6 +371,18 @@ only.
 
 ```sql
 SELECT * FROM isotonic_fit_predict_by('macro_demo', region, sales, price)
+LIMIT 5;
+```
+
+## pspline_fit_predict_by
+
+Options: [P-spline](../regression/pspline.md#options) (`n_basis`,
+`penalty_order`, `lambda`, `confidence_level`, `interval`). Takes a single
+`x_col`, not a list. Returns `yhat`, `yhat_lower` / `yhat_upper` (prediction
+interval by default) and `is_training`.
+
+```sql
+SELECT * FROM pspline_fit_predict_by('macro_demo', region, sales, price, options := {'n_basis': 6})
 LIMIT 5;
 ```
 

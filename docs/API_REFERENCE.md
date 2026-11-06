@@ -95,6 +95,7 @@ error rather than being silently ignored. Option values must be constants.
 | NNLS | - | `nnls_fit_agg` | - | - | - | [BLS/NNLS](api/regression/bls.md) |
 | PLS | - | `pls_fit_agg` | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
 | Isotonic | - | `isotonic_fit_agg` | - | `isotonic_fit_predict_agg` | `isotonic_fit_predict_by` | [Isotonic](api/regression/isotonic.md) |
+| P-spline | - | `pspline_fit_agg` | - | `pspline_fit_predict_agg` | `pspline_fit_predict_by` | [P-spline](api/regression/pspline.md) |
 | Passive-Aggressive | - | `passive_aggressive_fit_agg` | `passive_aggressive_fit_predict` | `passive_aggressive_fit_predict_agg` | `passive_aggressive_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | lmDynamic | - | `lm_dynamic_fit_agg` | - | `lm_dynamic_fit_predict_agg` | `lm_dynamic_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | LOWESS | - | `lowess_agg` | - | - | `lowess_by` | [Online / dynamic](api/regression/online_dynamic.md) |

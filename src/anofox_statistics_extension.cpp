@@ -242,6 +242,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLsStateFunctions(loader);
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
+    // P-spline smoother: pspline_fit_agg, pspline_fit_predict_agg (#316)
+    RegisterPSplineAggregateFunctions(loader);
     RegisterPathAggregateFunctions(loader);
     // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
     RegisterPcaFunctions(loader);

@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// P-spline smoother (#316)
+mod pspline_ffi;
+pub use pspline_ffi::*;

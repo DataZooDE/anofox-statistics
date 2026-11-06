@@ -116,6 +116,19 @@ needs `greybox` and (re)writes `lowess_reference.test` (`lowess_agg`, `lowess_by
 against `stats::lowess`) and `lm_dynamic_reference.test` (`lm_dynamic_fit_agg`
 against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 
+## `make_reference_pspline.R`
+
+```bash
+Rscript validation/generators/make_reference_pspline.R
+```
+
+Needs `mgcv` and (re)writes `pspline_reference.test`: `pspline_fit_agg`,
+`pspline_fit_predict_agg` and `pspline_fit_predict_by` against
+`mgcv::gam(y ~ s(x, bs = "ps", k, m = c(2, order)), method = "GCV.Cp")` (and a
+fixed `sp`): `lambda = sp / S.scale`, `sum(edf)`, `sig2`, `predict.gam(se.fit =
+TRUE)` inside and beyond the data range, with confidence / prediction bands from
+`qt(., n - edf)`. GCV fits agree to 1e-5, fixed-lambda fits to 1e-8.
+
 ## `make_reference_option_passthroughs.py` and `make_reference_option_passthroughs.R`
 
 ```bash
