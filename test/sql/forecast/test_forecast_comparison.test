@@ -182,14 +182,14 @@ FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'bl
 
 # Reproducible for a fixed seed with three or more models (anofox-statistics
 # >= 0.8.0; before, the pairwise bootstrap iterated a HashMap). The decision is
-# pinned; the p-values only to one decimal, because upstream's bootstrap draws
-# still differ between 64-bit and wasm32 builds (0.8858 vs 0.8978 here).
+# pinned exactly: since anofox-statistics 0.8.3 the seeded draws are the same on
+# 64-bit and wasm32 builds.
 query III
-SELECT r.elimination_order, [round(p, 1) FOR p IN r.mcs_p_values], r.included_models
+SELECT r.elimination_order, [round(p, 6) FOR p IN r.mcs_p_values], r.included_models
 FROM (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
           {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a');
 ----
-[5, 4, 3, 1, 2]	[0.9, 1.0, 0.0, 0.0, 0.0]	[1, 2]
+[5, 4, 3, 1, 2]	[0.885772, 1.0, 0.0, 0.0, 0.0]	[1, 2]
 
 # Same call twice in one process: identical results.
 query I

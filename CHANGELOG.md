@@ -10,6 +10,10 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+- **anofox-statistics 0.9.1.** Seeded bootstrap and permutation results are now the same on
+  wasm32 as on 64-bit builds (they differed before 0.8.3), and large samples no longer overflow
+  on 32-bit targets. No change on 64-bit.
+
 ### Added
 
 - **`pspline_fit_agg(y, x [, options])`, `pspline_fit_predict_agg(y, x [, split] [, options])`,
