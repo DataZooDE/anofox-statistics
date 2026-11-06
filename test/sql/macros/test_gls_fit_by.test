@@ -1,0 +1,59 @@
+# name: test/sql/macros/test_gls_fit_by.test
+# description: #315 gls_fit_by: one GLS fit per group, the model STRUCT as columns, options and variance_col
+# group: [macros]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE v AS
+SELECT ['north', 'south'][(i // 48) + 1] AS clinic, 'p' || lpad((i // 6)::VARCHAR, 2, '0') AS patient,
+       ['ctl', 'trt'][(i // 6) % 2 + 1] AS arm, (i % 6 + 1) AS week, 0.5 + ((i * 13) % 11) / 4.0 AS dose,
+       (1.5 + 0.8 * (0.5 + ((i * 13) % 11) / 4.0) - 0.2 * (i % 6 + 1) + ((i // 6) % 4) * 0.4
+        + (((i * 37) % 17) - 8) / 9.0)::DOUBLE AS y
+FROM range(96) r(i);
+
+query IIIII
+SELECT clinic, correlation, n_observations, n_groups, len(correlation_params)
+FROM gls_fit_by('v', clinic, y, [dose, week], patient, week, options := {'correlation': 'ar1'})
+ORDER BY clinic;
+----
+north	ar1	48	8	1
+south	ar1	48	8	1
+
+# the macro's fit is gls_fit_agg's
+query I
+SELECT bool_and(f.log_likelihood = (a.m).log_likelihood AND f.coefficients = (a.m).coefficients)
+FROM gls_fit_by('v', clinic, y, [dose, week], patient, week, options := {'correlation': 'ar1'}) f
+JOIN (SELECT clinic, gls_fit_agg(y, [dose, week], patient, week, {'correlation': 'ar1'}) AS m FROM v GROUP BY clinic) a
+USING (clinic);
+----
+true
+
+# without options: independent errors, constant variance, REML
+query III
+SELECT DISTINCT correlation, variance, method FROM gls_fit_by('v', clinic, y, [dose], patient, week);
+----
+independent	constant	REML
+
+# variance_col := passes the varIdent stratum
+query III
+SELECT clinic, variance_strata, variance_reference
+FROM gls_fit_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1', 'variance': 'ident'}, variance_col := arm)
+ORDER BY clinic;
+----
+north	[trt]	ctl
+south	[trt]	ctl
+
+statement error
+SELECT * FROM gls_fit_by('v', clinic, y, [dose], patient, week, options := {'variance': 'power'});
+----
+variance_col
+
+# a group that cannot be fitted is left out
+statement ok
+CREATE VIEW v_bad AS SELECT * FROM v WHERE clinic = 'north' OR week = 1 AND patient = 'p08';
+
+query I
+SELECT string_agg(clinic, ',') FROM gls_fit_by('v_bad', clinic, y, [dose], patient, week);
+----
+north

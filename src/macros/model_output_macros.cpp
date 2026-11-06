@@ -79,6 +79,7 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"tweedie", "a Tweedie GLM", nullptr, true},
     {"alm", "an augmented linear model (ALM)", nullptr, true},
     {"aft", "an accelerated failure time (AFT) survival model", "event_col", true},
+    {"cox", "a Cox proportional hazards model (coefficients are log hazard ratios)", "event_col", true},
     {"passive_aggressive", "a Passive-Aggressive online regression", nullptr, false, true},
     {"lm_dynamic", "a dynamic linear model with time-varying coefficients (greybox lmDynamic)", nullptr, false, true, true},
 };
@@ -672,6 +673,116 @@ static void RegisterGlmmOutputMacros(ExtensionLoader &loader) {
 	loader.RegisterFunction(*augment);
 }
 
+// Cox proportional hazards (#312): cox_fit_by (the model fields per group) and
+// cox_augment_by (contract `obs`: per-row residuals of cox_augment_agg).
+const char *const COX_FIT_BY_SQL =
+    "SELECT group_col, unnest(_m) FROM (SELECT group_col, cox_fit_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) AS _m FROM query_table(source::VARCHAR) GROUP BY group_col) ORDER BY group_col";
+
+const char *const COX_AUGMENT_SQL =
+    "SELECT * EXCLUDE (_aug, _rn, _anofox_rid), 'cox' AS model_id, 'cox' AS model_name, _anofox_rid AS row_id, "
+    "(_aug[_rn]).linear_predictor AS fitted, (_aug[_rn]).martingale_residual AS residual, "
+    "'martingale' AS resid_type, NULL::DOUBLE AS std_residual, NULL::DOUBLE AS stud_residual, "
+    "NULL::DOUBLE AS leverage, NULL::DOUBLE AS cooks_d, NULL::DOUBLE AS dffits, 1.0::DOUBLE AS weight, "
+    "(_aug[_rn]).is_training AS is_training, NULL::INTEGER AS n_params, (_aug[_rn]).risk AS risk, "
+    "(_aug[_rn]).deviance_residual AS deviance_residual, (_aug[_rn]).score_residuals AS score_residuals, "
+    "(_aug[_rn]).dfbeta AS dfbeta, (_aug[_rn]).dfbetas AS dfbetas, "
+    "(_aug[_rn]).schoenfeld_residuals AS schoenfeld_residuals, "
+    "(_aug[_rn]).scaled_schoenfeld_residuals AS scaled_schoenfeld_residuals, (_aug[_rn]).stratum AS stratum "
+    "FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+    "PRECEDING AND UNBOUNDED FOLLOWING) AS _rn, cox_augment_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND "
+    "UNBOUNDED FOLLOWING) AS _aug "
+    "FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))) "
+    "ORDER BY group_col, row_id";
+
+static void RegisterCoxOutputMacros(ExtensionLoader &loader) {
+	const vector<string> params = {"source", "group_col", "time_col", "x_cols", "event_col"};
+	const vector<string> categories = {"survival", "regression", "table-macro"};
+	auto fit = CreateTableMacro(
+	    "cox_fit_by", params, {{"options", "NULL"}}, COX_FIT_BY_SQL,
+	    "Table macro: fits a Cox proportional hazards model (cox_fit_agg, same options) per group of source and "
+	    "returns one row per group: the group column, then the fields of the model STRUCT (coefficients, "
+	    "hazard_ratios, hr_conf_low, hr_conf_high, the likelihood-ratio / Wald / score tests, concordance, "
+	    "baseline, ...).",
+	    "cox_fit_by('patients', site, days, [age, treated], died)", categories);
+	loader.RegisterFunction(*fit);
+
+	auto augment = CreateTableMacro(
+	    "cox_augment_by", params, {{"options", "NULL"}, {"order_by", "NULL"}}, COX_AUGMENT_SQL,
+	    "Table macro: fits a Cox proportional hazards model (cox_augment_agg, same options as cox_fit_agg) per "
+	    "group of source and returns every source row with its per-observation results (the integration contract's "
+	    "`obs` schema, broom augment.coxph): all source columns, model_id and model_name ('cox'), row_id, fitted "
+	    "(the linear predictor x'beta + offset, not centred), residual (martingale), resid_type ('martingale'), "
+	    "std_residual, stud_residual, leverage, cooks_d, dffits (NULL), weight (1), is_training, n_params (NULL), "
+	    "then risk (exp(fitted)), deviance_residual, score_residuals, dfbeta, dfbetas, schoenfeld_residuals and "
+	    "scaled_schoenfeld_residuals (event rows only) and stratum. Rows the fit could not use get NULLs.",
+	    "cox_augment_by('patients', site, days, [age, treated], died)", categories);
+	loader.RegisterFunction(*augment);
+}
+
+// Penalized ML a la rms (#323): pentrace_by (the penalty trace per group, one row
+// per penalty) and penalized_ols_fit_by (the penalized OLS fit per group).
+const char *const PENTRACE_BY_SQL =
+    "SELECT group_col, (_r).simple AS simple, (_r).nonlinear AS nonlinear, (_r).interaction AS interaction, "
+    "(_r).nonlinear_interaction AS nonlinear_interaction, (_r).df AS df, (_r).lr_chisq AS lr_chisq, "
+    "(_r).aic AS aic, (_r).bic AS bic, (_r).aic_c AS aic_c, (_r).is_best AS is_best, "
+    "(_r).n_observations AS n_observations "
+    "FROM (SELECT group_col, unnest(range(len(_l))) AS _i, unnest(_l) AS _r "
+    "FROM (SELECT group_col, pentrace_agg(y_col, x_cols, options) AS _l FROM query_table(source::VARCHAR) "
+    "GROUP BY group_col)) ORDER BY group_col, _i";
+
+const char *const PENALIZED_OLS_FIT_BY_SQL =
+    "SELECT group_col, unnest(_m) FROM (SELECT group_col, penalized_ols_fit_agg(y_col, x_cols, options) AS _m "
+    "FROM query_table(source::VARCHAR) GROUP BY group_col) ORDER BY group_col";
+
+static void RegisterPentraceMacros(ExtensionLoader &loader) {
+	const vector<string> params = {"source", "group_col", "y_col", "x_cols"};
+	auto trace = CreateTableMacro(
+	    "pentrace_by", params, {{"options", "NULL"}}, PENTRACE_BY_SQL,
+	    "Table macro: rms::pentrace per group of source with pentrace_agg (same options, 'penalties' required) and "
+	    "returns one row per penalty: the group column, simple, nonlinear, interaction, nonlinear_interaction, df "
+	    "(effective d.f.), lr_chisq, aic, bic, aic_c, is_best, n_observations.",
+	    "pentrace_by('my_table', group_col, y, [x1, x2], options := {'penalties': [0, 1, 2, 4]})");
+	loader.RegisterFunction(*trace);
+	auto fit = CreateTableMacro(
+	    "penalized_ols_fit_by", params, {{"options", "NULL"}}, PENALIZED_OLS_FIT_BY_SQL,
+	    "Table macro: fits rms::ols(penalty = ) per group of source with penalized_ols_fit_agg (same options) and "
+	    "returns one row per group: the group column, then the fields of the fit STRUCT (coefficients, intercept, "
+	    "std_errors, vcov, r_squared, sigma, lr_chisq, effective_df, effective_df_by_term, ...).",
+	    "penalized_ols_fit_by('my_table', group_col, y, [x1, x2], options := {'penalty': 2.0})");
+	loader.RegisterFunction(*fit);
+}
+
+// aft_augment_by (#322, contract `obs`): per-row residuals of aft_augment_agg.
+const char *const AFT_AUGMENT_SQL =
+    "SELECT * EXCLUDE (_aug, _rn, _anofox_rid), 'aft' AS model_id, 'aft' AS model_name, _anofox_rid AS row_id, "
+    "(_aug[_rn]).linear_predictor AS fitted, (_aug[_rn]).cox_snell_residual AS residual, "
+    "'cox_snell' AS resid_type, (_aug[_rn]).standardized_residual AS std_residual, NULL::DOUBLE AS stud_residual, "
+    "NULL::DOUBLE AS leverage, NULL::DOUBLE AS cooks_d, NULL::DOUBLE AS dffits, 1.0::DOUBLE AS weight, "
+    "(_aug[_rn]).is_training AS is_training, NULL::INTEGER AS n_params, "
+    "(_aug[_rn]).score_contributions AS score_contributions "
+    "FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+    "PRECEDING AND UNBOUNDED FOLLOWING) AS _rn, aft_augment_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND "
+    "UNBOUNDED FOLLOWING) AS _aug "
+    "FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))) "
+    "ORDER BY group_col, row_id";
+
+static void RegisterAftAugmentMacro(ExtensionLoader &loader) {
+	auto augment = CreateTableMacro(
+	    "aft_augment_by", {"source", "group_col", "time_col", "x_cols", "event_col"},
+	    {{"options", "NULL"}, {"order_by", "NULL"}}, AFT_AUGMENT_SQL,
+	    "Table macro: fits an AFT survival model (aft_augment_agg, same options as aft_fit_agg) per group of source "
+	    "and returns every source row with its per-observation results (the integration contract's `obs` schema): "
+	    "all source columns, model_id and model_name ('aft'), row_id, fitted (the linear predictor of log T), "
+	    "residual (Cox-Snell, -log S(t | x)), resid_type ('cox_snell'), std_residual ((log t - fitted) / scale), "
+	    "stud_residual, leverage, cooks_d, dffits (NULL), weight (1), is_training, n_params (NULL), then "
+	    "score_contributions (intercept, coefficients, log(scale)). Rows the fit could not use get NULLs.",
+	    "aft_augment_by('po_lines', supplier, days, [rating, qty], delivered)", {"survival", "regression", "table-macro"});
+	loader.RegisterFunction(*augment);
+}
+
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
@@ -761,6 +872,9 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		}
 	}
 	RegisterGlmmOutputMacros(loader);
+	RegisterCoxOutputMacros(loader);
+	RegisterPentraceMacros(loader);
+	RegisterAftAugmentMacro(loader);
 }
 
 void RegisterPathMacros(ExtensionLoader &loader) {

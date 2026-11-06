@@ -10,8 +10,248 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+- **anofox-regression 0.12.0.** Stored models are now rebuilt upstream from their parts instead of
+  being scored by the extension, and the workarounds for bugs fixed in 0.12 are gone:
+  - `ordinal_predict` / `predict` rebuild an `ordinal_fit_agg` model with
+    `FittedOrdinal::from_information` from the new `information` field of the model STRUCT (the
+    compact observed information, O(k·p) values) and a `continuation_ratio_fit_agg` model with
+    `FittedContinuationRatio::from_parts`; a model without `information` (hand-written or from an
+    earlier build) is an error. New `{'type': 'quantile'}` with `q`, `level` and `method`
+    (`'interpolated'` / `'discrete'`): the predicted quantile with confidence limits,
+    `STRUCT(yhat, yhat_lower, yhat_upper)`, equal to `rms::Quantile.orm(conf.int = )`. The Wald
+    `z_values` / `p_values` of `ordinal_fit_agg` come from upstream (a zero standard error now
+    gives an infinite z instead of NULL).
+  - `multinomial_predict` / `predict` use `FittedMultinomialLogistic::from_parts`; a model with
+    non-finite coefficients or the wrong number of rows is an error (message from upstream).
+  - `pspline_fit_agg` returns the smoother's `knots` and Bayesian `covariance`, and
+    `predict(model, [x])` evaluates a stored P-spline at a new `x` (with `se_fit` / `interval`
+    / `level`, `FittedPSpline::from_parts`); `log_likelihood`, `aic` and `bic` are mgcv's
+    `logLik.gam` / `AIC` / `BIC` instead of NULL.
+  - `aft_augment_agg` fits once (`FittedAft::from_result`) instead of refitting.
+  - GLS errors are matched on upstream's `GlsError` variants instead of message text (same NULL vs
+    error behaviour); an AFT fit with every observation censored stays NULL
+    (`RegressionError::AllCensored`).
+  - Effects: a setting value that is not a level of a categorical predictor is rejected by upstream
+    (`ModelSpec::row` / `contrast` / `predict_grid` now return errors); the message names the
+    predictor as `predictor k`.
+  - `pool_rubin_agg`: when the imputations agree exactly (`B = 0`) Rubin's d.f. is infinite and the
+    p-values and intervals now use the standard normal (were NULL), as mice; the Barnard–Rubin d.f.
+    is mice's finite form there.
+  - `kaplan_meier_agg(..., {'conf_type': 'plain'})`: the limits are NULL once the survival reaches 0
+    (were 0 and 1), as `survfit(conf.type = "plain")`.
+  - `rcs_knots_agg` of a constant column and `box_cox_inverse` outside the range of the transform
+    rely on upstream (`TooFewUniqueKnots` -> NULL, `NaN` -> NULL); the results are unchanged.
+
+- **anofox-regression 0.12.1.** Typed upstream errors replace message-text matching: the data
+  reduction wrappers and `areg` map `RegressionError::Degenerate(..)` (a constant response, a
+  single level, an incomputable similarity -> NULL; a constant column to scale, a non-positive
+  Box–Cox response, too few observed values -> error, as before) and
+  `RegressionError::Spline(SplineError::TooFewObservations)` (`areg` with fewer than 6 rows ->
+  NULL). `effects_design` leaves the check of a categorical value that is not a level to
+  upstream's `ModelSpec::design` (`DesignError::UnknownLevel`, same error). `aft_cdf`,
+  `aft_quantile`, `aft_survival` evaluate the stored model through `AftResult::from_parts`
+  (**behaviour change**: pieces that are not a model, e.g. `exponential` with a scale other than
+  1, give NaN instead of a value).
+- **anofox-statistics 0.9.1.** Seeded bootstrap and permutation results are now the same on
+  wasm32 as on 64-bit builds (they differed before 0.8.3), and large samples no longer overflow
+  on 32-bit targets. No change on 64-bit.
+
 ### Added
 
+- **Cluster-robust covariance of the GLM and AFT fits.** `poisson_fit_agg`, `binomial_fit_agg`,
+  `logistic_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg` and `tweedie_fit_agg(y, x, cluster,
+  {'vcov': 'cluster', ...})` and `aft_fit_agg(time, x, event, cluster, options)` cluster the
+  standard errors, z tests, intervals and `vcov` (upstream `GlmResult::cluster_vcov` /
+  `AftResult::cluster_vcov`), as the OLS / WLS form of #309, and append `vcov_type` and
+  `n_clusters` (`aft_fit_agg` also `vcov` of intercept, coefficients and log scale). `cluster` is
+  one id per row of any type or a LIST / STRUCT of ids (multiway); options `hc_type` (`'hc0'`
+  default, `'hc1'`; HC2 / HC3 are an error) and `cadjust` (default true for the GLMs as
+  `vcovCL`, false for AFT as `survreg(cluster =)`). The GLM form needs `'vcov': 'cluster'`
+  because its 4-argument position is also the prior weights of poisson / gamma / tweedie; the
+  OLS / WLS / AFT cluster forms accept it. With priors or `glm_lambda` the bread is the
+  penalized information; a coefficient at an L1 prior's kink is an error. Validated against
+  `sandwich::vcovCL(glm)` (poisson, binomial, `glm.nb`, Gamma, `statmod::tweedie`, offset,
+  multiway), a penalized logistic sandwich computed in base R, and `survreg(cluster =)`
+  (`test/sql/reference/glm_cluster_vcov.test`).
+- **`fastbw` reports the reduced model's covariance.** New fields `vcov` (rms `fastbw()$var`, in
+  the model's vcov layout with zero rows for deleted parameters, upstream `StepDown::vcov`) and
+  `kept_parameters` (1-based `parms.kept`), validated against `rms::fastbw`.
+- **`pca_agg(x, {'scale': true})`** is `prcomp(scale. = TRUE)` (upstream `pca_with_options`): the
+  model STRUCT stores the column sds in a new `scale` field (NULL when unscaled) and
+  `pca_transform` applies them (`predict.prcomp`). Validated against `prcomp` / `predict.prcomp`.
+- **`mmd_test_agg` median-heuristic bandwidth.** `'bandwidth': 'median'` uses
+  `max(median pairwise distance, 0.01)` (upstream `Kernel::GaussianMedianHeuristic`), and the
+  result has a `bandwidth` field (the bandwidth used; NULL for the linear / polynomial kernels).
+  `embedding_drift_agg` reports the `bandwidth` of its `mmd` method
+  (`drift::embedding_mmd_bandwidth`; NULL for the other methods).
+
+- **`pspline_fit_agg(y, x [, options])`, `pspline_fit_predict_agg(y, x [, split] [, options])`,
+  `pspline_fit_predict_by` and `pspline_prediction_by` (#316).** P-spline smoothing of `y` on a
+  single `x` from anofox-regression `PSplineRegressor`, mgcv's
+  `gam(y ~ s(x, bs = "ps", k, m = c(2, penalty_order)), method = "GCV.Cp")`: options `n_basis`
+  (alias `k`), `penalty_order`, `lambda` (default: GCV). `pspline_fit_agg` returns the smooth
+  and its standard error at the distinct `x`, the coefficients, `lambda`, `edf`, `sigma2` and
+  `r_squared`; the fit-predict forms add a prediction (default) or confidence interval
+  (`interval`, `confidence_level`) and extend the smooth linearly beyond the data;
+  `predict(model, [x])` evaluates a stored fit at a new `x`.
+
+- **`pentrace_agg(y, x, options)`, `penalized_ols_fit_agg(y, x [, options])`, `pentrace_by`
+  and `penalized_ols_fit_by` (#323).** Penalized maximum likelihood a la rms from
+  anofox-regression `solvers::pentrace`. `pentrace_agg` is `rms::pentrace`: it fits the model
+  (`'model'`: `'ols'`, binary `'logistic'` or `'ordinal'` with a cumulative `link`) at every
+  penalty of `penalties` (a list, or lists by type `simple`, `nonlinear`, `interaction`,
+  `nonlinear_interaction`, combined as rms with `complex.more`) and returns one row per penalty
+  with the effective d.f., the LR chi-square, AIC, BIC, corrected AIC and the best row by
+  `criterion` (`'aic_c'`, `'aic'`, `'bic'`). `penalized_ols_fit_agg` is `rms::ols(penalty = )`:
+  coefficients, the `'simple'` or `'sandwich'` covariance, `Sigma`, R², `Model L.R.` and the
+  effective d.f. in total, per coefficient and per term. The penalty acts on standardised
+  coefficients with rms's penalty matrix; the column types come from `terms`, `nonlinear`,
+  `interactions` (as `wald_anova`) and `categorical` (dummy blocks `I - 1/(L+1)`). Reference
+  values: rms `pentrace`, `ols(penalty = )`, `lrm` and `orm(family = "probit", penalty = )`
+  (`validation/generators/make_reference_pentrace.R`).
+- **Model validation and calibration (#318).** `validate_agg(y, x [, options])` is `rms::validate`
+  (`validate.ols` / `validate.lrm`) for a linear or binary logistic model: the apparent, training,
+  test, optimism and bias-corrected indexes (R-square, MSE, g, calibration intercept / slope; Dxy,
+  R2, Emax, D, U, Q, Brier, g, gp) by the optimism bootstrap, cross-validation or the .632
+  bootstrap. `calibrate_agg` is `rms::calibrate` (the overfitting-corrected lowess calibration
+  curve with its mean / 0.9 quantile absolute error), `calibrate_cph_agg(time, x, event, options)`
+  `rms::calibrate.cph(cmethod = "KM")` (predicted survival at `u` against Kaplan-Meier per group)
+  and `bootcov_agg(y, x [, cluster], [options])` `rms::bootcov` (bootstrap covariance, standard
+  errors and percentile intervals; ordinary or cluster bootstrap). Seeded and independent of the
+  thread count and row order. Table macros `validate_by`, `calibrate_by` (`curve`),
+  `calibrate_cph_by` and `bootcov_by` (`terms`). All computed by anofox-regression's `validation`
+  module; reference values from `rms` replaying the extension's resamples
+  (`validation/generators/make_reference_validate.R`).
+- **Data reduction and transforms (#320):** `spearman2_agg(y, x [, {'p': 1|2}])` (generalized
+  Spearman rho^2 with F test, numeric or VARCHAR/categorical `x`, `Hmisc::spearman2`),
+  `hoeffding_d_agg(x, y)` (Hoeffding's D with P-value, `Hmisc::hoeffd`), `box_cox_agg(y [, x
+  DOUBLE[] [, options]])` (profile likelihood of lambda with its likelihood-ratio interval,
+  `MASS::boxcox`) with the scalars `box_cox_transform(y, lambda)` / `box_cox_inverse(z, lambda)`,
+  `varclus_agg(x DOUBLE[] [, options])` (variable clustering with R's `hclust` merge / height /
+  order and an optional `cut_height`, `Hmisc::varclus`) and `redun_agg(x DOUBLE[] [, options])`
+  (redundancy analysis, `Hmisc::redun`). Upstream anofox-regression `reduction` / `transform`;
+  reference values against Hmisc and MASS in `test/sql/reference/reduction_reference.test`.
+  `spearman2_agg` and `hoeffding_d_agg` carry the unified test fields. `transcan` is not exposed
+  yet.
+- **`areg_fit_agg(y, x [, options])`, `areg_predict(model, x [, options])`,
+  `areg_transform(model, y)` and `areg_inverse(model, t)` (#320 follow-up).** Additive regression
+  with optimal transformations of both sides, `Hmisc::areg` (anofox-regression
+  `transform::areg`): options `nk`, `x_types` (`s` / `l` / `c`, one or one per predictor),
+  `y_type`; the model STRUCT holds the coefficients of the predictor and response bases, R²,
+  `mad` / `med`, the bases' knots / levels and the range of `y`. The scalars rebuild the stored
+  model (`Areg::from_parts`): the linear predictor at a new row (or with `{'type': 'fitted'}`
+  back on the `y` scale), the response transformation and its inverse. Validated against
+  `Hmisc::areg`, `predict.areg`, `ytrans` and `yinv` (`validation/generators/make_reference_areg.R`).
+
+- **`areg_impute_agg(id, x [, options])`, `areg_impute_by` and `pool_rubin_agg(model [, options])`
+  (#321).** Multiple imputation by additive regression, bootstrapping and predictive mean
+  matching from anofox-regression `imputation::areg_impute` (`Hmisc::aregImpute`; with the same
+  `seed` the imputations replay R's exactly): options `n_impute`, `nk`, `tlinear`, `burnin`,
+  `match` (`weighted` / `closest`), `fweighted`, `seed`, `categorical` and `linear` (1-based
+  positions in `x`); the result is the completed copies `LIST(STRUCT(imputation, id, x))`, rows in
+  `id` order. `pool_rubin_agg` combines one model STRUCT per imputation (any fit with
+  `coefficients` and `vcov` or `std_errors`) by Rubin's rules from `inference::pool`: pooled
+  coefficients, total standard errors, Barnard-Rubin d.f. (complete-data d.f. from the models'
+  `df_residual` or `df_complete`), p-values, intervals, `riv`, `lambda`, `fmi`, the pooled `vcov`
+  and the D1 Wald test of all slopes with Reiter's d.f.; `tidy()` lists the pooled terms.
+  Validated against `Hmisc::aregImpute`, `mice::pool` and `mice::D1`.
+- **AFT residuals and survfit / survdiff options (#322).** `aft_augment_agg(time, x, event
+  [, options])` (window aggregate) and `aft_augment_by` (contract `obs`): per row the linear
+  predictor, the standardized residual `(log t - eta) / scale`, the Cox-Snell residual
+  `-log S(t | x)` and the score contributions, from anofox-regression `FittedAft`.
+  `kaplan_meier_agg(time, event, [columns,] options)`: case weights, entry times (left
+  truncation), cluster ids, `robust` standard errors, the Nelson-Aalen / Fleming-Harrington
+  cumulative hazard (`hazard`; new fields `cumhaz`, `std_chaz`) and `timefix`, through
+  anofox-regression's `survival::survfit`; per-row weights / entry / cluster are columns of
+  `columns` named by position, as `cox_fit_agg`'s strata / entry. `log_rank_test_agg(time,
+  event, group, [columns,] options)`: `rho` (Peto-Peto at 1) and `strata`, through
+  `survival::survdiff`. The original positional forms are unchanged (anofox-statistics);
+  `log_rank_test_agg` only leaves it for `rho != 0` or strata. Validated against R
+  `survreg` / `residuals.survreg`, `survfit` (weights, `Surv(start, stop)`, `cluster`,
+  `robust`, `ctype`) and `survdiff(rho)`. The AFT cluster-robust covariance follows with
+  anofox-regression 0.12.
+- **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
+  and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
+  ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,
+  scikit-learn's `LogisticRegression` objective: options `C` (default 1) or `lambda` (= 1 / C),
+  `l1_ratio`, `fit_intercept`, `max_iterations`, `tolerance`, and optional sample weights.
+  `y` is a VARCHAR or integer label; the model STRUCT holds `classes`, a `coefficients` matrix
+  (one row per class, a single log-odds row for two classes), `intercepts`, `accuracy`,
+  `log_likelihood`, `objective` and the convergence fields. `multinomial_predict` and
+  `predict(model, x)` return the most probable class or, with `{'type': 'prob'}`, the class
+  probabilities. Validated against scikit-learn (penalized fits, weights) and R
+  `nnet::multinom` (unpenalized).
+- **`wald_anova(model [, terms [, options]])` and `fastbw(model [, terms [, options]])` (#311).**
+  rms-style inference from any fitted model STRUCT with a coefficient covariance `vcov`
+  (OLS, WLS, Ridge and the GLMs with `compute_inference`, also with a cluster-robust
+  `vcov`). `wald_anova` is the `rms::anova.rms` table of Wald chunk tests from
+  anofox-regression `inference::anova`: per term the test of all its columns including its
+  interactions, its nonlinear and interaction chunks, then `TOTAL NONLINEAR`,
+  `TOTAL INTERACTION`, `TOTAL NONLINEAR + INTERACTION` and `TOTAL`; F tests with partial sums
+  of squares and the `ERROR` row for the linear models (`'test': 'auto'`), chi-square
+  otherwise. `terms` gives one label per coefficient (equal labels form a term, NULL leaves
+  a coefficient out); options `nonlinear` (one flag per coefficient), `interactions` (MAP
+  label -> its two factor labels; full `a * b` or restricted `%ia%` products) and `test`.
+  `fastbw` is `rms::fastbw` (`inference::fastbw`): the deletion order with the Wald and
+  residual chi-square tests and AIC, the kept terms and the approximate reduced-model
+  coefficients; options `rule` (`'aic'` / `'p'`), `type` (`'residual'` / `'individual'`),
+  `sls`, `aics`, `k_aic`; NULL-labelled coefficients are never deleted. Reference values:
+  `rms::anova` and `rms::fastbw` (`validation/generators/make_reference_wald_anova.R`).
+- **Cox proportional hazards regression (#312).** `cox_fit_agg(time, x, event [, weight] [, options])`
+  fits `survival::coxph` (anofox-regression `survival::cox`): Efron (default) or Breslow ties, case
+  weights, offset, strata, counting-process `(entry, stop]` data, ridge penalty and the robust /
+  cluster-robust covariance (offset, strata, entry and cluster are columns of `x` named by position
+  in the options). The model STRUCT carries the log hazard ratios, hazard ratios with Wald intervals,
+  the LR / Wald / score tests, Harrell's C, `rms::cph`'s R2, AIC / BIC and the baseline cumulative
+  hazard. `cox_zph_agg` is `cox.zph` (km / rank / identity / log transforms), the scalar
+  `cox_survival(model, x, times [, stratum])` the point estimate of `survfit(fit, newdata)`, and the
+  window aggregate `cox_augment_agg` returns the linear predictor and the martingale, deviance,
+  score, dfbeta(s) and (scaled) Schoenfeld residuals. Table macros `cox_fit_by`, `cox_tidy_by`
+  (`terms`), `cox_glance_by` (`summary`) and `cox_augment_by` (`obs`). Reference values:
+  `survival::coxph` / `cox.zph` / `survfit` / `residuals` and `rms::cph`
+  (`validation/generators/make_reference_cox.R`).
+- **Generalized least squares, `nlme::gls` (#315).** `gls_fit_agg(y, x, subject, time
+  [, variance_covariate], options)` on anofox-regression's `solvers::gls::GlsRegressor`:
+  errors correlated within each subject (`'correlation'`: `independent`,
+  `compound_symmetry` (`corCompSymm`), `ar1` (`corAR1`, integer times), `car1`
+  (`corCAR1`), `exponential` / `gaussian` / `linear` / `spherical` with an optional
+  `'nugget'`, `unstructured` (`corSymm`)), a variance function of `variance_covariate`
+  (`'variance'`: `ident` (`varIdent`, a stratum of any type), `power` (`varPower`), `exp`
+  (`varExp`)), REML (default) or ML (`'method'`). Returns the coefficients with t tests
+  on N - p df, `sigma`, the natural-scale `correlation_params` / `variance_params`
+  (`variance_strata` / `variance_reference` for varIdent), logLik / AIC / BIC, `vcov`,
+  the approximate var-cov intervals of `intervals.gls` (with `compute_inference`) and,
+  with `'variogram': k`, the empirical semivariogram (`nlme::Variogram`). The window
+  aggregate `gls_augment_agg` returns per-row `fitted`, `se_fit` (sqrt(x' V x)),
+  `residual`, `pearson_residual` and `normalized_residual`. Table macros `gls_fit_by`,
+  `gls_tidy_by` (`terms`), `gls_glance_by` (`summary`), `gls_augment_by` (`obs`).
+  Reference values from `nlme::gls`, `intervals`, `Variogram` and `resid`
+  (`validation/generators/make_reference_gls.R`).
+- **Effects, contrasts, effect grids and nomograms (#319).** `effects_term(name, kind [, levels])` /
+  `effects_term(name, spline_spec(...))` and `effects_interaction(a, b [, restricted])` describe how each
+  predictor enters a model (linear, rcs, lsp, categorical with treatment contrasts, `a * b` or `%ia%`);
+  `effects_design(x, terms)` builds the design row to fit any `*_fit_agg` on. Over the data rows
+  (the `datadist` limits come from them), `effects_summary_agg(x, model, terms)` is `rms::summary`
+  (inter-quartile-range and factor-level effects, odds / rate ratios for logit / log links),
+  `contrast_agg(x, model, terms, a, b)` / `double_contrast_agg(..., a, b, a2, b2)` are
+  `rms::contrast`, `predict_grid_agg(x, model, terms, term [, {'values', 'simultaneous'}])` is
+  `rms::Predict` (pointwise or simultaneous bands) and `nomogram_agg(x, lp, model, terms [, {'fun'}])`
+  is `rms::nomogram`; `predict_grid_by` returns the grid per group in the `prediction` schema. All
+  from anofox-regression `effects::ModelSpec`. Reference values: rms / multcomp
+  (`validation/generators/make_reference_effects.R`).
+- **Regression-spline bases (#317).** `rcs(x, knots [, {'norm'}])` (restricted cubic spline,
+  `Hmisc::rcspline.eval(inclx = TRUE)` / `rms::rcs`), `lsp(x, knots)` (`rms::lsp`),
+  `bspline(x, knots [, degree [, {'extrapolation', 'include_bias'}]])` (sklearn
+  `SplineTransformer`) and `restricted_interaction(a, b [, a_nonlinear, b_nonlinear])`
+  (`rms` `%ia%`) expand one value into a `DOUBLE[]` basis row for any `*_fit_agg`;
+  `rcs_knots_agg(x [, nk [, {'fractied'}]])` places the default `rms::rcs` knots,
+  `bspline_knots_agg(x [, n_knots [, {'knots': 'uniform' | 'quantile'}]])` the sklearn base
+  knots, `default_knot_quantiles(nk)` gives RMS Table 2.3. `spline_spec(kind, knots [, options])`
+  returns the validated basis definition `{kind, knots, norm, degree, extrapolation,
+  include_bias, n_columns, nonlinear}` and `spline_basis(x, spec)` expands new data with it.
+  All from anofox-regression `splines`. Reference values: Hmisc / rms / splines
+  (`validation/generators/make_reference_splines.R`) and scikit-learn
+  (`validation/generators/make_reference_splines.py`).
 - **`bootstrap_mean_ci_agg(x [, options] [ORDER BY t])` (#294).** Percentile bootstrap
   confidence interval of the mean from anofox-statistics `bootstrap_mean_ci_with_options`:
   the IID bootstrap (`'method': 'iid'`, default), the stationary bootstrap
@@ -98,12 +338,146 @@ Breaking changes are called out explicitly.
   values: a base-R Hansen (2005) SPA and `MCS::MCSprocedure`
   (`validation/generators/make_reference_forecast_comparison.R`; statistics and elimination
   order exact, p-values within Monte Carlo error).
+- **Ordinal regression (#313).** `ordinal_fit_agg(y, x [, weight] [, options])`: cumulative
+  link models from anofox-regression `OrdinalRegressor` (`rms::orm` / `MASS::polr`), links
+  `logistic`, `probit`, `loglog`, `cloglog`, `cauchit`, case weights, an `offset` column,
+  `orm`'s quadratic `penalty`; returns the levels, `orm`'s intercepts (`polr`'s
+  `zeta = -alpha`) with standard errors, slopes with Wald inference, log-likelihoods, the
+  model LR chi-square, AIC and the proportional-odds score test (`po_test_*`).
+  `continuation_ratio_fit_agg(y, x [, weight] [, {'cohort_specific': [...]}])`: the
+  continuation-ratio model (`ContinuationRatioRegressor`, `rms::cr.setup` + `lrm`).
+  `ordinal_predict(model, x [, {'type': 'class' | 'prob' | 'exceedance' | 'mean' | 'quantile'}])` (also
+  `predict(model, x)`) and the `ordinal_fit_predict_by` / `continuation_ratio_fit_predict_by`
+  table macros. Reference values: `rms::orm`, `MASS::polr`, `cr.setup` + `lrm` and the
+  partial proportional-odds score by numDeriv
+  (`validation/generators/make_reference_ordinal.R`).
 
 ### Fixed
 
 - The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
   (it had no SQL caller before #293).
+- **`wls_fit_agg` with `hc_type` and no cluster ignored the weights (behaviour change).** The
+  heteroskedasticity-consistent standard errors came from the unweighted residuals; they are
+  now `sandwich::vcovHC(lm(..., weights = w), type = "HC0".."HC3")`, computed by
+  anofox-regression's weighted sandwich (`FittedWls::cluster_vcov` with one cluster per
+  row). The F test stays the classical one. Reference values in
+  `test/sql/reference/wls_hc.test`. The `wls_fit` table function shares the fix.
+### Added
+
+- **`two_way_anova_agg` and `repeated_measures_anova_agg`** (#297). `two_way_anova_agg(y,
+  factor_a, factor_b[, {'terms': [...]}])` returns one list element per F test (factor A,
+  factor B, interaction) with Type III sums of squares, matching R's `car::Anova(type = 3)`
+  with sum contrasts (= `aov()` for balanced designs). `repeated_measures_anova_agg(y,
+  subject, condition[, {'sphericity': ...}])` returns the within-subjects F test (R's
+  `aov(y ~ condition + Error(subject / condition))`), Mauchly's sphericity test (p-value as
+  `stats::mauchly.test`) and the Greenhouse-Geisser (`gg_*`) and Huynh-Feldt (`hf_*`:
+  Lecoutre-corrected epsilon capped at 1, df, p-value, as car / afex) corrections; subjects
+  missing a condition are excluded and counted.
+  Labels can be BIGINT or VARCHAR. Both are computed by anofox-statistics
+  (`two_way_anova`, `repeated_measures_anova`).
+
+### Added
+
+- **Principal component analysis (#303):** `pca_agg(x DOUBLE[] [, {'n_components': k}])`
+  returns STRUCT(sdev, proportion_of_variance, loadings, center, n_components, n_features,
+  n_observations) as R's `prcomp(x, center = TRUE, scale. = FALSE)`; `pca_transform(model, x)`
+  scores a row (`predict.prcomp`); the `pca_by(source, group_col, x_cols)` table macro returns
+  every row with its scores per group. Upstream anofox-statistics `multivariate::pca`; each
+  component's sign is fixed so its largest absolute loading is positive. Reference values
+  against `prcomp` in `test/sql/reference/pca_reference.test`. `scale` is not supported yet
+  (upstream `pca` does not scale).
+
+### Added
+
+- **`gvif_agg(x[, {'terms': [...]}])`** (#307): generalized VIF (Fox & Monette 1992) per
+  term with its df and `GVIF^(1/(2 df))`, as `car::vif` reports it for factor terms;
+  columns sharing a `terms` label form one term. Computed by anofox-regression's
+  `diagnostics::generalized_vif`.
+
+### Fixed
+
+- **`vif_agg` with NaN values** (#307): a row with a NaN is now left out as a whole. Before,
+  only the NaN value was dropped, which misaligned the columns and made the aggregate fail
+  with a dimension-mismatch error.
+
+### Added
+
+- **Predictive accuracy indexes (rms / Hmisc, #308):** `concordance_agg` (survival::concordance
+  pair counts, C, Dxy, gamma, tau-a; weighted), `somers2_agg` (Hmisc::somers2; weighted),
+  `rcorr_cens_agg` (Harrell's C for censored data, Hmisc::rcorr.cens), `lrm_stats_agg` (the
+  `stats` vector of a binary rms::lrm fit from its linear predictor, incl. R2Measures and the
+  g-indexes; weighted), `val_prob_agg` (rms::val.prob: D, U, Q, calibration intercept/slope,
+  Emax/E90/Eavg, Spiegelhalter z), `gini_md_agg` (Hmisc::GiniMd) and the scalar `r2_measures`
+  (Hmisc::R2Measures). See [docs/api/statistics/accuracy.md](docs/api/statistics/accuracy.md).
+
+### Added
+
+- **evidently data drift (#300, anofox-statistics 0.7).** `z_drift_agg` (two-proportion
+  z test), `chisq_drift_agg` and `g_drift_agg` (goodness of fit of the current counts against
+  the reference shares) take numeric or VARCHAR categories. `column_drift_agg(value, group,
+  {'test': 'auto' | <evidently name>, 'threshold': ...})` runs evidently's column drift
+  (default test choice, thresholds and drift rules over all 18 evidently tests) and returns
+  `STRUCT(test, score, is_p_value, threshold, drifted, n1, n2)`. `dataset_drift_agg` and the
+  `dataset_drift_by(source, group_col, columns)` table macro apply evidently's
+  share-of-drifted-columns rule. Reference values: base R
+  (`validation/generators/make_reference_drift_evidently.R`), cross-checked against scipy.
+- **Drift on category labels (#301, anofox-statistics 0.7).** VARCHAR values of `psi_agg`,
+  `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg` and `tvd_agg` now go to
+  upstream's `*_categorical` variants and `tvd_test` on the labels (same result shape and
+  values as before; one bin per label, sorted by byte order). New
+  `category_proportions_agg(category, group [, {'reference': ...}])` returns
+  `STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`: the per-category
+  shares the divergences compare. Reference values: base R
+  (`validation/generators/make_reference_drift_categorical.R`), cross-checked against scipy.
+- **Embedding drift and multivariate two-sample tests (#302, anofox-statistics 0.7).**
+  `embedding_drift_agg(embedding DOUBLE[], group | is_reference, {'method': 'distance' |
+  'ratio' | 'mmd', ...})` runs evidently's embedding drift methods (distance between the mean
+  embeddings with euclidean / cosine / cityblock / chebyshev, share of drifted components,
+  MMD with the median bandwidth) with a fixed or seeded bootstrap threshold and returns
+  `STRUCT(method, score, threshold, drifted, n1, n2, dim)`. `energy_distance_test_agg(x
+  DOUBLE[], group [, options])` and `mmd_test_agg(x DOUBLE[], group [, {'kernel': ...}])` are
+  the multivariate energy distance and MMD permutation tests (the 1-D `energy_distance_agg`
+  / `mmd_agg` are unchanged). All vectors of a call must have the same length. Reference
+  values: base R (`validation/generators/make_reference_embedding_drift.R`).
+
+### Added
+
+- **Cluster-robust (sandwich) covariance** (#309): `ols_fit_agg(y, x, cluster, options)` and
+  `wls_fit_agg(y, x, weight, cluster, options)` replace the standard errors, tests, F test and
+  `vcov` with the cluster-robust ones (`sandwich::vcovCL`, `rms::robcov`; upstream
+  `inference::cluster`). `cluster` is a per-row argument of any type, or a LIST / STRUCT of ids
+  for multiway clustering; `hc_type` picks the type (HC0-HC3, default HC1) and the new `cadjust`
+  option the `G/(G-1)` adjustment. The result adds `vcov_type` and `n_clusters`.
+
+### Added
+
+- **Likelihood-ratio and score tests, profile-likelihood intervals (#310).** `lr_test(model_full,
+  model_reduced)` compares two nested fitted model STRUCTs (R's `anova(test = "LRT")` /
+  `lmtest::lrtest`: deviance difference for binomial / Poisson, scaled by the full model's
+  dispersion for Gamma / Tweedie, `-2 log L` otherwise) and `lr_test(model)` tests a fit against
+  its null model; incompatible models (type, family, rows, parameter count) are errors.
+  `glm_score_test_agg` / `glm_score_test_by` give Rao's score test for adding predictors to a GLM
+  (`anova(test = "Rao")`, z values of `statmod::glm.scoretest`). The GLM fit aggregates accept
+  `profile_ci := true` for profile-likelihood intervals (`confint(glm)`). All from
+  anofox-regression's `inference::likelihood`.
+
 ### Changed
+
+- **`ols_fit_agg` / `wls_fit_agg` with `hc_type`: `vcov` is the HC covariance** (**behaviour
+  change**). It was the classical `σ²(X'X)⁻¹` even when the standard errors were robust; it is now
+  `sandwich::vcovHC(lm(...[, weights = w]), type)` (upstream `FittedOls::hc_vcov` /
+  `FittedWls::hc_vcov`), the covariance the standard errors use, so `predict(model, x,
+  {'se_fit': true})` and its confidence interval are heteroskedasticity-consistent too. Without
+  `hc_type` nothing changes. Validated against `vcovHC` (weighted and unweighted).
+- **`mmd_test_agg`'s gaussian kernel defaults to the median-heuristic bandwidth** (**behaviour
+  change**; was `bandwidth = 1`). It is the bandwidth `mmd_agg` (upstream `mmd_test_1d`) uses and
+  evidently's MMD convention, so the multivariate and 1-D tests agree on 1-D data; pass
+  `{'bandwidth': 1.0}` for the previous statistic. The laplacian kernel keeps `bandwidth = 1`.
+- **evidently defaults from upstream.** `column_drift_agg`, `dataset_drift_agg`,
+  `embedding_drift_agg` and the drift tests take evidently's defaults (permutations, drift
+  share, embedding thresholds, quantiles, bootstrap resamples, the ratio method's component test
+  and threshold) from `drift::defaults` / `EmbeddingThreshold::EVIDENTLY_*` instead of copies.
+  No change in results.
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /
   `'greater'`, `t_test_agg` (Welch and Student), `t_test_one_sample_agg` and
@@ -114,8 +488,31 @@ Breaking changes are called out explicitly.
 - **anofox-statistics 0.8.1** (from 0.7.0). Besides the fixes above (SPA / MCS, ICC2
   intervals, one-sided t intervals, joint residualization in the semi-partial correlation,
   `qwilcox` boundaries), the exact Wilcoxon / Mann-Whitney quantile behind the
-  Hodges-Lehmann intervals is exact at p = 0 / 1. Upstream's repeated-measures ANOVA
-  changes (Huynh-Feldt epsilon, Mauchly p-value) are not exposed in SQL.
+  Hodges-Lehmann intervals is exact at p = 0 / 1.
+- **`vif` / `vif_agg` delegate to anofox-regression** (`diagnostics::variance_inflation_factor`,
+  #307) instead of computing the auxiliary regressions in the extension. Results are
+  unchanged except that a VIF above 10^4 (auxiliary R^2 > 0.9999) is now reported as its
+  finite value, as `car::vif` does, instead of `inf`.
+- **anofox-regression 0.11.1 and anofox-statistics 0.8.2** (patch releases; the
+  extension's workarounds for the upstream bugs are removed):
+  - **VIF / GVIF of aliased designs (behaviour change).** `vif`, `vif_agg` and `gvif_agg`
+    now report `inf` only for the aliased columns / terms (a constant column, an exact
+    linear dependency, every column when there are no more complete rows than columns);
+    the others keep their finite VIF on the span of the remaining columns, equal to
+    `car::vif` on the design without the aliased columns. Before, a constant column made
+    every GVIF `inf`. The extension's own small-design `inf` guard and its
+    `GVIF^(1/(2 df))` computation are gone (upstream `diagnostics::generalized_vif_terms`).
+  - **`val_prob_agg` with probabilities of exactly 0 or 1 (behaviour change).** `u`,
+    `u_chisq`, `u_p` and `q` are no longer NULL: they match `rms::val.prob` (a
+    probability of 0 for an event gives `u = inf`, `u_p = 0`, `q = -inf`). `lrm_stats_agg`
+    takes its `ess` from upstream `LrmStats::effective_sample_size` (same value).
+  - **`spa_test_agg` / `mspe_adjusted_spa_agg` when no model beats the benchmark
+    (behaviour change).** With `statistic = 0` all three p-values are now 1
+    (`P(T* >= T_SPA)`); before, `p_value_lower` / `p_value_consistent` came out near 0.
+  - **`repeated_measures_anova_agg`** gains the Huynh-Feldt fields `hf_epsilon`, `hf_df1`,
+    `hf_df2`, `hf_p_value` (after `gg_p_value`), and `mauchly_p_value` now includes the
+    second-order term of the chi-square approximation, as `stats::mauchly.test`
+    (anofox-statistics 0.8.1).
 - **anofox-regression 0.11.0 and anofox-statistics 0.7.0.** Both are additive upstream
   releases; the one behaviour change is anofox-regression's LassoLars drop rule fix (#305
   upstream: after a coefficient crosses zero the path is the true lasso path, as sklearn).

@@ -65,9 +65,21 @@ How the prediction is computed depends on the model:
   field, so the default prediction is on the response scale (a rate, a
   probability, a mean). With `{'type': 'link'}` the linear predictor `η` itself
   is returned.
+- **Ordinal models** (`ordinal_fit_agg`, `continuation_ratio_fit_agg`): the most
+  probable level, or with `{'type': 'prob' | 'exceedance' | 'mean' | 'quantile'}`
+  the level probabilities, the exceedance probabilities, the mean or a
+  predicted quantile with confidence limits; see
+  [ordinal_predict](../glm/ordinal.md#ordinal_predict).
+- **P-spline models** (`pspline_fit_agg`): `x` holds a single value; the stored
+  smoother is rebuilt upstream and evaluated there, with `se_fit` / `interval`
+  as below; see [P-splines](pspline.md#predict).
 - **Isotonic models** (`isotonic_fit_agg`): `x` holds a single value. The
   prediction interpolates linearly between the neighbouring knots and is
   clamped to the first/last fitted value outside the training range.
+- **Multinomial models** (`multinomial_fit_agg`): the most probable class (the
+  type of the model's `classes`), or with `{'type': 'prob'}` the class
+  probabilities as a `DOUBLE[]`; see
+  [multinomial_predict](../glm/multinomial.md#multinomial_predict).
 
 NULL handling: a NULL model (for example a group whose fit was degenerate), a
 NULL `x`, or a NULL element in `x` gives NULL. An `x` whose length does not
@@ -94,8 +106,11 @@ computed by anofox-regression (`intervals_from_variance_factor`,
   prediction interval `yhat ∓ t(df) · sqrt(se_fit² + σ²)` with
   `σ = residual_std_error` (for WLS a new observation of weight 1, R's
   default). For Ridge `V` is the sandwich covariance of the shrunken
-  coefficients, as the fit-predict intervals use. `vcov` is the classical
-  covariance even when `hc_type` asks for robust standard errors.
+  coefficients, as the fit-predict intervals use. With `hc_type`, `vcov` of
+  `ols_fit_agg` / `wls_fit_agg` is the HC covariance (`sandwich::vcovHC`), and
+  with a cluster argument the cluster-robust one, so `se_fit` and the
+  confidence interval are robust (the prediction interval still adds the
+  classical `σ²`).
 - **GLMs** (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`),
   as R `predict.glm(se.fit = TRUE)`: on the link scale `se_fit = sqrt(x0' V x0)`
   (`V` includes the estimated dispersion of Gamma and Tweedie); on the response

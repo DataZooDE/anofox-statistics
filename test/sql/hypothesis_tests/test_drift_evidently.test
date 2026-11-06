@@ -1,0 +1,226 @@
+# name: test/sql/hypothesis_tests/test_drift_evidently.test
+# description: evidently drift aggregates (#300): z / chisq / G drift, column_drift_agg, dataset_drift_agg, dataset_drift_by -- labels, NULLs, options, edge cases
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c,
+       (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s
+FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ((i*3) % 5)::INTEGER,
+       (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1]
+FROM range(40) r(i);
+
+# VARCHAR group labels and the reference option, as the other drift aggregates.
+query III
+SELECT (SELECT chisq_drift_agg(s, CASE grp WHEN 0 THEN 'base' ELSE 'now' END).p_value FROM ev)
+     = (SELECT chisq_drift_agg(s, grp).p_value FROM ev),
+       (SELECT g_drift_agg(c, grp, {'reference': 1}).statistic FROM ev)
+     = (SELECT g_drift_agg(c, 1 - grp).statistic FROM ev),
+       (SELECT column_drift_agg(v, CASE grp WHEN 0 THEN 'ref' ELSE 'cur' END, {'reference': 'ref'}).score FROM ev)
+     = (SELECT column_drift_agg(v, grp).score FROM ev);
+----
+true	true	true
+
+# Numeric codes and VARCHAR labels of the same categories give the same result.
+query II
+SELECT (SELECT chisq_drift_agg(c, grp).statistic FROM ev WHERE c < 4)
+     = (SELECT chisq_drift_agg('k' || c, grp).statistic FROM ev WHERE c < 4),
+       (SELECT z_drift_agg(b, grp).statistic FROM ev) = (SELECT z_drift_agg(b::VARCHAR, grp).statistic FROM ev);
+----
+true	true
+
+# A single category: z = 0, p = 1; chi-squared / G = 0, p = 1.
+query IIII
+SELECT (z_drift_agg('x', grp)).statistic, (z_drift_agg('x', grp)).p_value,
+       (chisq_drift_agg('x', grp)).p_value, (g_drift_agg(1.0, grp)).statistic
+FROM ev;
+----
+0.0	1.0	1.0	0.0
+
+# NULL values and groups are skipped.
+query IIII
+SELECT (SELECT z_drift_agg(b, grp) FROM ev) = (SELECT z_drift_agg(b, grp) FROM (SELECT b, grp FROM ev UNION ALL SELECT NULL, 0 UNION ALL SELECT 1, NULL)),
+       (SELECT chisq_drift_agg(s, grp) FROM ev) = (SELECT chisq_drift_agg(s, grp) FROM (SELECT s, grp FROM ev UNION ALL SELECT NULL, 1)),
+       (SELECT column_drift_agg(v, grp) FROM ev) = (SELECT column_drift_agg(v, grp) FROM (SELECT v, grp FROM ev UNION ALL SELECT NULL, 0 UNION ALL SELECT 'NaN'::DOUBLE, 1)),
+       (SELECT column_drift_agg(s, grp) FROM ev) = (SELECT column_drift_agg(s, grp) FROM (SELECT s, grp FROM ev UNION ALL SELECT NULL, 1));
+----
+true	true	true	true
+
+# One group only, or no rows: NULL.
+query IIII
+SELECT z_drift_agg(b, grp) IS NULL, chisq_drift_agg(s, grp) IS NULL, column_drift_agg(v, grp) IS NULL,
+       dataset_drift_agg(v > 0) IS NULL
+FROM ev WHERE false;
+----
+true	true	true	true
+
+query II
+SELECT g_drift_agg(s, grp) IS NULL, column_drift_agg(s, grp) IS NULL FROM ev WHERE grp = 1;
+----
+true	true
+
+# A third label is an error.
+statement error
+SELECT z_drift_agg(b, grp % 3) FROM (SELECT b, (row_number() OVER ())::BIGINT AS grp FROM ev);
+----
+compares exactly two groups
+
+# Seeded permutation p-values are deterministic and independent of the row order.
+query II
+SELECT (SELECT column_drift_agg(s, grp, {'test': 'TVD', 'seed': 7}) FROM ev)
+     = (SELECT column_drift_agg(s, grp, {'test': 'TVD', 'seed': 7} ORDER BY v DESC) FROM ev),
+       (SELECT column_drift_agg(v, grp, {'test': 'empirical_mmd', 'seed': 7}) FROM ev)
+     = (SELECT column_drift_agg(v, grp, {'test': 'empirical_mmd', 'seed': 7} ORDER BY v DESC) FROM ev);
+----
+true	true
+
+# Every evidently test name runs on a numeric column; the categorical-only tests on VARCHAR.
+query I
+SELECT list(r.test ORDER BY k) = ['ks', 'anderson', 'cramer_von_mises', 'es', 'mannw', 't_test', 'ed', 'empirical_mmd', 'wasserstein', 'psi', 'kl_div', 'jensenshannon', 'hellinger', 'chisquare', 'g_test', 'TVD'] FROM (
+    SELECT 0 AS k, column_drift_agg(v, grp, {'test': 'ks', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 1 AS k, column_drift_agg(v, grp, {'test': 'anderson', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 2 AS k, column_drift_agg(v, grp, {'test': 'cramer_von_mises', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 3 AS k, column_drift_agg(v, grp, {'test': 'es', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 4 AS k, column_drift_agg(v, grp, {'test': 'mannw', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 5 AS k, column_drift_agg(v, grp, {'test': 't_test', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 6 AS k, column_drift_agg(v, grp, {'test': 'ed', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 7 AS k, column_drift_agg(v, grp, {'test': 'empirical_mmd', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 8 AS k, column_drift_agg(v, grp, {'test': 'wasserstein', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 9 AS k, column_drift_agg(v, grp, {'test': 'psi', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 10 AS k, column_drift_agg(v, grp, {'test': 'kl_div', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 11 AS k, column_drift_agg(v, grp, {'test': 'jensenshannon', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 12 AS k, column_drift_agg(v, grp, {'test': 'hellinger', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 13 AS k, column_drift_agg(v, grp, {'test': 'chisquare', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 14 AS k, column_drift_agg(v, grp, {'test': 'g_test', 'seed': 1}) r FROM ev UNION ALL
+    SELECT 15 AS k, column_drift_agg(v, grp, {'test': 'TVD', 'seed': 1}) r FROM ev
+);
+----
+true
+
+query I
+SELECT list(r.test ORDER BY r.test) FROM (
+    SELECT column_drift_agg(s, grp, {'test': 'psi'}) r FROM ev UNION ALL
+    SELECT column_drift_agg(s, grp, {'test': 'kl_div'}) FROM ev UNION ALL
+    SELECT column_drift_agg(s, grp, {'test': 'jensenshannon'}) FROM ev UNION ALL
+    SELECT column_drift_agg(s, grp, {'test': 'hellinger'}) FROM ev UNION ALL
+    SELECT column_drift_agg(s, grp, {'test': 'g_test'}) FROM ev UNION ALL
+    SELECT column_drift_agg(s, grp, {'test': 'TVD'}) FROM ev UNION ALL
+    SELECT column_drift_agg(b::VARCHAR, grp, {'test': 'fisher_exact'}) FROM ev UNION ALL
+    SELECT column_drift_agg(b::VARCHAR, grp, {'test': 'z'}) FROM ev
+);
+----
+[TVD, fisher_exact, g_test, hellinger, jensenshannon, kl_div, psi, z]
+
+# Thresholds: distances drift at score >= threshold (ed: score > threshold).
+query II
+SELECT (column_drift_agg(v, grp, {'test': 'psi', 'threshold': 1e6})).drifted,
+       (column_drift_agg(v, grp, {'test': 'psi', 'threshold': 0})).drifted
+FROM ev;
+----
+false	true
+
+# Options of the binned divergences pass through.
+query I
+SELECT (column_drift_agg(v, grp, {'test': 'psi', 'binning': 'quantile', 'n_bins': 10})).score
+     = (psi_agg(v, grp, {'binning': 'quantile', 'n_bins': 10})).psi
+FROM ev;
+----
+true
+
+# Invalid options.
+statement error
+SELECT column_drift_agg(v, grp, {'test': 'nope'}) FROM ev;
+----
+unknown drift test 'nope'
+
+statement error
+SELECT column_drift_agg(v, grp, {'test': 'nope'}) FROM ev WHERE false;
+----
+unknown drift test 'nope'
+
+statement error
+SELECT column_drift_agg(s, grp, {'test': 'ks'}) FROM ev;
+----
+does not apply to categorical columns
+
+statement error
+SELECT column_drift_agg(v, grp, {'test': 'fisher_exact'}) FROM ev;
+----
+fisher_exact needs a binary column
+
+statement error
+SELECT column_drift_agg(v, grp, {'alternative': 'less'}) FROM ev;
+----
+unknown option 'alternative'
+
+statement error
+SELECT z_drift_agg(b, grp, {'threshold': 0.1}) FROM ev;
+----
+unknown option 'threshold'
+
+statement error
+SELECT chisq_drift_agg(s, grp, {'alternative': 'less'}) FROM ev;
+----
+unknown option 'alternative'
+
+statement error
+SELECT column_drift_agg(s, grp, {'binning': 'sturges'}) FROM ev;
+----
+needs numeric values
+
+# dataset_drift_agg: NULL flags are skipped; drift_share in [0, 1].
+query IIIII
+SELECT r.n_columns, r.n_drifted, r.share_drifted, r.drift_share, r.dataset_drift
+FROM (SELECT dataset_drift_agg(d) r FROM (VALUES (true), (false), (NULL), (true)) t(d));
+----
+3	2	0.6666666666666666	0.5	true
+
+query I
+SELECT (dataset_drift_agg(d, 0.7)).dataset_drift FROM (VALUES (true), (false), (true)) t(d);
+----
+false
+
+query I
+SELECT dataset_drift_agg(d) IS NULL FROM (VALUES (NULL::BOOLEAN)) t(d);
+----
+true
+
+statement error
+SELECT dataset_drift_agg(d, 1.5) FROM (VALUES (true)) t(d);
+----
+drift_share must be in [0, 1]
+
+# Per-segment dataset drift with GROUP BY.
+query III
+SELECT seg, (dataset_drift_agg(d)).n_columns, (dataset_drift_agg(d)).dataset_drift
+FROM (VALUES (1, true), (1, true), (2, false), (2, true), (2, false)) t(seg, d)
+GROUP BY seg ORDER BY seg;
+----
+1	2	true
+2	3	false
+
+# dataset_drift_by: options pass to every column; BOOLEAN columns are categorical.
+statement ok
+CREATE TABLE ev2 AS SELECT grp, v, s, b = 1 AS flag FROM ev;
+
+query III
+SELECT column_name, test, threshold FROM dataset_drift_by('ev2', grp, ['flag', 'v', 's'], options := {'test': 'psi', 'threshold': 0.2});
+----
+flag	psi	0.2
+v	psi	0.2
+s	psi	0.2
+
+query II
+SELECT column_name, test FROM dataset_drift_by('ev2', grp, ['flag', 'v']);
+----
+flag	z
+v	ks
+
+query I
+SELECT column_name FROM dataset_drift_by('ev2', grp, ['v'], options := {'reference': 1});
+----
+v

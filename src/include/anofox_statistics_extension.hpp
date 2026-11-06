@@ -64,6 +64,8 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader);
 void RegisterLsStateFunctions(ExtensionLoader &loader);
 void RegisterLmDynamicFunctions(ExtensionLoader &loader);
 void RegisterLowessFunction(ExtensionLoader &loader);
+// P-spline smoother: pspline_fit_agg, pspline_fit_predict_agg (#316)
+void RegisterPSplineAggregateFunctions(ExtensionLoader &loader);
 void RegisterPathAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions
@@ -74,8 +76,15 @@ void RegisterMediationAggregateFunction(ExtensionLoader &loader);
 void RegisterOlsAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterCollinearitySeparationAggregateFunctions(ExtensionLoader &loader);
 void RegisterOlsAnovaTableAggregateFunction(ExtensionLoader &loader);
+// Likelihood-ratio and score tests (#310)
+void RegisterGlmScoreTestAggregateFunction(ExtensionLoader &loader);
+void RegisterLrTestFunction(ExtensionLoader &loader);
+void RegisterWaldAnovaFunctions(ExtensionLoader &loader);
 void RegisterGlmmAggregateFunction(ExtensionLoader &loader);
+void RegisterGlsFunctions(ExtensionLoader &loader);
 void RegisterAftScalarFunctions(ExtensionLoader &loader);
+void RegisterCoxFunctions(ExtensionLoader &loader);
+void RegisterPentraceAggregateFunctions(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
 void RegisterNegBinomAggregateFunction(ExtensionLoader &loader);
 void RegisterTweedieAggregateFunction(ExtensionLoader &loader);
@@ -94,9 +103,13 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader);
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);
+void RegisterGvifAggregateFunction(ExtensionLoader &loader);
 void RegisterAicBicFunctions(ExtensionLoader &loader);
 void RegisterJarqueBeraFunction(ExtensionLoader &loader);
 void RegisterNullDistributionFunctions(ExtensionLoader &loader);
+void RegisterSplineFunctions(ExtensionLoader &loader);              // rcs, lsp, bspline, ... (#317)
+void RegisterSplineKnotsAggregateFunctions(ExtensionLoader &loader); // rcs_knots_agg, bspline_knots_agg (#317)
+void RegisterEffectsFunctions(ExtensionLoader &loader); // effects_summary_agg, contrast_agg, predict_grid_agg, ... (#319)
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);
@@ -121,6 +134,7 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader);
 void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader);
 void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader);
 void RegisterDriftAggregateFunctions(ExtensionLoader &loader);
+void RegisterEmbeddingAggregateFunctions(ExtensionLoader &loader);
 void RegisterMmdAggregateFunction(ExtensionLoader &loader);
 void RegisterTostTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader);
@@ -145,6 +159,7 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader);
 void RegisterCramersVAggregateFunction(ExtensionLoader &loader);
 void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader);
 void RegisterIccAggregateFunction(ExtensionLoader &loader);
+void RegisterFactorialAnovaAggregateFunctions(ExtensionLoader &loader);
 void RegisterGTestAggregateFunction(ExtensionLoader &loader);
 void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);
@@ -152,6 +167,9 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 
 // Classifier evaluation: ROC/PR/calibration curves, AUC, Brier, log loss (#153)
 void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
+
+// Predictive accuracy indexes: concordance, somers2, rcorr.cens, lrm stats, val.prob, R2 measures (#308)
+void RegisterAccuracyFunctions(ExtensionLoader &loader);
 
 // Table Macros for fit_predict_by functions
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
@@ -165,6 +183,21 @@ unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const v
                                                      const string &sql, const string &description,
                                                      const string &example, const vector<string> &categories);
 void RegisterCurveMacros(ExtensionLoader &loader);
+// Ordinal regression: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict,
+// ordinal_fit_predict_by, continuation_ratio_fit_predict_by (#313)
+void RegisterOrdinalFunctions(ExtensionLoader &loader);
+// Principal component analysis: pca_agg, pca_transform, pca_by (#303)
+void RegisterPcaFunctions(ExtensionLoader &loader);
+void RegisterImputationFunctions(ExtensionLoader &loader);
+// Multinomial logistic regression: multinomial_fit_agg, multinomial_predict,
+// multinomial_fit_predict_by (#314)
+void RegisterMultinomialFunctions(ExtensionLoader &loader);
+// Resampling validation / calibration: validate_agg, calibrate_agg, calibrate_cph_agg, bootcov_agg
+// and their _by macros (#318)
+void RegisterModelValidationFunctions(ExtensionLoader &loader);
+// Data reduction and transforms: spearman2_agg, hoeffding_d_agg, box_cox_agg,
+// box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
+void RegisterReductionFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

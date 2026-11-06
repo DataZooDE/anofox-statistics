@@ -116,6 +116,19 @@ needs `greybox` and (re)writes `lowess_reference.test` (`lowess_agg`, `lowess_by
 against `stats::lowess`) and `lm_dynamic_reference.test` (`lm_dynamic_fit_agg`
 against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 
+## `make_reference_pspline.R`
+
+```bash
+Rscript validation/generators/make_reference_pspline.R
+```
+
+Needs `mgcv` and (re)writes `pspline_reference.test`: `pspline_fit_agg`,
+`pspline_fit_predict_agg` and `pspline_fit_predict_by` against
+`mgcv::gam(y ~ s(x, bs = "ps", k, m = c(2, order)), method = "GCV.Cp")` (and a
+fixed `sp`): `lambda = sp / S.scale`, `sum(edf)`, `sig2`, `predict.gam(se.fit =
+TRUE)` inside and beyond the data range, with confidence / prediction bands from
+`qt(., n - edf)`. GCV fits agree to 1e-5, fixed-lambda fits to 1e-8.
+
 ## `make_reference_option_passthroughs.py` and `make_reference_option_passthroughs.R`
 
 ```bash
@@ -150,6 +163,28 @@ its output.
 `make_reference_partial_cor.R` prints the `ppcor::pcor.test` / `spcor.test` values
 of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_agg`,
 #296); it needs the `ppcor` package (`install.packages("ppcor", lib = "~/R/userlib")`).
+
+`make_reference_anova.R` prints the values of `anova_reference.test`
+(`two_way_anova_agg`: `car::Anova(type = 3)` with sum contrasts;
+`repeated_measures_anova_agg`: `aov(y ~ cond + Error(subject / cond))`,
+`mauchly.test` and the Greenhouse-Geisser epsilon, cross-checked against
+`afex::aov_ez` when afex is installed, e.g. in `~/R/userlib`).
+
+`make_reference_reduction.R` (Hmisc, MASS) (re)writes `reduction_reference.test`:
+`spearman2_agg`, `hoeffding_d_agg`, `varclus_agg` and `redun_agg` against Hmisc's
+`spearman2`, `hoeffd`, `varclus` and `redun`, and `box_cox_agg` against `MASS::boxcox`
+(lambda and its interval by `optimize` / `uniroot` on boxcox's own profile), on `mtcars`.
+
+`make_reference_pca.R` (base R only) (re)writes `pca_reference.test`:
+`pca_agg`, `pca_transform` and `pca_by` against `prcomp` / `predict.prcomp`
+on `USArrests` and a wide (n < d) matrix. prcomp's arbitrary component signs
+are flipped to the extension's convention (largest absolute loading positive)
+before the comparison.
+
+`make_reference_accuracy.R` (rms, Hmisc, survival) prints the data and the
+reference values of `accuracy_reference.test` (`concordance_agg`,
+`somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`,
+`gini_md_agg`, `r2_measures`, #308); the test is written from its output.
 
 ## `generate_issue107_tests.R`
 
@@ -186,3 +221,153 @@ data of anofox-statistics `R/generate_refs.R` (same seeds). The MCS superior set
 and elimination order come from the R package `MCS` (`MCSprocedure`), installed
 into a user library (`install.packages("MCS", lib = "~/R/userlib")`). Bootstrap
 p-values are only checked for their decision.
+
+## `make_reference_vif.R`
+
+```bash
+Rscript validation/generators/make_reference_vif.R
+```
+
+Requires `car`. Writes `vif_reference.test`: `vif`, `vif_agg` and `gvif_agg`
+(default terms, factor terms, non-adjacent integer labels) against
+`car::vif(lm(...))` (#307).
+
+## `make_reference_cluster_vcov.R`
+
+```bash
+Rscript validation/generators/make_reference_cluster_vcov.R
+```
+
+Requires `sandwich`, `lmtest` and `rms`. It (re)writes
+`test/sql/reference/cluster_vcov.test`: the cluster-robust inference of
+`ols_fit_agg(y, x, cluster, options)` / `wls_fit_agg(y, x, w, cluster, options)`
+(#309) against `sandwich::vcovCL` (types HC0-HC3, `cadjust`, one- and two-way
+clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
+`rms::robcov`.
+
+## `make_reference_glm_cluster_vcov.R`
+
+```bash
+Rscript validation/generators/make_reference_glm_cluster_vcov.R
+```
+
+Requires `sandwich`, `lmtest`, `MASS`, `statmod` and `survival`. It (re)writes
+`test/sql/reference/glm_cluster_vcov.test`: the cluster-robust inference of the
+GLM cluster forms (`poisson` / `binomial` / `logistic` / `negbinom` / `gamma` /
+`tweedie_fit_agg(y, x, cluster, {'vcov': 'cluster'})`) against
+`sandwich::vcovCL(glm)` (HC0 / HC1, `cadjust`, integer and string ids, two-way,
+an offset, `glm.nb`, `statmod::tweedie`), a penalized logistic sandwich computed
+in base R (Normal priors: penalized bread `(X'WX + P)^-1`), and of
+`aft_fit_agg(time, x, event, cluster, options)` against `survreg(..., cluster =)`.
+
+## `make_reference_wls_hc.R`
+
+```bash
+Rscript validation/generators/make_reference_wls_hc.R
+```
+
+Requires `sandwich` and `lmtest`. It (re)writes `test/sql/reference/wls_hc.test`:
+the heteroskedasticity-consistent inference and `vcov` of `wls_fit_agg(y, x, w, {'hc_type': ...})` and `ols_fit_agg`
+without a cluster against `sandwich::vcovHC(lm(..., weights = w), type = "HC0".."HC3")`
+with `lmtest::coeftest` / `coefci`, with and without an intercept.
+
+## `make_reference_multinomial.py` and `make_reference_multinomial.R`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_multinomial.py
+Rscript validation/generators/make_reference_multinomial.R
+```
+
+The Python script writes `test/sql/reference/multinomial_sklearn.test`:
+`multinomial_fit_agg` / `multinomial_predict` / `predict` (#314) against
+scikit-learn `LogisticRegression` (`coef_`, `intercept_`, `predict_proba`,
+`predict`, `score` and the weighted log-likelihood) for ridge, lasso and
+elastic-net penalties, sample weights, no intercept, two classes and integer
+labels, solved to a tight tolerance (`lbfgs` / `saga`). The R script (needs
+`nnet`) writes `test/sql/reference/multinomial_nnet.test`: the unpenalized fit
+(`lambda` 0, with and without case weights) against `nnet::multinom`, comparing
+the baseline-category contrasts `coefficients[k] - coefficients[1]`, the
+fitted probabilities, the predicted classes and `logLik`.
+
+## `make_reference_cox.R`
+
+```bash
+Rscript validation/generators/make_reference_cox.R
+```
+
+Requires `survival` and `rms`. It (re)writes `test/sql/reference/survival_cox.test`:
+`cox_fit_agg` (Efron / Breslow ties, case weights, offset, strata, counting-process
+data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
+`cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
+`survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
+on `survival::lung` and `survival::heart`.
+
+## `make_reference_ordinal.R`
+
+```bash
+Rscript validation/generators/make_reference_ordinal.R
+```
+
+Requires `rms`, `MASS` and `numDeriv`. It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `ordinal_reference.test` | `ordinal_fit_agg` (five links, case weights, offset, penalty, proportional-odds score test), `ordinal_predict` / `predict` (`prob`, `exceedance`, `mean`, `class`), `continuation_ratio_fit_agg` (equal and cohort-specific slopes, case weights) (#313) | `rms::orm`, `MASS::polr`, `predict.orm`, `predict.polr(type = "class")`, `rms::cr.setup` + `lrm`; the score test is `U' I^-1 U` of the partial proportional-odds log-likelihood by numDeriv, as upstream's validation |
+## `make_reference_gls.R`
+
+```bash
+Rscript validation/generators/make_reference_gls.R
+```
+
+Requires `nlme`. It (re)writes `test/sql/reference/gls_reference.test`:
+`gls_fit_agg` / `gls_augment_agg` (#315) against `nlme::gls` with `corAR1`,
+`corCompSymm`, `corCAR1`, `corExp` (with and without nugget) and `corSymm`,
+`varIdent`, `varPower` and `varExp`, REML and ML, without intercept;
+`intervals(fit)` (coefficients and var-cov), `Variogram(fit)`, `fitted` /
+`resid(type = "pearson" / "normalized")`, `sqrt(x' vcov(fit) x)` and
+`anova(full, reduced)` for `lr_test`.
+
+## `make_reference_validate.R`
+
+```bash
+Rscript validation/generators/make_reference_validate.R
+```
+
+Requires `rms` and `python3`. It (re)writes `test/sql/reference/validate_calibrate.test`:
+`validate_agg` (ols and logistic; bootstrap, cross-validation, .632), `calibrate_agg`
+(default and user grid), `calibrate_cph_agg` and `bootcov_agg` (ordinary and cluster
+bootstrap) (#318) against `rms::validate`, `rms::calibrate`, `rms::calibrate.cph` and
+`rms::bootcov`. The extension draws its resamples with anofox-regression's SplitMix64
+generator, not R's RNG; the script recomputes those draws for each seed (a small embedded
+Python helper, exact 64-bit arithmetic) and feeds them to `rms` through a `sample()`
+injected into `predab.resample` and `bootcov`, so the tables are compared exactly rather
+than up to Monte-Carlo error.
+
+## `make_reference_imputation.R`
+
+```bash
+Rscript validation/generators/make_reference_imputation.R
+```
+
+Requires `Hmisc`, `mice` and `mitml` (taken from `~/R/userlib` when not installed
+system-wide). It (re)writes `test/sql/reference/imputation_reference.test`:
+`areg_impute_agg` / `areg_impute_by` (#321) against `Hmisc::aregImpute` on
+upstream's validation data (weighted and closest matching, `I(x)`, `tlinear = FALSE`,
+`burnin`; the imputations replay R's random draws, compared to 1e-12), and
+`pool_rubin_agg` over OLS and logistic fits to the imputed data sets against
+`mice::pool` / `summary(conf.int = TRUE)` (Barnard-Rubin and Rubin d.f., `dfcom`)
+and `mice::D1` (Reiter's d.f.).
+
+## `make_reference_survival_extras.R`
+
+```bash
+Rscript validation/generators/make_reference_survival_extras.R
+```
+
+Requires `survival`. It (re)writes `test/sql/reference/survival_extras.test` (#322):
+`aft_augment_by` (linear predictor, standardized and Cox-Snell residuals, score
+contributions for the four AFT distributions) against `survreg`, `psurvreg` and
+`residuals(fit, type = "matrix")`; `kaplan_meier_agg` with options (weights, entry
+times, `cluster`, `robust`, `ctype`, `conf.type`) against `survfit`; and
+`log_rank_test_agg` with `rho` / `strata` against `survdiff`, on `survival::lung`
+and `survival::heart`.

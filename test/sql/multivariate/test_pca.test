@@ -1,0 +1,245 @@
+# name: test/sql/multivariate/test_pca.test
+# description: pca_agg, pca_transform and pca_by (#303): shapes, options, NULL handling, edge cases
+# group: [multivariate]
+#
+# Reference values against R's prcomp: test/sql/reference/pca_reference.test.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE pts AS SELECT * FROM (VALUES
+    ('a', 1, 2.5, 2.4, 1.0),
+    ('a', 2, 0.5, 0.7, 2.0),
+    ('a', 3, 2.2, 2.9, 0.5),
+    ('a', 4, 1.9, 2.2, 1.5),
+    ('a', 5, 3.1, 3.0, 0.2),
+    ('a', 6, 2.3, 2.7, 0.9),
+    ('b', 7, 1.0, 1.0, 1.0),
+    ('b', 8, 2.0, 2.1, 2.0),
+    ('b', 9, 3.0, 2.9, 3.1),
+    ('c', 10, 5.0, 5.0, 5.0)
+) t(g, id, x1, x2, x3);
+
+# ---------------------------------------------------------------------------
+# pca_agg: result shape
+# ---------------------------------------------------------------------------
+query IIIIIII
+SELECT len(m.sdev), len(m.proportion_of_variance), len(m.loadings), len(m.loadings[1]), len(m.center),
+       m.n_observations, m.n_features
+FROM (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a');
+----
+3	3	3	3	3	6	3
+
+# Components are decreasing, unit vectors, largest absolute loading positive; proportions sum to 1.
+query IIII
+SELECT m.sdev[1] >= m.sdev[2] AND m.sdev[2] >= m.sdev[3],
+       bool_and(abs(list_sum(list_transform(l, lambda v: v * v)) - 1) < 1e-12),
+       bool_and(list_max(l) >= -list_min(l)),
+       abs(list_sum(m.proportion_of_variance) - 1) < 1e-12
+FROM (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a'), unnest(m.loadings) u(l)
+GROUP BY m;
+----
+true	true	true	true
+
+# One group, two rows: min(n - 1, d) = 1 component.
+query II
+SELECT m.n_components, len(m.loadings) FROM (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE id IN (7, 8));
+----
+1	1
+
+# Per group: a single-row group yields NULL (degenerate, like an aggregate over too few rows).
+query II
+SELECT g, m.n_components FROM (SELECT g, pca_agg([x1, x2, x3]) m FROM pts GROUP BY g) ORDER BY g;
+----
+a	3
+b	2
+c	NULL
+
+# Empty input: NULL.
+query I
+SELECT pca_agg([x1, x2]) IS NULL FROM pts WHERE false;
+----
+true
+
+# Constant data: components with zero variance.
+query II
+SELECT list_max(m.sdev), list_max(m.proportion_of_variance)
+FROM (SELECT pca_agg([1.0, 2.0]) m FROM range(5));
+----
+0.0	0.0
+
+# ---------------------------------------------------------------------------
+# NULL handling: NULL rows and rows with a NULL / NaN / infinite element are skipped
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE pts_null AS
+SELECT x1, x2, x3 FROM pts WHERE g = 'a'
+UNION ALL SELECT NULL, 1.0, 1.0
+UNION ALL SELECT 'nan'::DOUBLE, 1.0, 1.0
+UNION ALL SELECT 'inf'::DOUBLE, 1.0, 1.0;
+
+query II
+SELECT m.n_observations, m.sdev = (SELECT pca_agg([x1, x2, x3]).sdev FROM pts WHERE g = 'a')
+FROM (SELECT pca_agg([x1, x2, x3]) m FROM pts_null);
+----
+6	true
+
+query I
+SELECT pca_agg(x).n_observations FROM (SELECT [x1, x2, x3] x FROM pts WHERE g = 'a' UNION ALL SELECT NULL::DOUBLE[]);
+----
+6
+
+# Row order does not change the result (canonical order, #226).
+query I
+SELECT (SELECT pca_agg([x1, x2, x3] ORDER BY id) FROM pts WHERE g = 'a')
+     = (SELECT pca_agg([x1, x2, x3] ORDER BY id DESC) FROM pts WHERE g = 'a');
+----
+true
+
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+query III
+SELECT m.n_components, len(m.sdev), len(m.loadings)
+FROM (SELECT pca_agg([x1, x2, x3], {'n_components': 2}) m FROM pts WHERE g = 'a');
+----
+2	2	2
+
+# The MAP form and the alias 'components'.
+query I
+SELECT pca_agg([x1, x2, x3], MAP {'components': 1}).n_components FROM pts WHERE g = 'a';
+----
+1
+
+# More components than the data supports: all of them (prcomp's rank.).
+query I
+SELECT pca_agg([x1, x2, x3], {'n_components': 10}).n_components FROM pts WHERE g = 'a';
+----
+3
+
+# NULL options: the defaults.
+query I
+SELECT pca_agg([x1, x2, x3], NULL).n_components FROM pts WHERE g = 'a';
+----
+3
+
+statement error
+SELECT pca_agg([x1, x2, x3], {'n_components': 0}) FROM pts;
+----
+n_components
+
+# 'scale': true is prcomp(scale. = TRUE): the sds are stored and pca_transform applies them
+# (reference values: test/sql/reference/pca_reference.test).
+query II
+SELECT len((pca_agg([x1, x2, x3], {'scale': true})).scale), (pca_agg([x1, x2, x3])).scale IS NULL FROM pts;
+----
+3	true
+
+statement error
+SELECT pca_agg([x1, x2, x3], {'scale': 'maybe'}) FROM pts;
+----
+to BOOL
+
+statement error
+SELECT pca_agg([x1, x2, x3], {'scale': NULL}) FROM pts;
+----
+scale
+
+statement error
+SELECT pca_agg([x1, x2, x3], {'n_components': id}) FROM pts;
+----
+constant
+
+# Rows of different lengths.
+statement error
+SELECT pca_agg(x) FROM (VALUES ([1.0, 2.0]), ([1.0, 2.0, 3.0]), ([2.0, 1.0])) t(x);
+----
+inconsistent feature count
+
+# ---------------------------------------------------------------------------
+# pca_transform
+# ---------------------------------------------------------------------------
+# The fitted rows' scores are centred: they sum to zero per component.
+query I
+WITH m AS (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a')
+SELECT bool_and(abs(s) < 1e-12) FROM (
+    SELECT unnest(list_reduce(list(pca_transform(m, [x1, x2, x3])), lambda a, b: list_transform(range(1, len(a) + 1), lambda i: a[i] + b[i]))) s
+    FROM pts, m WHERE g = 'a');
+----
+true
+
+# The center scores 0 on every component.
+query I
+WITH m AS (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a')
+SELECT list_max(list_transform(pca_transform(m, m.center), lambda v: abs(v))) < 1e-12 FROM m;
+----
+true
+
+# A hand-written model literal (DECIMAL fields are cast).
+query I
+SELECT list_transform(pca_transform({'center': [1, 2], 'sdev': [1.5, 0.5], 'loadings': [[0.6, 0.8], [-0.8, 0.6]]}, [2.0, 4.0]), lambda v: round(v, 12));
+----
+[2.2, 0.4]
+
+# NULL model, NULL x, x with a NULL element: NULL.
+query III
+WITH m AS (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a')
+SELECT pca_transform(NULL::STRUCT(center DOUBLE[], sdev DOUBLE[], loadings DOUBLE[][]), [1.0, 2.0, 3.0]),
+       pca_transform(m, NULL), pca_transform(m, [1.0, NULL, 3.0])
+FROM m;
+----
+NULL	NULL	NULL
+
+# The model of a degenerate group is NULL, so are its scores.
+query I
+SELECT pca_transform(m, [5.0, 5.0, 5.0]) FROM (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'c');
+----
+NULL
+
+statement error
+WITH m AS (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a')
+SELECT pca_transform(m, [1.0, 2.0]) FROM m;
+----
+3 features but x has 2 values
+
+statement error
+SELECT pca_transform([1.0, 2.0], [1.0, 2.0]);
+----
+model must be the STRUCT returned by pca_agg
+
+statement error
+SELECT pca_transform({'center': [1.0, 2.0]}, [1.0, 2.0]);
+----
+center, sdev and loadings
+
+# ---------------------------------------------------------------------------
+# pca_by: every source row, scores appended, per group
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE pts_by AS SELECT * FROM pts UNION ALL SELECT 'a', 11, NULL, 1.0, 1.0;
+
+query IIII
+SELECT g, count(*), count(scores), max(len(scores)) FROM pca_by('pts_by', g, [x1, x2, x3]) GROUP BY g ORDER BY g;
+----
+a	7	6	3
+b	3	3	2
+c	1	0	NULL
+
+# The scores are pca_transform of the group's model.
+query I
+WITH m AS (SELECT pca_agg([x1, x2, x3]) m FROM pts WHERE g = 'a')
+SELECT bool_and(b.scores = pca_transform(m, [b.x1, b.x2, b.x3]))
+FROM pca_by('pts', g, [x1, x2, x3]) b, m WHERE b.g = 'a';
+----
+true
+
+query II
+SELECT max(len(scores)), list(id ORDER BY id) = list(id) FROM pca_by('pts', g, [x1, x2, x3], options := {'n_components': 1}) WHERE g = 'a';
+----
+1	true
+
+# The source columns are kept.
+query I
+SELECT string_agg(column_name, ',') FROM (DESCRIBE SELECT * FROM pca_by('pts', g, [x1, x2, x3]));
+----
+g,id,x1,x2,x3,scores

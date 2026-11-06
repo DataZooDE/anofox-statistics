@@ -1,0 +1,269 @@
+# name: test/sql/regression/test_pentrace.test
+# description: pentrace_agg / penalized_ols_fit_agg and their *_by macros (#323): shapes, NULL handling, options
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE pt AS
+SELECT i AS id, 'g' || (i % 2) AS grp,
+       (i * 37) % 50 / 10.0 AS x1,
+       ((i * 13) % 40) / 4.0 AS x2,
+       (i % 3 = 0)::INTEGER::DOUBLE AS x3,
+       0.4 * ((i * 37) % 50 / 10.0) + 0.2 * ((i * 13) % 40) / 4.0 + 0.8 * (i % 3 = 0)::INTEGER + sin(i * 1.3) AS y,
+       ((i * 7919) % 100 < 40 + (i * 37) % 50)::INTEGER::DOUBLE AS yb,
+       (i % 4)::DOUBLE AS yo
+FROM range(200) r(i);
+
+# ---------------------------------------------------------------- shapes ---
+
+query IIII
+SELECT len(t), len(list_filter(t, lambda r: r.is_best)), t[1].df, t[1].n_observations
+FROM (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 1, 10, 100]}) AS t FROM pt);
+----
+4	1	3.0	200
+
+# A large penalty shrinks the effective d.f. (rms's OLS d.f. scales by (SSE + penalty) / SSE, so it
+# need not decrease monotonically); aic = LR - 2 df, bic = LR - df log n
+query III
+SELECT t[4].df < 3 AND t[5].df < 1,
+       list_bool_and(list_transform(t, lambda r: abs(r.aic - (r.lr_chisq - 2 * r.df)) < 1e-9)),
+       list_bool_and(list_transform(t, lambda r: abs(r.bic - (r.lr_chisq - r.df * ln(200))) < 1e-9))
+FROM (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 1, 10, 100, 1000]}) AS t FROM pt);
+----
+true	true	true
+
+# A uniform penalty resolves to the same value for every type
+query IIII
+SELECT t[2].simple, t[2].nonlinear, t[2].interaction, t[2].nonlinear_interaction
+FROM (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 3]}) AS t FROM pt);
+----
+3.0	3.0	3.0	3.0
+
+# A grid: complex.more drops nonlinear < simple; unset interaction falls back to nonlinear
+query II
+SELECT len(t), list_transform(t, lambda r: [r.simple, r.nonlinear, r.interaction])
+FROM (SELECT pentrace_agg(y, [x1, x2, x3], {'terms': ['a', 'a', 'b'], 'nonlinear': [false, true, false],
+                                             'penalties': {'simple': [0, 2], 'nonlinear': [1, 4]}}) AS t FROM pt);
+----
+3	[[0.0, 1.0, 1.0], [0.0, 4.0, 4.0], [2.0, 4.0, 4.0]]
+
+# Per group
+query II
+SELECT grp, len(t) FROM (SELECT grp, pentrace_agg(y, [x1, x2], {'penalties': [0, 1]}) AS t FROM pt GROUP BY grp)
+ORDER BY grp;
+----
+g0	2
+g1	2
+
+# Binary and ordinal models
+query II
+SELECT len(t1), len(t2)
+FROM (SELECT pentrace_agg(yb, [x1, x2], {'penalties': [0, 1, 4], 'model': 'logistic'}) AS t1,
+             pentrace_agg(yo, [x1, x2], {'penalties': [0, 1, 4], 'model': 'ordinal', 'link': 'cloglog'}) AS t2
+      FROM pt);
+----
+3	3
+
+# The criterion picks a row (BIC prefers more shrinkage than corrected AIC here or the same)
+query I
+SELECT list_position(list_transform(b, lambda r: r.is_best), true) >= list_position(list_transform(a, lambda r: r.is_best), true)
+FROM (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 1, 10, 100, 1000]}) AS a,
+             pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 1, 10, 100, 1000], 'criterion': 'bic'}) AS b FROM pt);
+----
+true
+
+# --------------------------------------------------------- penalized OLS ---
+
+# penalty 0 is least squares
+query III
+SELECT abs(p.intercept - o.intercept) < 1e-9,
+       list_bool_and(list_transform(range(1, 4), lambda j: abs(p.coefficients[j] - o.coefficients[j]) < 1e-9)),
+       abs(p.effective_df - 3) < 1e-9
+FROM (SELECT penalized_ols_fit_agg(y, [x1, x2, x3]) AS p, ols_fit_agg(y, [x1, x2, x3]) AS o FROM pt);
+----
+true	true	true
+
+query IIIIIII
+SELECT len(m.coefficients), len(m.vcov), len(m.effective_df_diagonal), m.terms, len(m.effective_df_by_term),
+       m.model_type, m.var_penalty
+FROM (SELECT penalized_ols_fit_agg(y, [x1, x2, x3], {'penalty': 5}) AS m FROM pt);
+----
+3	16	4	[x1, x2, x3]	3	penalized_ols	simple
+
+# Per-term d.f. sums the columns of the term; a strong penalty lowers the total d.f.
+query II
+SELECT abs(m.effective_df_by_term[1] - (m.effective_df_diagonal[2] + m.effective_df_diagonal[3])) < 1e-12,
+       m.effective_df < 1
+FROM (SELECT penalized_ols_fit_agg(y, [x1, x2, x3], {'terms': ['a', 'a', 'b'], 'penalty': {'simple': 1000}}) AS m FROM pt);
+----
+true	true
+
+query II
+SELECT m.var_penalty, m.std_errors[1] < s.std_errors[1]
+FROM (SELECT penalized_ols_fit_agg(y, [x1, x2], {'penalty': 50, 'var_penalty': 'sandwich'}) AS m,
+             penalized_ols_fit_agg(y, [x1, x2], {'penalty': 50}) AS s FROM pt);
+----
+sandwich	true
+
+# ----------------------------------------------------------- NULL handling ---
+
+# Rows with a NULL y, a NULL x or a NULL list element are skipped
+statement ok
+CREATE TABLE pt_null AS
+SELECT * FROM pt
+UNION ALL SELECT 1000, 'g0', NULL, 1.0, 1.0, 5.0, 1.0, 1.0
+UNION ALL SELECT 1001, 'g0', 1.0, 1.0, 1.0, NULL, 1.0, 1.0;
+
+query II
+SELECT a = b, len(c) FROM (
+  SELECT (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 2]}) FROM pt) AS a,
+         (SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 2]}) FROM pt_null) AS b,
+         (SELECT pentrace_agg(y, CASE WHEN id = 3 THEN NULL ELSE [x1, x2, x3] END, {'penalties': [0, 2]}) FROM pt) AS c);
+----
+true	2
+
+# A group without usable rows gives NULL
+query II
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1]}) IS NULL, penalized_ols_fit_agg(y, [x1, x2]) IS NULL
+FROM pt WHERE id < 0;
+----
+true	true
+
+query I
+SELECT pentrace_agg(NULL::DOUBLE, [x1, x2], {'penalties': [0, 1]}) IS NULL FROM pt;
+----
+true
+
+# A constant column is aliased with the intercept: NULL
+query II
+SELECT pentrace_agg(y, [x1, 1.0], {'penalties': [0, 1]}) IS NULL, penalized_ols_fit_agg(y, [x1, 1.0]) IS NULL FROM pt;
+----
+true	true
+
+# Too few rows: NULL
+query I
+SELECT penalized_ols_fit_agg(y, [x1, x2]) IS NULL FROM pt WHERE id < 3;
+----
+true
+
+# ------------------------------------------------------------ table macros ---
+
+query III
+SELECT grp, count(*), sum(is_best::INTEGER)
+FROM pentrace_by('pt', grp, y, [x1, x2], options := {'penalties': [0, 1, 4]})
+GROUP BY grp ORDER BY grp;
+----
+g0	3	1
+g1	3	1
+
+query II
+SELECT grp, len(coefficients) FROM penalized_ols_fit_by('pt', grp, y, [x1, x2], options := {'penalty': 2.0})
+ORDER BY grp;
+----
+g0	2
+g1	2
+
+# ---------------------------------------------------------- invalid options ---
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'model': 'ols'}) FROM pt;
+----
+option 'penalties' is required
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, -1]}) FROM pt;
+----
+must be finite and >= 0
+
+statement error
+SELECT penalized_ols_fit_agg(y, [x1, x2], {'penalty': -2}) FROM pt;
+----
+must be finite and >= 0
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'bogus': 1}) FROM pt;
+----
+unknown option 'bogus'
+
+statement error
+SELECT penalized_ols_fit_agg(y, [x1, x2], {'penalties': [0, 1]}) FROM pt;
+----
+unknown option 'penalties'
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'model': 'poisson'}) FROM pt;
+----
+option 'model' must be
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'link': 'probit'}) FROM pt;
+----
+option 'link' applies to model 'logistic' and 'ordinal'
+
+statement error
+SELECT pentrace_agg(yo, [x1, x2], {'penalties': [0, 1], 'model': 'ordinal', 'link': 'tanh'}) FROM pt;
+----
+option 'link' must be
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'criterion': 'cv'}) FROM pt;
+----
+option 'criterion' must be
+
+statement error
+SELECT pentrace_agg(yo, [x1, x2], {'penalties': [0, 1], 'model': 'logistic'}) FROM pt;
+----
+needs a binary response
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': {'simple': [0, 1], 'smooth': [2]}}) FROM pt;
+----
+unknown penalty type 'smooth'
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': {'simple': [3], 'nonlinear': [1]}}) FROM pt;
+----
+complex.more
+
+statement error
+SELECT pentrace_agg(y, [x1, x2, x3], {'penalties': [0, 1], 'terms': ['a', 'b']}) FROM pt;
+----
+terms has 2 labels but x has 3 columns
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'terms': ['a', NULL]}) FROM pt;
+----
+every column needs a term
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'nonlinear': [false, true, true]}) FROM pt;
+----
+nonlinear has 3 flags but x has 2 columns
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'categorical': ['x1']}) FROM pt;
+----
+need term labels
+
+statement error
+SELECT pentrace_agg(y, [x1, x2], {'penalties': [0, 1], 'terms': ['a', 'b'], 'categorical': ['c']}) FROM pt;
+----
+categorical label 'c' is not one of the term labels
+
+statement error
+SELECT pentrace_agg(y, [x1, x2, x1 * x2], {'penalties': [0, 1], 'terms': ['a', 'b', 'a * b'],
+                                          'interactions': MAP {'a * b': ['a', 'z']}}) FROM pt;
+----
+interaction label 'z' is not one of the term labels
+
+statement error
+SELECT pentrace_agg(y, [x1, x2, x1 * x2, x2 * x2], {'penalties': [0, 1], 'terms': ['a', 'b', 'a * b', 'a * b'],
+                                                   'interactions': MAP {'a * b': ['a', 'b']}}) FROM pt;
+----
+interaction 'a * b' has 2 columns
+
+statement error
+SELECT penalized_ols_fit_agg(y, [x1, x2], {'var_penalty': 'robust'}) FROM pt;
+----
+option 'var_penalty' must be 'simple' or 'sandwich'

@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/cluster_fit.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -327,8 +328,15 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_ols_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
-                                      state.compute_inference ? &inference_result : nullptr, &error);
+        // With hc_type the model's vcov is the HC covariance its standard errors use
+        // (sandwich::vcovHC, upstream FittedOls::hc_vcov), so predict(se_fit) agrees.
+        const bool hc_vcov = state.compute_inference && state.hc_type != HcType::NONE;
+        double *hc_matrix = nullptr;
+        size_t hc_dim = 0;
+        bool success = hc_vcov ? anofox_ols_hc_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+                                                   &inference_result, &hc_matrix, &hc_dim, &error)
+                               : anofox_ols_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+                                                state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             ThrowUnlessDegenerate("ols_fit_agg", error);
@@ -354,7 +362,18 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
-        writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result, state.fit_intercept);
+        if (hc_vcov) {
+            // NULL when the HC covariance is not available (its std_errors are NULL too).
+            writer.WriteCovariance(result_idx, hc_matrix, hc_dim,
+                                   ResidualDf(core_result.n_observations, core_result.coefficients,
+                                              core_result.coefficients_len, state.fit_intercept));
+            if (hc_matrix) {
+                anofox_free_interval_matrix(hc_matrix);
+            }
+        } else {
+            writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result,
+                                         state.fit_intercept);
+        }
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);
         }
@@ -433,6 +452,9 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
                                       ANOFOX_AGG_BIND(OlsAggBind), OlsAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Cluster-robust covariance (#309): ols_fit_agg(y, x, cluster, options)
+    AddClusterFitOverload(func_set, false);
+
     CreateAggregateFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
@@ -449,6 +471,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
+    info.descriptions.push_back(ClusterFitDescription(false));
     loader.RegisterFunction(std::move(info));
 
 }

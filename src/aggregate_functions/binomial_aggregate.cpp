@@ -12,7 +12,10 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
+#include "../include/cluster_ids.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -30,6 +33,7 @@ struct BinomialAggregateState {
 	double glm_lambda = 0.0;
 	vector<double> y_values;
 	vector<vector<double>> x_columns;
+	ClusterRows cluster; // cluster ids of the cluster form; empty otherwise
 	idx_t n_features;
 	bool initialized;
 
@@ -40,6 +44,7 @@ struct BinomialAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	BinomialAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_BINOMIAL_LINK_LOGIT), max_iterations(100),
@@ -50,6 +55,7 @@ struct BinomialAggregateState {
 		prior_state.Clear();
 		y_values.clear();
 		x_columns.clear();
+		cluster.Clear();
 		n_features = 0;
 		initialized = false;
 	}
@@ -59,6 +65,8 @@ struct BinomialAggregateBindData : public FunctionData {
 	GlmPriorBindData prior_opts;
 	double glm_lambda = 0.0;
 	idx_t offset_column = 0;
+	bool profile_ci = false;
+	ClusterBind cluster; // f(y, x, cluster, {'vcov': 'cluster', ...})
 	bool fit_intercept = true;
 	BinomialLink link = BinomialLink::LOGIT;
 	uint32_t max_iterations = 100;
@@ -71,12 +79,14 @@ struct BinomialAggregateBindData : public FunctionData {
 		result->prior_opts = prior_opts;
 		result->glm_lambda = glm_lambda;
 		result->offset_column = offset_column;
+		result->profile_ci = profile_ci;
 		result->fit_intercept = fit_intercept;
 		result->link = link;
 		result->max_iterations = max_iterations;
 		result->tolerance = tolerance;
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
+		result->cluster = cluster;
 		return std::move(result);
 	}
 
@@ -84,7 +94,8 @@ struct BinomialAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<BinomialAggregateBindData>();
 		return fit_intercept == o.fit_intercept && link == o.link && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && offset_column == o.offset_column;
+		       confidence_level == o.confidence_level && offset_column == o.offset_column && profile_ci == o.profile_ci &&
+		       cluster.Equals(o.cluster);
 	}
 };
 
@@ -101,7 +112,7 @@ static AnofoxBinomialLink ConvertBinomialLink(BinomialLink link) {
 	}
 }
 
-static LogicalType GetBinomialAggResultType() {
+static LogicalType GetBinomialAggResultType(bool clustered = false) {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -127,6 +138,9 @@ static LogicalType GetBinomialAggResultType() {
 
 	AppendModelSummaryFields(children);
 	AppendCovarianceFields(children);
+	if (clustered) {
+		AppendClusterFields(children);
+	}
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -178,6 +192,7 @@ static void BinomialAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 		state.compute_inference = bind_data.compute_inference;
 		state.glm_lambda = bind_data.glm_lambda;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 		state.confidence_level = bind_data.confidence_level;
 
 		auto y_idx = y_data.sel->get_index(i);
@@ -193,6 +208,10 @@ static void BinomialAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 
 		auto list_entry = x_list_data[x_idx];
 		idx_t n_features = list_entry.length;
+		vector<string> cluster_ids;
+		if (bind_data.cluster.active && !ReadClusterIds(inputs[2].GetValue(i), cluster_ids)) {
+			continue; // NULL cluster id: the row is left out
+		}
 
 		if (!state.initialized) {
 			state.n_features = n_features;
@@ -206,6 +225,9 @@ static void BinomialAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 			                            n_features);
 		}
 
+		if (bind_data.cluster.active) {
+			state.cluster.Push(cluster_ids, "binomial_fit_agg");
+		}
 		state.y_values.push_back(y_val);
 
 		for (idx_t j = 0; j < n_features; j++) {
@@ -233,6 +255,7 @@ static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, Agg
 			continue;
 		}
 
+		target.cluster.Append(source.cluster, "binomial_fit_agg");
 		if (!target.initialized) {
 			target.y_values = CombineTake(source.y_values, aggr_input_data);
 			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
@@ -249,6 +272,7 @@ static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, Agg
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -280,6 +304,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 
 static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                                 idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<BinomialAggregateBindData>();
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (BinomialAggregateState **)sdata.data;
@@ -297,7 +322,15 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		}
 
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
-		SortRowsCanonically(state.y_values, state.x_columns);
+		const bool clustered = !state.cluster.dims.empty();
+		if (clustered) {
+			CanonicalRows rows;
+			rows.Keys(state.x_columns).Key(state.y_values);
+			state.cluster.AddTo(rows);
+			rows.Sort();
+		} else {
+			SortRowsCanonically(state.y_values, state.x_columns);
+		}
 		AnofoxDataArray y_array;
 		y_array.data = state.y_values.data();
 		y_array.validity = nullptr;
@@ -328,13 +361,27 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		AnofoxFitResultInference inference_result;
 		AnofoxError error;
 
-		bool success = anofox_binomial_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
-		                                   state.compute_inference ? &inference_result : nullptr, &error);
+		auto cluster_ptrs = state.cluster.Pointers();
+		vector<int64_t> n_clusters(cluster_ptrs.size(), 0);
+		bool success =
+		    clustered ? anofox_binomial_cluster_fit(y_array, x_arrays.data(), x_arrays.size(), options, cluster_ptrs.data(),
+		                                     cluster_ptrs.size(), ConvertHcType(bind.cluster.hc_type), bind.cluster.cadjust,
+		                                     &core_result, state.compute_inference ? &inference_result : nullptr, n_clusters.data(), &error)
+		              : (anofox_binomial_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+		                                   state.compute_inference ? &inference_result : nullptr, &error));
 
 		if (!success) {
 			ThrowUnlessDegenerate("binomial_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
+		}
+		if (state.profile_ci && clustered) {
+			throw InvalidInputException("binomial_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
+		}
+		if (state.profile_ci) {
+			ApplyProfileConfint("binomial_fit_agg", AnofoxLikelihoodFamily {2, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
 		}
 
 		idx_t struct_idx = 0;
@@ -367,6 +414,9 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			anofox_free_result_inference(&inference_result);
 		}
 
+		if (bind.cluster.active) {
+			WriteClusterFields(result, result_idx, state.compute_inference, bind.cluster.VcovTypeName(), n_clusters);
+		}
 		anofox_free_glm_result(&core_result);
 
 		state.Reset();
@@ -377,10 +427,20 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
                                                 vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<BinomialAggregateBindData>();
 
+	// f(y, x, cluster, {'vcov': 'cluster', ...}): the cluster-robust covariance.
 	if (arguments.size() >= 3) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
-            context, *arguments[2], "binomial_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "binomial_link", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
+            context, *arguments[arguments.size() - 1], "binomial_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "binomial_link", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci", "hc_type", "cadjust"});
+		result->cluster.Load(opts, GlmClusterForm(opts, arguments), true, "binomial_fit_agg",
+		                     "binomial_fit_agg(y, x, cluster, {'vcov': 'cluster'})");
+		if (result->cluster.active) {
+			result->compute_inference = true; // the default of the cluster form, as ols_fit_agg's
+		}
+		if (arguments.size() == 4 && !result->cluster.active) {
+			throw InvalidInputException("binomial_fit_agg: the 4-argument form binomial_fit_agg(y, x, cluster, options) needs "
+			                            "'vcov': 'cluster' in the options");
+		}
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -400,6 +460,10 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
 		}
+		result->profile_ci = ProfileCiOption(opts, "binomial_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
+		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();
 		}
@@ -408,9 +472,9 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 		}
 	}
 
-	SetReturnTypeOf(function, GetBinomialAggResultType());
+	SetReturnTypeOf(function, GetBinomialAggResultType(result->cluster.active));
 
-	PostHogTelemetry::Instance().RecordFunctionCall("binomial_fit_agg");
+	PostHogTelemetry::Instance().RecordFunctionCall(result->cluster.active ? "binomial_fit_agg_cluster" : "binomial_fit_agg");
 	return std::move(result);
 }
 
@@ -429,6 +493,14 @@ void RegisterBinomialAggregateFunction(ExtensionLoader &loader) {
 	                                  ANOFOX_AGG_INIT(BinomialAggInitialize), ANOFOX_GUARDED_UPDATE(BinomialAggUpdate, BinomialAggDestroy, BinomialAggInitialize), BinomialAggCombine, ANOFOX_GUARDED_FINALIZE(BinomialAggFinalize, BinomialAggDestroy, BinomialAggInitialize),
 	                                  nullptr, ANOFOX_AGG_BIND(BinomialAggBind), BinomialAggDestroy);
 	func_set.AddFunction(map_func);
+	// (y, x, cluster, {'vcov': 'cluster'}): the cluster-robust covariance.
+	func_set.AddFunction(AggregateFunction(
+	    "binomial_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
+	    LogicalType::ANY, AggregateFunction::StateSize<BinomialAggregateState>, ANOFOX_AGG_INIT(BinomialAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(BinomialAggUpdate, BinomialAggDestroy, BinomialAggInitialize), BinomialAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(BinomialAggFinalize, BinomialAggDestroy, BinomialAggInitialize), nullptr,
+	    ANOFOX_AGG_BIND(BinomialAggBind), BinomialAggDestroy));
 
 	CreateAggregateFunctionInfo info(std::move(func_set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
@@ -449,6 +521,7 @@ void RegisterBinomialAggregateFunction(ExtensionLoader &loader) {
 	d2.parameter_names = {"y", "x"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
 	info.descriptions.push_back(std::move(d2));
+	info.descriptions.push_back(GlmClusterDescription("binomial_fit_agg"));
 	loader.RegisterFunction(std::move(info));
 
 }

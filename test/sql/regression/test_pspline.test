@@ -1,0 +1,242 @@
+# name: test/sql/regression/test_pspline.test
+# description: pspline_fit_agg, pspline_fit_predict_agg, pspline_fit_predict_by and pspline_prediction_by (#316): shape, options, NULL handling, splits, windows; mgcv parity is in test/sql/reference/pspline_reference.test
+# group: [regression]
+
+require anofox_statistics
+
+# Noisy scatter around a smooth curve, x unsorted, two groups of 100 rows
+statement ok
+CREATE TABLE s AS SELECT i, (i % 2)::VARCHAR AS g, ((i * 37) % 200) / 20.0 AS x,
+    sin(((i * 37) % 200) / 20.0) + 0.3 * sin(i * 12.9898) AS y
+FROM range(1, 201) r(i);
+
+# The smooth at the distinct x (increasing), closer to the true curve than the data
+query IIIIII
+SELECT len(m.x), list_sort(m.x) = m.x, len(m.fitted) = len(m.x) AND len(m.se_fit) = len(m.x),
+       list_avg(list_transform(list_zip(m.x, m.fitted), lambda p: abs(p[2] - sin(p[1])))) < 0.1,
+       m.edf > 3 AND m.edf < m.n_basis, m.lambda > 0 AND m.sigma2 > 0 AND m.r_squared > 0.5
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+200	true	true	true	true	true
+
+# Automatic basis size (n / 4 + 4, clamped to [6, 40]), default penalty order 2, summary fields
+query IIIIIII
+SELECT m.n_basis, len(m.coefficients), m.penalty_order, m.n_observations, m.model_type, m.family, m.aic IS NOT NULL
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+40	40	2	200	pspline	gaussian	true
+
+# A straight line is in the null space of the 2nd-difference penalty: reproduced exactly
+query I
+SELECT list_bool_and(list_transform(list_zip(m.x, m.fitted), lambda p: abs(p[2] - (2 * p[1] + 1)) < 1e-6))
+FROM (SELECT pspline_fit_agg(2 * x + 1, x, {'n_basis': 12}) AS m FROM s);
+----
+true
+
+# Larger lambda -> smoother fit (fewer effective degrees of freedom); MAP options work too
+query II
+SELECT (SELECT pspline_fit_agg(y, x, {'lambda': 1000}).edf FROM s) < (SELECT pspline_fit_agg(y, x, {'lambda': 0.01}).edf FROM s),
+       (SELECT pspline_fit_agg(y, x, MAP {'n_basis': '15', 'lambda': '2'}).lambda FROM s);
+----
+true	2.0
+
+# Per group; NULL / non-finite rows are skipped
+query II
+SELECT g, pspline_fit_agg(y, x).n_observations FROM s GROUP BY g ORDER BY g;
+----
+0	100
+1	100
+
+query I
+SELECT pspline_fit_agg(y, x).n_observations
+FROM (SELECT y, x FROM s UNION ALL VALUES (NULL, 1.0), (2.0, NULL), ('NaN'::DOUBLE, 3.0), (1.0, 'Infinity'::DOUBLE));
+----
+200
+
+# Degenerate data -> NULL: no rows, too few rows for a cubic basis, constant x
+query III
+SELECT (SELECT pspline_fit_agg(y, x) FROM s WHERE i < 0) IS NULL,
+       (SELECT pspline_fit_agg(y, x) FROM s WHERE i <= 4) IS NULL,
+       (SELECT pspline_fit_agg(y, 1.0) FROM s) IS NULL;
+----
+true	true	true
+
+# fit_predict: one STRUCT per row, NULL-y rows are predicted, NULL-x rows get NULL yhat
+query IIIIII
+SELECT len(l), len(list_filter(l, lambda r: r.is_training)), len(list_filter(l, lambda r: r.yhat IS NULL)),
+       list_bool_and(list_transform(list_filter(l, lambda r: r.yhat IS NOT NULL), lambda r: r.yhat_lower < r.yhat AND r.yhat < r.yhat_upper)),
+       (l[201]).y IS NULL AND (l[201]).yhat IS NOT NULL, (l[202]).yhat IS NULL AND NOT (l[202]).is_training
+FROM (SELECT pspline_fit_predict_agg(y, x ORDER BY i) AS l
+      FROM (SELECT i, y, x FROM s UNION ALL VALUES (201, NULL, 5.0), (202, 1.0, NULL)) t(i, y, x));
+----
+202	200	1	true	true	true
+
+# Training-row predictions equal the fit_agg smooth at the same x
+query I
+WITH f AS (SELECT pspline_fit_agg(y, x, {'n_basis': 20}) AS m FROM s),
+     p AS (SELECT unnest(pspline_fit_predict_agg(y, x, {'n_basis': 20} ORDER BY x)) AS r, unnest(list(x ORDER BY x)) AS x FROM s)
+SELECT bool_and(abs(r.yhat - m.fitted[list_position(m.x, p.x)]) < 1e-10) FROM p, f;
+----
+true
+
+# Interval kinds: prediction (default) is wider than confidence; 'none' gives NULL bounds; level narrows it
+query III
+WITH l AS (SELECT pspline_fit_predict_agg(y, x ORDER BY i) AS pi,
+                  pspline_fit_predict_agg(y, x, {'interval': 'confidence'} ORDER BY i) AS ci,
+                  pspline_fit_predict_agg(y, x, {'interval': 'confidence', 'confidence_level': 0.5} ORDER BY i) AS c50,
+                  pspline_fit_predict_agg(y, x, {'interval': 'none'} ORDER BY i) AS np FROM s)
+SELECT list_bool_and(list_transform(range(1, 201), lambda k: (pi[k]).yhat_upper - (pi[k]).yhat_lower > (ci[k]).yhat_upper - (ci[k]).yhat_lower)),
+       list_bool_and(list_transform(range(1, 201), lambda k: (c50[k]).yhat_upper - (c50[k]).yhat_lower < (ci[k]).yhat_upper - (ci[k]).yhat_lower)),
+       list_bool_and(list_transform(np, lambda r: r.yhat_lower IS NULL AND r.yhat_upper IS NULL AND r.yhat IS NOT NULL))
+FROM l;
+----
+true	true	true
+
+# Split column: only 'train' rows fit; others are predicted
+query II
+SELECT len(list_filter(l, lambda r: r.is_training)), list_bool_and(list_transform(l, lambda r: r.yhat IS NOT NULL))
+FROM (SELECT pspline_fit_predict_agg(y, x, CASE WHEN i <= 150 THEN 'TRAIN' ELSE 'test' END, {'n_basis': 10} ORDER BY i) AS l FROM s);
+----
+150	true
+
+# No training rows -> NULL
+query I
+SELECT pspline_fit_predict_agg(NULL::DOUBLE, x) IS NULL FROM s;
+----
+true
+
+# As a window aggregate: the frame's rows
+query I
+SELECT bool_and(c = (SELECT pspline_fit_agg(y, x) FROM s WHERE g = w.g))
+FROM (SELECT g, pspline_fit_agg(y, x) OVER (PARTITION BY g) AS c FROM s) w;
+----
+true
+
+# pspline_fit_predict_by: every source row, per group, with a prediction band
+query IIIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training), bool_and(yhat_lower < yhat AND yhat < yhat_upper),
+       bool_and(i IS NOT NULL)
+FROM pspline_fit_predict_by('s', g, y, x, options := {'n_basis': 10});
+----
+200	2	200	true	true
+
+# ... the same values as the aggregate per group
+query I
+WITH m AS (SELECT g, i, yhat FROM pspline_fit_predict_by('s', g, y, x)),
+     a AS (SELECT g, unnest(pspline_fit_predict_agg(y, x ORDER BY i)) AS r, unnest(list(i ORDER BY i)) AS i FROM s GROUP BY g)
+SELECT bool_and(abs(m.yhat - a.r.yhat) < 1e-10) FROM m JOIN a USING (g, i);
+----
+true
+
+# ... split := 'train' / other values
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM pspline_fit_predict_by('s', g, y, x, split := CASE WHEN i <= 100 THEN 'train' ELSE 'test' END);
+----
+100
+
+# pspline_prediction_by: the contract prediction schema, band at level
+query IIII
+SELECT count(*), bool_and(model_id = 'pspline'), bool_and(level = 0.9), bool_and(yhat_lower < yhat AND yhat < yhat_upper)
+FROM pspline_prediction_by('s', g, x, y, level := 0.9);
+----
+200	true	true	true
+
+# Invalid options
+statement error
+SELECT pspline_fit_agg(y, x, {'lambda': -1}) FROM s;
+----
+lambda must be finite and >= 0
+
+statement error
+SELECT pspline_fit_agg(y, x, {'penalty_order': 0}) FROM s;
+----
+penalty_order must be an integer in [1, 10]
+
+statement error
+SELECT pspline_fit_agg(y, x, {'n_basis': 2.5}) FROM s;
+----
+n_basis must be an integer in [0, 1000]
+
+statement error
+SELECT pspline_fit_agg(y, x, {'n_basis': 'many'}) FROM s;
+----
+option 'n_basis' must be a number
+
+statement error
+SELECT pspline_fit_agg(y, x, {'interval': 'confidence'}) FROM s;
+----
+unknown option 'interval'
+
+statement error
+SELECT pspline_fit_predict_agg(y, x, {'interval': 'credible'}) FROM s;
+----
+unknown interval 'credible'
+
+statement error
+SELECT pspline_fit_predict_agg(y, x, {'confidence_level': 1.5}) FROM s;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT pspline_fit_agg(y, x, {'n_basis': i}) FROM s;
+----
+options must be a constant
+
+# ---- predict(model, [x]) from the stored smoother (FittedPSpline::from_parts) ----
+# The smooth at the training x equals the fit's; knots and covariance are stored
+query IIII
+SELECT len(m.knots) = m.n_basis + 4, len(m.covariance) = m.n_basis * m.n_basis,
+       abs(predict(m, [m.x[10]]) - m.fitted[10]) < 1e-10,
+       abs(predict(m, [m.x[10]], {'se_fit': true}).se_fit - m.se_fit[10]) < 1e-10
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+true	true	true	true
+
+# Per group, with the prediction / confidence intervals of pspline_fit_predict_agg
+query II
+WITH m AS (SELECT g, pspline_fit_agg(y, x) AS m FROM s GROUP BY g),
+     p AS (SELECT g, unnest(pspline_fit_predict_agg(y, x, {'interval': 'confidence', 'confidence_level': 0.9})) AS r,
+                  unnest(list(x)) AS x FROM s GROUP BY g)
+SELECT count(*), bool_and(abs((predict(m.m, [p.x], {'interval': 'confidence', 'level': 0.9})).yhat_upper - (p.r).yhat_upper) < 1e-9)
+FROM p JOIN m USING (g);
+----
+200	true
+
+# NULL model, NULL x, a NULL element: NULL; extrapolation outside the data range is linear
+query IIII
+SELECT predict(NULL::STRUCT(knots DOUBLE[], covariance DOUBLE[], edf DOUBLE, sigma2 DOUBLE, coefficients DOUBLE[],
+                            n_observations BIGINT), [1.0]) IS NULL,
+       predict(m, NULL::DOUBLE[]) IS NULL, predict(m, [NULL::DOUBLE]) IS NULL,
+       abs((predict(m, [14.0]) - predict(m, [12.0])) - (predict(m, [12.0]) - predict(m, [10.0]))) < 1e-9
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+true	true	true	true
+
+statement error
+SELECT predict(m, [1.0, 2.0]) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+takes x with one value
+
+statement error
+SELECT predict(m, [1.0], {'interval': 'credible'}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+option 'interval' must be 'none', 'confidence' or 'prediction'
+
+statement error
+SELECT predict(m, [1.0], {'type': 'link'}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+must be 'response'
+
+statement error
+SELECT predict(m, [1.0], {'alpha': 1}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+unknown option 'alpha' for a P-spline model
+
+# a covariance of the wrong size cannot rebuild the smoother
+statement error
+SELECT predict({'knots': m.knots, 'coefficients': m.coefficients, 'covariance': m.covariance[2:], 'edf': m.edf,
+                'sigma2': m.sigma2, 'n_observations': m.n_observations}, [1.0])
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+covariance

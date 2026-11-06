@@ -1,0 +1,203 @@
+# name: test/sql/hypothesis_tests/test_factorial_anova_agg.test
+# description: two_way_anova_agg and repeated_measures_anova_agg: shape, label types, GROUP BY, NULLs, row order, options, degenerate input (#297)
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# 3 x 2 design, 4 replicates, two experiments
+statement ok
+CREATE TABLE fx AS
+SELECT i // 24 AS experiment,
+       (i % 24) // 8 AS a,
+       ((i % 24) // 4) % 2 AS b,
+       ['ctrl', 'high', 'low'][((i % 24) // 8) + 1] AS a_label,
+       ['dry', 'wet'][(((i % 24) // 4) % 2) + 1] AS b_label,
+       (5 + ((i % 24) // 8) * 1.5 + (((i % 24) // 4) % 2) * 0.7 + sin(i * 1.7) + (i // 24) * 0.3)::DOUBLE AS y
+FROM range(48) t(i);
+
+# =============================================================================
+# two_way_anova_agg
+# =============================================================================
+
+# Three rows: A, B, A x B, with the residual df n - a*b.
+query IIIIII
+SELECT t.term, t.df1, t.df2, t.n_observations, t.method, t.effect_name
+FROM (SELECT unnest(two_way_anova_agg(y, a, b)) AS t FROM fx WHERE experiment = 0);
+----
+factor_a	2.0	18.0	24	Two-way ANOVA: factor A	partial_eta_squared
+factor_b	1.0	18.0	24	Two-way ANOVA: factor B	partial_eta_squared
+factor_a:factor_b	2.0	18.0	24	Two-way ANOVA: interaction	partial_eta_squared
+
+# Balanced: the three effect sums of squares and the residual add up to the total.
+query I
+SELECT abs(sum(t.sum_sq) + any_value(t.residual_sum_sq) - (SELECT var_samp(y) * 23 FROM fx WHERE experiment = 0)) < 1e-9
+FROM (SELECT unnest(two_way_anova_agg(y, a, b)) AS t FROM fx WHERE experiment = 0);
+----
+true
+
+# mean_sq = sum_sq / df1, statistic = mean_sq / residual_mean_sq.
+query I
+SELECT bool_and(abs(t.mean_sq - t.sum_sq / t.df1) < 1e-12 AND abs(t.statistic - t.mean_sq / t.residual_mean_sq) < 1e-9)
+FROM (SELECT unnest(two_way_anova_agg(y, a, b)) AS t FROM fx);
+----
+true
+
+# VARCHAR labels give the same table as BIGINT codes in the same order (all four overloads).
+query I
+SELECT two_way_anova_agg(y, a, b) = two_way_anova_agg(y, a_label, b_label)
+   AND two_way_anova_agg(y, a, b) = two_way_anova_agg(y, a_label, b)
+   AND two_way_anova_agg(y, a, b) = two_way_anova_agg(y, a, b_label)
+FROM fx;
+----
+true
+
+# GROUP BY: one table per experiment.
+query II
+SELECT experiment, len(two_way_anova_agg(y, a, b)) FROM fx GROUP BY experiment ORDER BY experiment;
+----
+0	3
+1	3
+
+# The result does not depend on the row order.
+query I
+SELECT (SELECT two_way_anova_agg(y, a_label, b_label) FROM (SELECT * FROM fx ORDER BY hash(y)))
+     = (SELECT two_way_anova_agg(y, a_label, b_label) FROM (SELECT * FROM fx ORDER BY y DESC));
+----
+true
+
+# terms option labels the rows.
+query I
+SELECT list_transform(two_way_anova_agg(y, a, b, {'terms': ['dose', 'soil']}), lambda x: x.term) FROM fx;
+----
+[dose, soil, 'dose:soil']
+
+# NULL y, NULL factors and NaN y are skipped.
+query I
+SELECT (SELECT two_way_anova_agg(y, a, b) FROM fx)
+     = (SELECT two_way_anova_agg(y, a, b) FROM (
+            SELECT y, a, b FROM fx
+            UNION ALL SELECT NULL, 0, 0 UNION ALL SELECT 1.0, NULL, 0 UNION ALL SELECT 1.0, 0, NULL
+            UNION ALL SELECT 'NaN'::DOUBLE, 1, 1));
+----
+true
+
+# Degenerate input is NULL: no rows, a factor with one level, an empty cell, no residual df.
+query IIII
+SELECT (SELECT two_way_anova_agg(y, a, b) FROM fx WHERE false) IS NULL,
+       (SELECT two_way_anova_agg(y, a, b) FROM fx WHERE a = 0) IS NULL,
+       (SELECT two_way_anova_agg(y, a, b) FROM fx WHERE NOT (a = 2 AND b = 1)) IS NULL,
+       (SELECT two_way_anova_agg(y, a, b) FROM (SELECT * FROM fx WHERE experiment = 0 QUALIFY row_number() OVER (PARTITION BY a, b) = 1)) IS NULL;
+----
+true	true	true	true
+
+# Invalid options.
+statement error
+SELECT two_way_anova_agg(y, a, b, {'type': 'II'}) FROM fx;
+----
+two_way_anova_agg: unknown option 'type'
+
+statement error
+SELECT two_way_anova_agg(y, a, b, {'terms': ['only_one']}) FROM fx;
+----
+terms must be a LIST of two VARCHAR labels
+
+statement error
+SELECT two_way_anova_agg(y, a, b, {'terms': ['x', 'x']}) FROM fx;
+----
+the two terms labels must differ
+
+# =============================================================================
+# repeated_measures_anova_agg
+# =============================================================================
+
+# 12 subjects x 3 conditions, two studies
+statement ok
+CREATE TABLE rm AS
+SELECT i // 36 AS study, (i % 36) // 3 AS subject, 'p' || ((i % 36) // 3) AS subject_label,
+       i % 3 AS cond, ['pre', 'mid', 'post'][(i % 3) + 1] AS cond_label,
+       (20 + (i % 3) * 2 + ((i % 36) // 3) * 0.8 + 3 * sin(i * 2.3) * (1 + i % 3))::DOUBLE AS y
+FROM range(72) t(i);
+
+query IIIIIII
+SELECT r.method, r.df1, r.df2, r.n, r.n_subjects, r.n_conditions, r.n_excluded_subjects
+FROM (SELECT repeated_measures_anova_agg(y, subject, cond) AS r FROM rm WHERE study = 0);
+----
+Repeated measures ANOVA	2.0	22.0	12	12	3	0
+
+# The sums of squares partition the total; the GG and HF tests use epsilon-scaled df,
+# and the HF epsilon lies between the GG epsilon and 1 (afex::aov_ez on this data:
+# HF eps 0.763479017954471, Pr(>F[HF]) 0.451675105995583).
+query IIIII
+SELECT abs(r.ss_condition + r.ss_subjects + r.ss_error - (SELECT var_samp(y) * 35 FROM rm WHERE study = 0)) < 1e-9,
+       abs(r.statistic - r.ms_condition / r.ms_error) < 1e-9,
+       abs(r.gg_df1 - r.gg_epsilon * r.df1) < 1e-9 AND abs(r.gg_df2 - r.gg_epsilon * r.df2) < 1e-9,
+       r.gg_epsilon BETWEEN 0.5 AND 1 AND r.mauchly_w BETWEEN 0 AND 1 AND r.mauchly_df = 2,
+       abs(r.hf_df1 - r.hf_epsilon * r.df1) < 1e-9 AND abs(r.hf_df2 - r.hf_epsilon * r.df2) < 1e-9
+           AND r.hf_epsilon BETWEEN r.gg_epsilon AND 1
+           AND abs(r.hf_epsilon - 0.763479017954471) < 1e-9 AND abs(r.hf_p_value - 0.451675105995583) < 1e-9
+FROM (SELECT repeated_measures_anova_agg(y, subject, cond) AS r FROM rm WHERE study = 0);
+----
+true	true	true	true	true
+
+# All label types agree (labels are ordered by value, so up to rounding).
+query I
+SELECT abs((repeated_measures_anova_agg(y, subject, cond)).statistic - (repeated_measures_anova_agg(y, subject_label, cond)).statistic) < 1e-9
+   AND abs((repeated_measures_anova_agg(y, subject, cond)).statistic - (repeated_measures_anova_agg(y, subject_label, cond_label)).statistic) < 1e-9
+   AND abs((repeated_measures_anova_agg(y, subject, cond)).gg_p_value - (repeated_measures_anova_agg(y, subject, cond_label)).gg_p_value) < 1e-12
+FROM rm WHERE study = 0;
+----
+true
+
+query II
+SELECT study, (repeated_measures_anova_agg(y, subject, cond)).n_subjects FROM rm GROUP BY study ORDER BY study;
+----
+0	12
+1	12
+
+# Row order does not matter.
+query I
+SELECT (SELECT repeated_measures_anova_agg(y, subject_label, cond_label) FROM (SELECT * FROM rm WHERE study = 1 ORDER BY hash(y)))
+     = (SELECT repeated_measures_anova_agg(y, subject_label, cond_label) FROM (SELECT * FROM rm WHERE study = 1 ORDER BY y DESC));
+----
+true
+
+# sphericity := false drops Mauchly, Greenhouse-Geisser and Huynh-Feldt, the F test is unchanged.
+query III
+SELECT r0.mauchly_w IS NULL AND r0.mauchly_p_value IS NULL AND r0.gg_epsilon IS NULL AND r0.gg_p_value IS NULL
+           AND r0.hf_epsilon IS NULL AND r0.hf_df1 IS NULL AND r0.hf_df2 IS NULL AND r0.hf_p_value IS NULL,
+       r0.statistic = r1.statistic, r1.gg_p_value IS NOT NULL AND r1.hf_p_value IS NOT NULL
+FROM (SELECT repeated_measures_anova_agg(y, subject, cond, {'sphericity': false}) AS r0,
+             repeated_measures_anova_agg(y, subject, cond, {'sphericity': true}) AS r1 FROM rm WHERE study = 0);
+----
+true	true	true
+
+# A subject missing a condition (here through a NULL / NaN y) is excluded and counted.
+query III
+SELECT r.n_subjects, r.n_excluded_subjects,
+       r.statistic = (SELECT (repeated_measures_anova_agg(y, subject, cond)).statistic FROM rm WHERE study = 0 AND subject NOT IN (3, 7))
+FROM (SELECT repeated_measures_anova_agg(y, subject, cond) AS r FROM (
+          SELECT CASE WHEN subject = 3 AND cond = 1 THEN NULL WHEN subject = 7 AND cond = 2 THEN 'NaN'::DOUBLE ELSE y END AS y,
+                 subject, cond FROM rm WHERE study = 0
+          UNION ALL SELECT 1.0, NULL, 0 UNION ALL SELECT 1.0, 0, NULL));
+----
+10	2	true
+
+# Degenerate input is NULL: no rows, one subject, one condition, every subject incomplete.
+query IIII
+SELECT (SELECT repeated_measures_anova_agg(y, subject, cond) FROM rm WHERE false) IS NULL,
+       (SELECT repeated_measures_anova_agg(y, subject, cond) FROM rm WHERE study = 0 AND subject = 0) IS NULL,
+       (SELECT repeated_measures_anova_agg(y, subject, cond) FROM rm WHERE study = 0 AND cond = 0) IS NULL,
+       (SELECT repeated_measures_anova_agg(y, subject, cond) FROM rm WHERE study = 0 AND cond <> subject % 3) IS NULL;
+----
+true	true	true	true
+
+# Two values for one subject and condition are an error.
+statement error
+SELECT repeated_measures_anova_agg(y, subject, cond) FROM rm;
+----
+has more than one value for condition
+
+statement error
+SELECT repeated_measures_anova_agg(y, subject, cond, {'sphericty': false}) FROM rm WHERE study = 0;
+----
+repeated_measures_anova_agg: unknown option 'sphericty'

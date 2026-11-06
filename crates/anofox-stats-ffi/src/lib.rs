@@ -3,6 +3,7 @@
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
 mod drift_ffi;
+mod embedding_ffi;
 mod forecast_ffi;
 mod inference_ffi;
 mod models_ffi;
@@ -8732,7 +8733,7 @@ pub unsafe extern "C" fn anofox_aft_cdf(
             AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
             AftDistributionFFI::Exponential => AftDistribution::Exponential,
         };
-        d.cdf_time(t, eta, scale)
+        anofox_stats_core::models::aft_cdf(t, eta, scale, d)
     })
 }
 
@@ -8754,7 +8755,7 @@ pub unsafe extern "C" fn anofox_aft_quantile(
             AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
             AftDistributionFFI::Exponential => AftDistribution::Exponential,
         };
-        d.quantile_time(p, eta, scale)
+        anofox_stats_core::models::aft_quantile(p, eta, scale, d)
     })
 }
 
@@ -10811,3 +10812,83 @@ pub use partial_cor_ffi::*;
 // AUC null distribution and Tukey distribution functions (#304).
 mod null_distributions_ffi;
 pub use null_distributions_ffi::*;
+
+// Two-way and repeated-measures ANOVA (#297).
+mod anova_ffi;
+
+mod pca_ffi;
+pub use pca_ffi::*;
+
+mod gvif_ffi;
+pub use gvif_ffi::*;
+
+// Predictive accuracy indexes (#308).
+mod accuracy_ffi;
+pub use accuracy_ffi::*;
+
+// Cluster-robust covariance of OLS / WLS fits (#309).
+mod cluster_ffi;
+pub use cluster_ffi::*;
+
+// Cluster-robust covariance of the GLM and AFT fits.
+mod glm_cluster_ffi;
+pub use glm_cluster_ffi::*;
+
+// Likelihood-ratio / score tests and profile CIs (#310).
+mod likelihood_ffi;
+pub use likelihood_ffi::*;
+
+// Multinomial logistic regression (#314).
+mod multinomial_ffi;
+pub use multinomial_ffi::*;
+
+// rms-style Wald ANOVA and fast backward step-down (#311).
+mod wald_ffi;
+pub use wald_ffi::*;
+
+// Cox proportional hazards regression (#312)
+mod cox_ffi;
+pub use cox_ffi::*;
+
+// Ordinal regression: cumulative link and continuation-ratio models (#313).
+mod ordinal_ffi;
+pub use ordinal_ffi::*;
+// Generalized least squares, nlme::gls (#315)
+mod gls_ffi;
+pub use gls_ffi::*;
+
+// P-spline smoother (#316)
+mod pspline_ffi;
+pub use pspline_ffi::*;
+
+// Regression-spline bases (#317).
+mod splines_ffi;
+pub use splines_ffi::*;
+
+// Effects, contrasts, effect grids and nomograms (#319).
+mod effects_ffi;
+pub use effects_ffi::*;
+
+// Penalized ML a la rms: pentrace and penalized OLS (#323).
+mod pentrace_ffi;
+pub use pentrace_ffi::*;
+
+// Resampling model validation and calibration (#318).
+mod model_validation_ffi;
+pub use model_validation_ffi::*;
+
+// Data reduction and transforms (#320)
+mod reduction_ffi;
+pub use reduction_ffi::*;
+
+// Additive regression with optimal transformations, Hmisc::areg (#320 follow-up)
+mod areg_ffi;
+pub use areg_ffi::*;
+
+// Multiple imputation (aregImpute) and Rubin pooling (#321).
+mod imputation_ffi;
+pub use imputation_ffi::*;
+
+// AFT residuals, extended survfit / survdiff (#322)
+mod survival_extras_ffi;
+pub use survival_extras_ffi::*;

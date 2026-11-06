@@ -104,7 +104,10 @@ enum class VcovTypeOpt {
 	/// (X'WX + P)^-1 X'WX (X'WX + P)^-1.
 	SANDWICH,
 	/// (X'WX)^-1 -- ignores the penalty; reproduces pre-Laplace standard errors.
-	NAIVE
+	NAIVE,
+	/// Cluster-robust sandwich (sandwich::vcovCL / survreg(cluster =)); only with the
+	/// cluster forms of the GLM / AFT / OLS / WLS fits, which take the cluster ids.
+	CLUSTER
 };
 
 enum class LambdaScaling { RAW, GLMNET };
@@ -146,6 +149,8 @@ struct RegressionMapOptions {
 	std::optional<bool> compute_inference;
 	//! Leave-one-out statistics (press, press_rmse, loo_r_squared) of OLS / WLS (#220) and Ridge (#235) fits
 	std::optional<bool> compute_loo;
+	//! Cluster-robust covariance (#309): vcovCL's cadjust, G/(G-1) per clustering dimension
+	std::optional<bool> cadjust;
 	std::optional<double> confidence_level;
 
 	// Ridge/ElasticNet regularization
@@ -294,6 +299,8 @@ struct RegressionMapOptions {
 	std::optional<bool> conditioning;      // Ridge conditioning-aware lambda
 	std::optional<double> lambda_small;    // Ridge: lambda on a well-conditioned design (implies conditioning)
 	std::optional<double> cond_threshold;  // Ridge: kappa(X'X) threshold (implies conditioning)
+	// GLM profile-likelihood confidence intervals (#310)
+	std::optional<bool> profile_ci;        // 'profile_ci': confint(glm) profile intervals
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.
@@ -421,6 +428,15 @@ struct AnovaTableMapOptions {
 };
 
 /**
+ * Options for gvif_agg (#307)
+ */
+struct GvifMapOptions {
+	std::optional<vector<string>> terms;
+
+	static GvifMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
  * Options for Mann-Whitney U test
  */
 struct MannWhitneyMapOptions {
@@ -526,9 +542,10 @@ struct DriftMapOptions {
 	std::optional<uint32_t> n_bins;         // quantile binning
 	std::optional<double> base;             // kl, jensen_shannon
 	std::optional<double> epsilon;          // psi, kl: constant zero fill
-	std::optional<double> threshold;        // drift flag of the divergences
+	std::optional<double> threshold;        // drift flag of the divergences, column_drift
+	std::optional<string> test;             // column_drift: evidently's test name or 'auto'
 
-	//! kind: an AnofoxDriftKind, or -1 for ad_test_agg.
+	//! kind: an AnofoxDriftKind, -1 for ad_test_agg, -2 for column_drift_agg.
 	static DriftMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
 };
 
@@ -777,6 +794,80 @@ struct McsMapOptions {
 	std::optional<string> method;       // bootstrap: 'stationary' | 'moving_block' | 'circular_block' | 'iid'
 
 	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the two-way ANOVA (two_way_anova_agg, #297)
+ */
+struct TwoWayAnovaMapOptions {
+	std::optional<vector<string>> terms; // labels of factor A and factor B
+
+	static TwoWayAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the repeated-measures ANOVA (repeated_measures_anova_agg, #297)
+ */
+struct RmAnovaMapOptions {
+	std::optional<bool> sphericity; // Mauchly's test + Greenhouse-Geisser correction
+
+	static RmAnovaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of embedding_drift_agg (#302). Each method accepts only its own keys
+ * (checked after parsing, see EmbeddingDriftMapOptions::ParseFromValue).
+ */
+struct EmbeddingDriftMapOptions {
+	std::optional<Value> reference;           // label of the reference group
+	std::optional<string> method;             // distance (default) / ratio / mmd
+	std::optional<string> metric;             // distance: euclidean / cosine / cityblock / chebyshev
+	std::optional<double> threshold;          // fixed threshold (default evidently's)
+	std::optional<bool> bootstrap;            // distance, mmd: bootstrapped threshold
+	std::optional<uint32_t> n_bootstrap;      // also n_boot; default 100
+	std::optional<double> quantile;           // bootstrap quantile
+	std::optional<string> component_test;     // ratio: evidently's test name
+	std::optional<double> component_threshold; // ratio
+	std::optional<uint64_t> seed;             // default ANOFOX_DEFAULT_MC_SEED
+
+	static EmbeddingDriftMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of energy_distance_test_agg and mmd_test_agg (#302); the kernel keys
+ * only for mmd_test_agg.
+ */
+struct MultivariateTestMapOptions {
+	std::optional<uint32_t> n_permutations; // default 1000
+	std::optional<uint64_t> seed;           // default ANOFOX_DEFAULT_MC_SEED
+	std::optional<string> kernel;           // gaussian (default) / laplacian / linear / polynomial
+	std::optional<double> bandwidth;        // gaussian, laplacian; laplacian default 1
+	//! 'bandwidth': 'median': the median-heuristic bandwidth (gaussian only). The gaussian
+	//! kernel uses it when no bandwidth is given, as mmd_agg and evidently do.
+	bool median_bandwidth = false;
+	std::optional<uint32_t> degree;         // polynomial; default 2
+	std::optional<double> scale;            // polynomial; default 1
+	std::optional<double> offset;           // polynomial; default 1
+
+	static MultivariateTestMapOptions ParseFromValue(const Value &map_value, const string &function_name,
+	                                                 bool mmd);
+};
+
+/**
+ * Options of the spline functions (#317). `kind` selects the supported keys:
+ * 0 rcs (norm), 1 lsp (none), 2 bspline (extrapolation, include_bias),
+ * 3 rcs_knots_agg (fractied), 4 bspline_knots_agg (knots), 5 spline_spec
+ * (norm, degree, extrapolation, include_bias; checked against the kind there).
+ */
+struct SplineMapOptions {
+	std::optional<int32_t> norm;          // 0 | 1 | 2 (rcspline.eval norm), default 2
+	std::optional<uint32_t> degree;       // bspline degree, default 3
+	std::optional<string> extrapolation;  // constant | linear | continue | periodic | error
+	std::optional<bool> include_bias;     // default true
+	std::optional<double> fractied;       // default 0.05
+	std::optional<string> knots;          // uniform | quantile
+
+	static SplineMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
 };
 
 } // namespace duckdb

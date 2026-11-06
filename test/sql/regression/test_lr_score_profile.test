@@ -1,0 +1,285 @@
+# name: test/sql/regression/test_lr_score_profile.test
+# description: lr_test, glm_score_test_agg / glm_score_test_by and the GLM profile_ci option (#310):
+#              relations between the statistics, NULL handling, empty groups, invalid
+#              models and options. R reference values: test/sql/reference/likelihood_reference.test.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i, 'g' || (i % 2) AS g, (i % 7) * 0.3 AS x1, sin(i)::DOUBLE AS x2, cos(i * 0.5) AS x3,
+    1.0 AS c, ((i * 7) % 5)::DOUBLE AS cnt, ((i * 3) % 2)::DOUBLE AS b, 0.5 + ((i * 13) % 11) / 3.0 AS gam,
+    ((i * i) % 11)::DOUBLE AS od
+FROM range(40) t(i);
+
+# ---- lr_test ---------------------------------------------------------------
+
+# A fixed-dispersion GLM: the statistic is the deviance difference, df the parameter difference.
+query IIIIIII
+SELECT abs(t.statistic - (r.deviance - f.deviance)) < 1e-10, t.df1, t.method, t.dispersion,
+       t.n_parameters_full, t.n_parameters_reduced, t.n_observations
+FROM (SELECT poisson_fit_agg(cnt, [x1, x2, x3]) f, poisson_fit_agg(cnt, [x1]) r FROM d) m,
+     LATERAL (SELECT lr_test(f, r) t) l(t);
+----
+true	2.0	likelihood ratio	1.0	4	2	40
+
+# OLS: -2 log L, i.e. n log(RSS_reduced / RSS_full).
+query I
+SELECT abs(t.statistic - 2 * (f.log_likelihood - r.log_likelihood)) < 1e-10
+FROM (SELECT ols_fit_agg(gam, [x1, x2]) f, ols_fit_agg(gam, [x1]) r FROM d) m, LATERAL (SELECT lr_test(f, r) t) l(t);
+----
+true
+
+# Gamma: the deviance difference over the full model's dispersion.
+query I
+SELECT abs(t.statistic - (r.deviance - f.deviance) / f.dispersion) < 1e-10 AND t.dispersion = f.dispersion
+FROM (SELECT gamma_fit_agg(gam, [x1, x2]) f, gamma_fit_agg(gam, [x1]) r FROM d) m, LATERAL (SELECT lr_test(f, r) t) l(t);
+----
+true
+
+# The unified test fields.
+query IIII
+SELECT t.n, t.df2 IS NULL, t.alternative IS NULL, abs(t.p_value - (1 - 0)) <= 1
+FROM (SELECT lr_test(logistic_fit_agg(b, [x1, x2]), logistic_fit_agg(b, [x1])) t FROM d);
+----
+40	true	true	true
+
+# One argument: against the null model, on k - 1 df.
+query II
+SELECT abs(t.statistic - (f.null_deviance - f.deviance)) < 1e-10, t.df1
+FROM (SELECT poisson_fit_agg(cnt, [x1, x2]) f FROM d) m, LATERAL (SELECT lr_test(f) t) l(t);
+----
+true	2.0
+
+# A column the fit drops (constant) is not a parameter.
+query I
+SELECT (lr_test(poisson_fit_agg(cnt, [x1, x2, c]), poisson_fit_agg(cnt, [x1]))).df1 FROM d;
+----
+1.0
+
+# Per group.
+query II
+SELECT g, (lr_test(poisson_fit_agg(cnt, [x1, x2]), poisson_fit_agg(cnt, [x1]))).df1 FROM d GROUP BY g ORDER BY g;
+----
+g0	1.0
+g1	1.0
+
+# AFT and GLMM fits carry a log-likelihood too.
+query II
+SELECT (lr_test(aft_fit_agg(gam, [x1, x2], b), aft_fit_agg(gam, [x1], b))).df1,
+       (lr_test(aft_fit_agg(gam, [x1, x2], b))).df1
+FROM d;
+----
+1.0	2.0
+
+# A NULL model (empty group) gives NULL.
+query I
+SELECT lr_test(poisson_fit_agg(cnt, [x1, x2]) FILTER (WHERE i < 0), poisson_fit_agg(cnt, [x1])) IS NULL FROM d;
+----
+true
+
+query I
+SELECT lr_test(NULL::STRUCT(coefficients DOUBLE[], deviance DOUBLE)) IS NULL;
+----
+true
+
+# Incompatible models are errors.
+statement error
+SELECT lr_test(poisson_fit_agg(cnt, [x1]), poisson_fit_agg(cnt, [x1, x2])) FROM d;
+----
+model_full must have more parameters than model_reduced (2 vs 3)
+
+statement error
+SELECT lr_test(poisson_fit_agg(cnt, [x1, x2]), logistic_fit_agg(b, [x1])) FROM d;
+----
+models are not comparable: family 'poisson' vs 'binomial'
+
+statement error
+SELECT lr_test(ols_fit_agg(gam, [x1, x2]), poisson_fit_agg(cnt, [x1])) FROM d;
+----
+models are not comparable: model_type
+
+statement error
+SELECT lr_test(poisson_fit_agg(cnt, [x1, x2]), poisson_fit_agg(cnt, [x1]) FILTER (WHERE i < 30)) FROM d;
+----
+models are not nested: fitted on 40 and 30 observations
+
+statement error
+SELECT lr_test(ols_fit_agg(gam, [x1, x2])) FROM d;
+----
+model has no null likelihood
+
+statement error
+SELECT lr_test(42, 43);
+----
+must be the STRUCT returned by a *_fit_agg or *_fit function
+
+statement error
+SELECT lr_test({'a': 1}, {'a': 2});
+----
+has no 'coefficients' field
+
+# ---- glm_score_test_agg ------------------------------------------------------
+
+# One added column: z^2 is the statistic.
+query IIII
+SELECT t.method, abs(t.z_values[1] ^ 2 - t.statistic) < 1e-10, t.df1, t.n_observations
+FROM (SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson'}) t FROM d);
+----
+Rao score	true	1.0	40
+
+# The unified test fields.
+query IIII
+SELECT t.n, t.df1, t.df2 IS NULL, t.theta IS NULL
+FROM (SELECT glm_score_test_agg(cnt, [x1], [x2, x3], {'family': 'poisson'}) t FROM d);
+----
+40	2.0	true	true
+
+# Families: the default is gaussian (dispersion estimated), tweedie, binomial without intercept.
+query III
+SELECT (glm_score_test_agg(gam, [x1], [x2])).dispersion > 0,
+       (glm_score_test_agg(cnt, [x1], [x2], {'family': 'tweedie', 'power': 1.5})).statistic >= 0,
+       (glm_score_test_agg(b, [x1], [x2], {'family': 'binomial', 'fit_intercept': false})).statistic >= 0
+FROM d;
+----
+true	true	true
+
+# negbinom without theta takes the reduced glm.nb fit's estimate (overdispersed counts od).
+query I
+SELECT abs(t.theta - m.dispersion) < 1e-6
+FROM (SELECT glm_score_test_agg(od, [x1], [x2], {'family': 'negbinom'}) t, negbinom_fit_agg(od, [x1]) m FROM d);
+----
+true
+
+# A row with a NULL list, list element or y is skipped.
+query I
+SELECT (glm_score_test_agg(CASE WHEN i = 1 THEN NULL ELSE cnt END,
+                           CASE WHEN i = 3 THEN NULL WHEN i = 5 THEN [NULL] ELSE [x1] END, [x2],
+                           {'family': 'poisson'})).n_observations FROM d;
+----
+37
+
+# An empty group gives NULL; collinear added columns leave the statistic undefined (NULL).
+query II
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson'}) FILTER (WHERE i < 0) IS NULL,
+       (glm_score_test_agg(cnt, [x1], [x2, x2], {'family': 'poisson'})).statistic IS NULL
+FROM d;
+----
+true	true
+
+# The table macro.
+query IIIII
+SELECT g, method, df1, len(z_values), n_observations
+FROM glm_score_test_by('d', g, cnt, x_reduced := [x1], x_add := [x2, x3], options := {'family': 'poisson'});
+----
+g0	Rao score	2.0	2	20
+g1	Rao score	2.0	2	20
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], NULL) FROM d;
+----
+x_add is required
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'foo'}) FROM d;
+----
+Unknown GLMM family 'foo'
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson', 'link': 'logit'}) FROM d;
+----
+invalid Poisson link 'logit'
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson', 'theta': 2}) FROM d;
+----
+'theta' applies only to family 'negbinom'
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'tweedie', 'power': 3}) FROM d;
+----
+Tweedie power must be in [1, 2]
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson', 'bogus': 1}) FROM d;
+----
+unknown option 'bogus'
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], [x2], {'family': 'poisson', 'offset': 5}) FROM d;
+----
+offset column 5 is out of range
+
+statement error
+SELECT glm_score_test_agg(cnt, [x1], CASE WHEN i = 0 THEN [x2] ELSE [x2, x3] END, {'family': 'poisson'}) FROM d;
+----
+inconsistent x_add length
+
+# ---- profile_ci ----------------------------------------------------------------
+
+# profile_ci implies compute_inference and keeps the STRUCT shape; the profile
+# interval differs from the Wald one but brackets the estimate.
+query IIII
+SELECT typeof(p) = typeof(w), p.std_errors IS NOT NULL,
+       p.conf_low[1] < p.coefficients[1] AND p.coefficients[1] < p.conf_high[1]
+           AND p.intercept_conf_low < p.intercept AND p.intercept < p.intercept_conf_high,
+       p.conf_low[1] <> w.conf_low[1]
+FROM (SELECT poisson_fit_agg(cnt, [x1, x2], {'profile_ci': true}) p,
+             poisson_fit_agg(cnt, [x1, x2], {'compute_inference': true}) w FROM d);
+----
+true	true	true	true
+
+# tidy() reads the profile intervals.
+query I
+SELECT bool_and(t.conf_low < t.estimate AND t.estimate < t.conf_high)
+FROM (SELECT unnest(tidy(poisson_fit_agg(cnt, [x1, x2], {'profile_ci': true}))) t FROM d);
+----
+true
+
+# Every GLM fit aggregate accepts it; without an intercept the intercept interval is NULL.
+query IIIIII
+SELECT len((logistic_fit_agg(b, [x1, x2], {'profile_ci': true})).conf_low),
+       len((binomial_fit_agg(b, [x1, x2], {'profile_ci': true, 'binomial_link': 'cloglog'})).conf_low),
+       len((negbinom_fit_agg(cnt, [x1, x2], {'profile_ci': true})).conf_low),
+       len((gamma_fit_agg(gam, [x1, x2], {'profile_ci': true})).conf_high),
+       len((tweedie_fit_agg(cnt, [x1, x2], {'profile_ci': true, 'power': 1.4})).conf_high),
+       (poisson_fit_agg(cnt, [x1, x2], {'profile_ci': true, 'fit_intercept': false})).intercept_conf_low IS NULL
+FROM d;
+----
+2	2	2	2	2	true
+
+# A column the fit drops keeps a NaN interval (as its other inference values).
+query III
+SELECT isnan(m.conf_low[2]), isnan(m.std_errors[2]), m.conf_low[1] < m.conf_high[1]
+FROM (SELECT poisson_fit_agg(cnt, [x1, c, x2], {'profile_ci': true}) m FROM d);
+----
+true	true	true
+
+# Per group, and NULL rows are skipped as by the fit.
+query II
+SELECT g, (poisson_fit_agg(CASE WHEN i = 2 THEN NULL ELSE cnt END, [x1, x2], {'profile_ci': true})).conf_low[1] < 0
+FROM d GROUP BY g ORDER BY g;
+----
+g0	true
+g1	true
+
+statement error
+SELECT poisson_fit_agg(cnt, [x1, x2], {'profile_ci': true, 'glm_lambda': 0.5}) FROM d;
+----
+profile_ci needs an unpenalized fit
+
+statement error
+SELECT logistic_fit_agg(b, [x1, x2], {'profile_ci': true, 'prior': {'distribution': 'normal', 'scale': 2.5}}) FROM d;
+----
+profile_ci needs an unpenalized fit
+
+statement error
+SELECT ols_fit_agg(cnt, [x1], {'profile_ci': true}) FROM d;
+----
+unsupported option 'profile_ci'
+
+# profile_ci uses the unweighted likelihood: with prior weights (#305) it is an error
+statement error
+SELECT poisson_fit_agg(y, [x], w, {'profile_ci': true}) FROM (VALUES (1.0, 0.5, 1.0), (2.0, 1.0, 2.0), (3.0, 1.5, 1.0), (5.0, 2.0, 1.0), (4.0, 2.5, 2.0)) t(y, x, w);
+----
+profile_ci cannot be combined with prior weights

@@ -11,6 +11,7 @@ form that takes arrays and an aggregate form that takes one row at a time.
 |----------|------|-------------|
 | `vif` | Scalar | Variance inflation factors from feature arrays |
 | `vif_agg` | Aggregate | Variance inflation factors from rows |
+| `gvif_agg` | Aggregate | Generalized VIF per term (multi-column terms such as factor dummies) |
 | `aic` | Scalar | Akaike information criterion from RSS |
 | `bic` | Scalar | Bayesian information criterion from RSS |
 | `jarque_bera` | Scalar | Jarque-Bera normality test on an array |
@@ -203,6 +204,62 @@ FROM (
 All three skip rows with a NULL or non-finite `y`, a NULL list or a NULL
 element, and return NULL on no rows or an empty `x`. A `y` outside the allowed
 values is an error.
+
+
+`vif` and `vif_agg` match `car::vif` for an `lm` fit with an intercept. Rows with
+a NaN in any feature are left out. A feature's VIF is `inf` when it is aliased:
+an exact linear combination of the intercept and the other features, in
+particular a constant feature; every VIF is `inf` when there are no more complete
+rows than features. The other features keep a finite VIF, computed on the span
+of the remaining features: it equals `car::vif` on the design without the aliased
+features (`car::vif` itself stops with "there are aliased coefficients in the
+model"). `vif_agg` returns NULL with fewer than two features or three complete rows.
+
+### gvif_agg
+
+```text
+gvif_agg(x DOUBLE[] [, options]) -> STRUCT(term VARCHAR, df BIGINT, gvif DOUBLE, gvif_adj DOUBLE, n_observations BIGINT)[]
+```
+
+The generalized VIF of Fox & Monette (1992) for terms that span several
+columns, such as the dummy columns of a factor, as `car::vif` reports it for a
+model with factor terms. For a term with `df` columns,
+`GVIF = det(R11) · det(R22) / det(R)`, where `R` is the correlation matrix of
+all columns and `R11`, `R22` are its blocks for the term and for the other
+columns. `gvif_adj = GVIF^(1/(2·df))` (car's `GVIF^(1/(2*Df))`) shrinks it to a
+linear scale that can be compared across terms of different size; square it to
+compare with the usual VIF thresholds.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `terms` | `LIST` | one term per column | One label per `x` column (`VARCHAR` or integer); columns with the same label form one term. Terms are listed in first-appearance order and their columns need not be adjacent |
+
+Without `terms` every column is its own term (`x1`, `x2`, ...) and `gvif` is the
+ordinary VIF. A row is skipped when the list or one of its elements is NULL;
+rows with a NaN are left out. The result is NULL with fewer than two columns
+or three complete rows. A term is `inf` when a combination of its columns is exactly
+explained by the intercept and the other columns (e.g. it holds a constant column or
+is part of an exact linear dependency), and every term is `inf` when there are no
+more complete rows than columns. The other terms keep a finite GVIF, equal to
+`car::vif` on the design without the aliased columns.
+
+```sql
+CREATE OR REPLACE TABLE gvif_demo AS
+SELECT
+    i AS id,
+    20 + (i * 7) % 41 + 0.25 * sin(i) AS age,
+    1.5 * (20 + (i * 7) % 41) + 10 * cos(i / 2) AS income,
+    (i % 3 = 1)::DOUBLE AS region_b,
+    (i % 3 = 2)::DOUBLE AS region_c
+FROM range(40) t(i);
+
+SELECT e.term, e.df, round(e.gvif, 3) AS gvif, round(e.gvif_adj, 3) AS gvif_adj
+FROM (
+    SELECT unnest(gvif_agg([age, income, region_b, region_c],
+                           {'terms': ['age', 'income', 'region', 'region']})) AS e
+    FROM gvif_demo
+);
+```
 
 ## Information Criteria
 

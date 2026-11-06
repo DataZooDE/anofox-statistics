@@ -606,6 +606,36 @@ FROM (
 ORDER BY group_col, method
 )"},
 
+    // glm_score_test_by: Rao score test per group (issue #310), R's
+    // anova(glm(y ~ x_reduced), glm(y ~ x_reduced + x_add), test = "Rao").
+    // C++ API: glm_score_test_by(source, group_col, y_col, x_reduced := [...], x_add := [...], options)
+    // x_reduced defaults to [] (the intercept-only model).
+    // Returns: one row per group -- the group column, id (the group as text),
+    // model_id / model_name 'glm', the contract `test` fields method, statistic,
+    // p_value, df1, then z_values, dispersion, theta and n_observations.
+    {"glm_score_test_by", {"source", "group_col", "y_col", nullptr}, {{"x_reduced", "[]"}, {"x_add", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col,
+    group_col::VARCHAR AS id,
+    'glm' AS model_id,
+    'glm' AS model_name,
+    (_t).method AS method,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).df1 AS df1,
+    (_t).z_values AS z_values,
+    (_t).dispersion AS dispersion,
+    (_t).theta AS theta,
+    (_t).n_observations AS n_observations
+FROM (
+    SELECT group_col, glm_score_test_agg(y_col, x_reduced, x_add, options) AS _t
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+) sub
+ORDER BY group_col, method
+)"},
+
     // ols_anova_table_by: per-term ANOVA table per group (issue #231), R's
     // anova(lm(y ~ x)) (type I) or car::Anova(fit, type = 2) (type II).
     // C++ API: ols_anova_table_by(source, group_col, y_col, x_cols, options)
@@ -914,6 +944,26 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // pspline_fit_predict_by: P-spline smoother fit and predict per group (long format, #316)
+    // Takes a single x column. Options: n_basis (alias k), penalty_order, lambda, confidence_level,
+    // interval ('prediction' (default) | 'confidence' | 'none')
+    {"pspline_fit_predict_by", {"source", "group_col", "y_col", "x_col", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_pred, _rn, _anofox_rid),
+    (_pred[_rn]).yhat AS yhat,
+    (_pred[_rn]).yhat_lower AS yhat_lower,
+    (_pred[_rn]).yhat_upper AS yhat_upper,
+    (_pred[_rn]).is_training AS is_training
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        pspline_fit_predict_agg(y_col, x_col, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col
+)"},
+
     // bayesian_ridge_fit_predict_by: Bayesian Ridge fit and predict per group (long format, #61)
     // Options: fit_intercept, max_iterations, tolerance, alpha_1, alpha_2, lambda_1, lambda_2,
     //          confidence_level (posterior predictive interval)
@@ -1077,6 +1127,65 @@ FROM (
 ORDER BY group_col, order_col
 )"},
 
+    // dataset_drift_by: evidently's column and dataset drift (issue #300)
+    // C++ API: dataset_drift_by(source, group_col, columns, options := NULL, drift_share := 0.5)
+    // group_col splits reference and current rows (two labels; the reference is the
+    // smaller label unless options.reference names it). columns lists the column
+    // names to test; numeric columns are tested as numbers, all others (VARCHAR,
+    // BOOLEAN, ...) as categories. Each column goes through column_drift_agg(options);
+    // the dataset flag is dataset_drift_agg over the column flags.
+    // Returns one row per column, in the order of columns: column_name, test, score,
+    // is_p_value, threshold, drifted, n1, n2, n_columns, n_drifted, share_drifted,
+    // drift_share, dataset_drift.
+    {"dataset_drift_by", {"source", "group_col", "columns", nullptr}, {{"options", "NULL"}, {"drift_share", "0.5"}},
+R"(
+WITH _anofox_src AS (
+    SELECT group_col AS _anofox_g, COLUMNS(lambda _anofox_c: list_contains(columns, _anofox_c))
+    FROM query_table(source::VARCHAR)
+),
+_anofox_typed AS (
+    SELECT _anofox_g, {
+        'num': CASE WHEN typeof(COLUMNS(* EXCLUDE (_anofox_g))) IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT',
+                         'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE')
+                    OR typeof(COLUMNS(* EXCLUDE (_anofox_g))) LIKE 'DECIMAL%'
+               THEN TRY_CAST(COLUMNS(* EXCLUDE (_anofox_g)) AS DOUBLE) END,
+        'str': CASE WHEN typeof(COLUMNS(* EXCLUDE (_anofox_g))) NOT IN ('TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT',
+                         'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT', 'UHUGEINT', 'FLOAT', 'DOUBLE')
+                    AND typeof(COLUMNS(* EXCLUDE (_anofox_g))) NOT LIKE 'DECIMAL%'
+               THEN COLUMNS(* EXCLUDE (_anofox_g))::VARCHAR END
+    }
+    FROM _anofox_src
+),
+_anofox_long AS (
+    UNPIVOT _anofox_typed ON COLUMNS(* EXCLUDE (_anofox_g)) INTO NAME column_name VALUE _anofox_v
+),
+_anofox_cols AS (
+    SELECT column_name,
+        coalesce(column_drift_agg((_anofox_v).str, _anofox_g, options),
+                 column_drift_agg((_anofox_v).num, _anofox_g, options)) AS _anofox_d
+    FROM _anofox_long
+    GROUP BY column_name
+),
+_anofox_ds AS (
+    SELECT dataset_drift_agg((_anofox_d).drifted, drift_share) AS _anofox_s FROM _anofox_cols
+)
+SELECT column_name,
+    (_anofox_d).test AS test,
+    (_anofox_d).score AS score,
+    (_anofox_d).is_p_value AS is_p_value,
+    (_anofox_d).threshold AS threshold,
+    (_anofox_d).drifted AS drifted,
+    (_anofox_d).n1 AS n1,
+    (_anofox_d).n2 AS n2,
+    (_anofox_s).n_columns AS n_columns,
+    (_anofox_s).n_drifted AS n_drifted,
+    (_anofox_s).share_drifted AS share_drifted,
+    (_anofox_s).drift_share AS drift_share,
+    (_anofox_s).dataset_drift AS dataset_drift
+FROM _anofox_cols CROSS JOIN _anofox_ds
+ORDER BY list_position(columns, column_name)
+)"},
+
     // Sentinel
     {nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
@@ -1120,9 +1229,11 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"tweedie_fit_predict_by", "Table macro: fits a Tweedie GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "tweedie_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
     {"pls_fit_predict_by", "Table macro: fits a partial least squares (PLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "pls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"isotonic_fit_predict_by", "Table macro: fits an isotonic regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "isotonic_fit_predict_by('my_table', group_col, y, x)", "regression"},
+    {"pspline_fit_predict_by", "Table macro: fits a P-spline smoother (mgcv s(x, bs = 'ps')) of y_col on the single column x_col per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (prediction interval at confidence_level, default 0.95; options interval 'confidence' or 'none') and is_training appended. Options as pspline_fit_predict_agg.", "pspline_fit_predict_by('my_table', group_col, y, x)", "regression"},
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},
+    {"glm_score_test_by", "Table macro: Rao score test per group of source for adding the x_add predictors to the GLM of y on x_reduced (R's anova(reduced, full, test = 'Rao')); returns one row per group with method 'Rao score', statistic, p_value, df1, the per-column z_values, dispersion, theta and n_observations. options as glm_score_test_agg (family, link, power, theta, fit_intercept, offset). x_reduced := [] (the default) is the intercept-only model.", "glm_score_test_by('claims', region, n_claims, x_reduced := [age], x_add := [bonus, urban], options := {'family': 'poisson'})", "regression"},
     {"ols_anova_table_by", "Table macro: per-term ANOVA table per group of source (R's anova(lm(y ~ x)), type I sequential sums of squares in the column order, or car::Anova(fit, type = 2) with options {'type': 'II'}); returns one row per group and term with term, method, statistic (F), p_value, df1, df2 (residual df), sum_sq, mean_sq and the residual sum of squares. options terms: one label per x column, equal labels form one term (e.g. factor dummies).", "ols_anova_table_by('sales', region, y, [price, promo, temp], options := {'type': 'II'})", "regression"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
     {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},
@@ -1133,6 +1244,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},
     {"passive_aggressive_fit_predict_by", "Table macro: fits a Passive-Aggressive online regression per group of source, updating row by row in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case), and returns every source row with yhat from the final coefficients, yhat_lower / yhat_upper (NULL: no interval) and is_training appended.", "passive_aggressive_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
     {"lm_dynamic_fit_predict_by", "Table macro: fits a dynamic linear model with time-varying coefficients (greybox lmDynamic) per group of source in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL) and is_training appended.", "lm_dynamic_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
+    {"dataset_drift_by", "Table macro: evidently's data drift of a table. group_col splits the reference and the current rows (two labels; the reference is the smaller label unless options.reference names it); every column named in columns is tested with column_drift_agg(options) (numeric columns as numbers, other types as categories) and the dataset drifted when the share of drifted columns is at least drift_share (default 0.5). Returns one row per column: column_name, test, score, is_p_value, threshold, drifted, n1, n2, plus the dataset summary n_columns, n_drifted, share_drifted, drift_share, dataset_drift.", "dataset_drift_by('events', is_current, ['age', 'city'])", "drift"},
     {nullptr, nullptr, nullptr, nullptr}
 };
 // clang-format on

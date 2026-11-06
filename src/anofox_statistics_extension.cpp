@@ -107,6 +107,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTheilSenAggregateFunction(loader);
     RegisterRlsAggregateFunction(loader);
     RegisterVifAggregateFunction(loader);
+    RegisterGvifAggregateFunction(loader);
     RegisterJarqueBeraAggregateFunction(loader);
     RegisterResidualsDiagnosticsAggregateFunction(loader);
 
@@ -119,12 +120,18 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterCollinearitySeparationAggregateFunctions(loader);
     RegisterOlsAnovaTableAggregateFunction(loader);
     RegisterGlmmAggregateFunction(loader);
+    RegisterGlsFunctions(loader);
     RegisterAftScalarFunctions(loader);
+    RegisterCoxFunctions(loader);
+    RegisterPentraceAggregateFunctions(loader);
     RegisterBinomialAggregateFunction(loader);
     RegisterNegBinomAggregateFunction(loader);
     RegisterTweedieAggregateFunction(loader);
     RegisterGammaAggregateFunction(loader);
     RegisterLogisticAggregateFunction(loader);
+    RegisterGlmScoreTestAggregateFunction(loader);
+    RegisterLrTestFunction(loader);
+    RegisterWaldAnovaFunctions(loader);
 
     // Register ALM aggregate functions
     RegisterAlmAggregateFunction(loader);
@@ -156,6 +163,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterDAgostinoK2AggregateFunction(loader);
     RegisterEnergyDistanceAggregateFunction(loader);
     RegisterDriftAggregateFunctions(loader);
+    RegisterEmbeddingAggregateFunctions(loader);
     RegisterMmdAggregateFunction(loader);
     RegisterTostTTestAggregateFunction(loader);
 
@@ -193,6 +201,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterCramersVAggregateFunction(loader);
     RegisterCohenKappaAggregateFunction(loader);
     RegisterIccAggregateFunction(loader);
+    RegisterFactorialAnovaAggregateFunctions(loader); // two_way_anova_agg, repeated_measures_anova_agg (#297)
     RegisterGTestAggregateFunction(loader);
     RegisterMcNemarAggregateFunction(loader);
     RegisterPhiCoefficientAggregateFunction(loader);
@@ -200,6 +209,8 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Classifier evaluation (#153)
     RegisterClassifierAggregateFunctions(loader);
+    // Predictive accuracy indexes (#308)
+    RegisterAccuracyFunctions(loader);
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
@@ -233,7 +244,21 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLsStateFunctions(loader);
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
+    // P-spline smoother: pspline_fit_agg, pspline_fit_predict_agg (#316)
+    RegisterPSplineAggregateFunctions(loader);
     RegisterPathAggregateFunctions(loader);
+    // Ordinal regression: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict (#313)
+    RegisterOrdinalFunctions(loader);
+    // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
+    RegisterPcaFunctions(loader);
+    // Multiple imputation and Rubin pooling: areg_impute_agg/_by, pool_rubin_agg (#321)
+    RegisterImputationFunctions(loader);
+    // Multinomial logistic regression (#314)
+    RegisterMultinomialFunctions(loader);
+    // Resampling model validation and calibration (#318)
+    RegisterModelValidationFunctions(loader);
+    // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
+    RegisterReductionFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
@@ -241,6 +266,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
     RegisterNullDistributionFunctions(loader);
+    RegisterSplineFunctions(loader);              // #317
+    RegisterSplineKnotsAggregateFunctions(loader); // #317
+    RegisterEffectsFunctions(loader);              // #319
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);

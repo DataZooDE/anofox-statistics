@@ -67,7 +67,7 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE tags['anofox.output'] = 'test' AND tags['anofox.contract'] = anofox_contract_version()
 ----
-72
+84
 
 # Every test aggregate carries all thirteen unified fields with the contract types.
 statement ok
@@ -123,6 +123,8 @@ SELECT 'prop_test_one_agg', typeof(prop_test_one_agg(b1)) FROM tt UNION ALL
 SELECT 'prop_test_two_agg', typeof(prop_test_two_agg(b1, g2)) FROM tt UNION ALL
 SELECT 'chisq_gof_agg', typeof(chisq_gof_agg(c1 + 5, 6.0)) FROM tt UNION ALL
 SELECT 'icc_agg', typeof(icc_agg(v, i // 4, i % 4)) FROM tt UNION ALL
+SELECT 'two_way_anova_agg', typeof(two_way_anova_agg(v, c1, b1)) FROM tt UNION ALL
+SELECT 'repeated_measures_anova_agg', typeof(repeated_measures_anova_agg(v, i // 4, i % 4)) FROM tt UNION ALL
 SELECT 'ljung_box_agg', typeof(ljung_box_agg(v, 3 ORDER BY i)) FROM tt UNION ALL
 SELECT 'box_pierce_agg', typeof(box_pierce_agg(v, 3 ORDER BY i)) FROM tt UNION ALL
 SELECT 'durbin_watson_agg', typeof(durbin_watson_agg(v ORDER BY i)) FROM tt UNION ALL
@@ -130,6 +132,8 @@ SELECT 'breusch_pagan_agg', typeof(breusch_pagan_agg(v, [x, y])) FROM tt UNION A
 SELECT 'white_test_agg', typeof(white_test_agg(v, [x, y])) FROM tt UNION ALL
 SELECT 'log_rank_test_agg', typeof(log_rank_test_agg(x + 2, b1, g2)) FROM tt UNION ALL
 SELECT 'ols_anova_agg', typeof(ols_anova_agg(v, [x], [x, y])) FROM tt UNION ALL
+SELECT 'glm_score_test_agg', typeof(glm_score_test_agg(v, [x], [y])) FROM tt UNION ALL
+SELECT 'lr_test', typeof(lr_test(ols_fit_agg(v, [x, y]), ols_fit_agg(v, [x]))) FROM tt UNION ALL
 SELECT 'ks_test_agg', typeof(ks_test_agg(v, g2)) FROM tt UNION ALL
 SELECT 'ad_test_agg', typeof(ad_test_agg(v, g3)) FROM tt UNION ALL
 SELECT 'cvm_test_agg', typeof(cvm_test_agg(v, g2)) FROM tt UNION ALL
@@ -141,7 +145,14 @@ SELECT 'jensen_shannon_agg', typeof(jensen_shannon_agg(v, g2)) FROM tt UNION ALL
 SELECT 'hellinger_agg', typeof(hellinger_agg(v, g2)) FROM tt UNION ALL
 SELECT 'tvd_agg', typeof(tvd_agg(c1, g2)) FROM tt UNION ALL
 SELECT 'partial_cor_agg', typeof(partial_cor_agg(x, y, [v])) FROM tt UNION ALL
-SELECT 'semi_partial_cor_agg', typeof(semi_partial_cor_agg(x, y, [v])) FROM tt;
+SELECT 'semi_partial_cor_agg', typeof(semi_partial_cor_agg(x, y, [v])) FROM tt UNION ALL
+SELECT 'z_drift_agg', typeof(z_drift_agg(b1, g2)) FROM tt UNION ALL
+SELECT 'chisq_drift_agg', typeof(chisq_drift_agg(c1, g2)) FROM tt UNION ALL
+SELECT 'g_drift_agg', typeof(g_drift_agg(c1::VARCHAR, g2)) FROM tt UNION ALL
+SELECT 'energy_distance_test_agg', typeof(energy_distance_test_agg([x, y], g2)) FROM tt UNION ALL
+SELECT 'mmd_test_agg', typeof(mmd_test_agg([x, y], g2)) FROM tt UNION ALL
+SELECT 'spearman2_agg', typeof(spearman2_agg(y, x)) FROM tt UNION ALL
+SELECT 'hoeffding_d_agg', typeof(hoeffding_d_agg(x, y)) FROM tt;
 
 query I
 SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field IN [
@@ -154,4 +165,4 @@ SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field
 query I
 SELECT count(*) FROM types
 ----
-63
+74

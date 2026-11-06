@@ -166,16 +166,19 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/ls_state_aggregate.cpp
     src/aggregate_functions/lm_dynamic_aggregate.cpp
     src/aggregate_functions/lowess_aggregate.cpp
+    src/aggregate_functions/pspline_aggregate.cpp
     src/aggregate_functions/path_aggregates.cpp
     src/aggregate_functions/ridge_aggregate.cpp
     src/aggregate_functions/elasticnet_aggregate.cpp
     src/aggregate_functions/lars_aggregate.cpp
     src/aggregate_functions/wls_aggregate.cpp
+    src/aggregate_functions/cluster_fit_aggregate.cpp
     src/aggregate_functions/huber_aggregate.cpp
     src/aggregate_functions/ransac_aggregate.cpp
     src/aggregate_functions/theil_sen_aggregate.cpp
     src/aggregate_functions/rls_aggregate.cpp
     src/aggregate_functions/vif_aggregate.cpp
+    src/aggregate_functions/gvif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp
     src/aggregate_functions/timeseries_diagnostics_aggregate.cpp
     src/aggregate_functions/survival_aggregate.cpp
@@ -191,13 +194,18 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/elasticnet_predict_aggregate.cpp
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/aft_aggregate.cpp
+    src/aggregate_functions/cox_aggregate.cpp
+    src/aggregate_functions/pentrace_aggregate.cpp
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
     src/aggregate_functions/ols_anova_aggregate.cpp
     src/aggregate_functions/collinearity_separation_aggregate.cpp
+    src/aggregate_functions/glm_score_test_aggregate.cpp
     src/aggregate_functions/ols_anova_table_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
+    src/aggregate_functions/accuracy_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
+    src/aggregate_functions/gls_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
     src/aggregate_functions/negbinom_aggregate.cpp
     src/aggregate_functions/tweedie_aggregate.cpp
@@ -227,6 +235,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/dagostino_k2_aggregate.cpp
     src/aggregate_functions/energy_distance_aggregate.cpp
     src/aggregate_functions/drift_aggregates.cpp
+    src/aggregate_functions/embedding_aggregates.cpp
     src/aggregate_functions/mmd_aggregate.cpp
     src/aggregate_functions/tost_t_test_aggregate.cpp
     src/aggregate_functions/wilcoxon_signed_rank_aggregate.cpp
@@ -248,6 +257,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/cramers_v_aggregate.cpp
     src/aggregate_functions/cohen_kappa_aggregate.cpp
     src/aggregate_functions/icc_aggregate.cpp
+    src/aggregate_functions/factorial_anova_aggregate.cpp
     src/aggregate_functions/g_test_aggregate.cpp
     src/aggregate_functions/mcnemar_aggregate.cpp
     src/aggregate_functions/phi_coefficient_aggregate.cpp
@@ -255,12 +265,23 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/pls_fit_predict_aggregate.cpp
     src/aggregate_functions/isotonic_fit_predict_aggregate.cpp
     src/aggregate_functions/quantile_fit_predict_aggregate.cpp
+    src/aggregate_functions/ordinal_aggregate.cpp
+    src/aggregate_functions/pca_aggregate.cpp
+    src/aggregate_functions/imputation_aggregate.cpp
+    src/aggregate_functions/multinomial_aggregate.cpp
+    src/aggregate_functions/model_validation_aggregate.cpp
+    src/aggregate_functions/reduction_aggregates.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp
+    src/scalar_functions/lr_test.cpp
+    src/scalar_functions/wald_anova.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
     src/scalar_functions/null_distributions.cpp
+    src/scalar_functions/splines.cpp
+    src/aggregate_functions/spline_knots_aggregate.cpp
+    src/aggregate_functions/effects_aggregate.cpp
     src/window_functions/ols_fit_predict.cpp
     src/window_functions/huber_fit_predict.cpp
     src/window_functions/ransac_fit_predict.cpp

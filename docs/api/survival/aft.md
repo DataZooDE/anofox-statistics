@@ -16,6 +16,8 @@ attenuates covariate effects and understates the spread.
 | `aft_cdf` | Scalar | `P(T <= t)` for a fitted model |
 | `aft_quantile` | Scalar | The `p`-quantile of `T` |
 | `aft_survival` | Scalar | Survival curve `S(t \| x)` of a fitted model; see [Survival curves](survival_curves.md) |
+| `aft_augment_agg` | Window aggregate | Per-row linear predictor, standardized and Cox-Snell residuals, score contributions |
+| `aft_augment_by` | Table macro | Every source row with its residuals (integration contract `obs`) |
 
 The examples on this page use this table:
 
@@ -85,6 +87,37 @@ SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered, {
 FROM po_lines;
 ```
 
+### Cluster-robust covariance
+
+```text
+aft_fit_agg(time DOUBLE, x DOUBLE[], event DOUBLE, cluster ANY, options) -> STRUCT
+```
+
+Standard errors clustered by `cluster` (e.g. repeated orders of one supplier,
+several events of one patient), as R's `survreg(..., cluster = id)` /
+`rms::robcov(psm(...))`, through upstream's `AftResult::cluster_vcov`. `cluster`
+is one id per row of any type; a `LIST` or `STRUCT` of ids gives multiway
+clustering; rows with a NULL id are skipped. `options` is required (`MAP {}`
+for the defaults; `'vcov': 'cluster'` is accepted) and `compute_inference`
+defaults to true. `'hc_type'`: `'hc0'` (default) or `'hc1'`; `'cadjust'`
+defaults to **false**, survreg's convention (`true` multiplies the meat by
+`G/(G − 1)`, as `vcovCL`). With Gaussian priors the bread is the penalized
+information (the sandwich of the penalized estimating equation).
+
+`std_errors`, `z_values`, `p_values`, the intervals, `intercept_std_error` and
+`log_scale_std_error` are the clustered ones; three fields are appended:
+`vcov` (the clustered covariance of the intercept, the coefficients and
+`log(scale)`, row-major), `vcov_type` (`'cluster_HC0'` / `'cluster_HC1'`) and
+`n_clusters`. With fewer than two clusters the inference and `vcov` are NULL.
+Validated against `survreg(cluster =)` (`test/sql/reference/glm_cluster_vcov.test`).
+
+```sql
+-- Lead-time model with standard errors clustered by supplier rating band
+SELECT (fit).std_errors, (fit).log_scale_std_error, (fit).n_clusters
+FROM (SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered, supplier_rating, MAP {}) AS fit
+      FROM po_lines);
+```
+
 ## The model
 
 ```
@@ -133,7 +166,10 @@ aft_quantile(p DOUBLE, eta DOUBLE, scale DOUBLE, dist VARCHAR) -> DOUBLE
 | `dist` | Distribution used for the fit: `weibull`, `lognormal`, `loglogistic`, `exponential` |
 
 A NULL in any argument returns NULL; an unknown distribution name raises an
-error.
+error. The model is rebuilt from these pieces with upstream's
+`AftResult::from_parts`, so pieces that are not a model give NaN: a scale that
+is not positive and finite, or a scale other than 1 for `exponential` (its
+scale is fixed).
 
 ```sql
 -- P(delivery within 10 days) and the median predicted duration per order
@@ -158,6 +194,63 @@ LIMIT 5;
 SELECT aft_cdf(30.0, 2.5, 0.5, 'weibull') AS cdf,
        aft_quantile(0.5, 2.5, 0.5, 'weibull') AS median;
 ```
+
+## aft_augment_agg / aft_augment_by
+
+Per-observation results of the same fit as `aft_fit_agg` (anofox-regression
+`FittedAft::{standardized_residuals, cox_snell_residuals, score_contributions}`,
+R `survreg` / `residuals.survreg`):
+
+```text
+aft_augment_agg(time DOUBLE, x DOUBLE[], event DOUBLE [, options]) OVER (...)
+    -> STRUCT(linear_predictor DOUBLE, standardized_residual DOUBLE, cox_snell_residual DOUBLE,
+              score_contributions DOUBLE[], is_training BOOLEAN)[]
+aft_augment_by(source, group_col, time_col, x_cols, event_col [, options := ...] [, order_by := ...])
+```
+
+| Field | Description | R |
+|-------|-------------|---|
+| `linear_predictor` | `eta = intercept + x'beta`, the location of `log T` | `predict(fit, type = "lp")` |
+| `standardized_residual` | `(log t - eta) / scale` | |
+| `cox_snell_residual` | `-log S(t \| x)` | `-log(1 - psurvreg(t, lp, scale, dist))` |
+| `score_contributions` | Per-row score: intercept, coefficients, `log(scale)` (no `log(scale)` for `exponential`) | `residuals(fit, "matrix")[, c("dg", "ds")]` times `(1, x, 1)` |
+| `is_training` | Whether the fit used the row | |
+
+The options are those of `aft_fit_agg`. For a correct model the standardized
+residuals follow the error distribution of `dist` and the Cox-Snell residuals are
+unit exponential, both with the rows' censoring: plot the Kaplan-Meier curve of
+`(cox_snell_residual, event)` against `exp(-r)` (RMS §18.3). The score
+contributions sum to zero over the fit; they are what a cluster-robust covariance
+sums within clusters.
+
+`aft_augment_agg` is a window aggregate: it fits the frame and returns one STRUCT per
+frame row, in frame order; use it over a whole partition, as `aft_augment_by` does.
+`aft_augment_by` returns every source row in the contract's `obs` schema: `fitted`
+is the linear predictor, `residual` the Cox-Snell residual (`resid_type`
+`'cox_snell'`), `std_residual` the standardized residual, then
+`score_contributions`. Rows the fit could not use (a NULL or non-finite time,
+event or feature) get NULLs and `is_training = false`.
+
+```sql
+-- Cox-Snell residuals of a log-normal fit: their KM curve should follow exp(-r)
+WITH aug AS (
+    SELECT * FROM aft_augment_by('po_lines', 1, days, [supplier_rating, order_qty], delivered,
+                                 options := {'dist': 'lognormal'})
+)
+SELECT p.time AS r, p.surv AS km, exp(-p.time) AS expected
+FROM (SELECT unnest(kaplan_meier_agg(residual, delivered)) AS p FROM aug)
+LIMIT 5;
+```
+
+```sql
+SELECT order_id, fitted, std_residual, residual, score_contributions
+FROM aft_augment_by('po_lines', 1, days, [supplier_rating, order_qty], delivered)
+ORDER BY order_id
+LIMIT 3;
+```
+
+The cluster-robust AFT covariance (`survreg(..., cluster = id)`) is not exposed
+yet: it comes with the AFT entry point of anofox-regression 0.12.
 
 ## Degenerate inputs
 

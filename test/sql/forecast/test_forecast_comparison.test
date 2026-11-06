@@ -27,16 +27,16 @@ FROM (SELECT spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'block_length': 
 1	2	60	199	4.0	Superior predictive ability test	greater	true	true	true
 
 # Per group: 'a' rejects H0 with every p-value. In 'b' no model is better
-# (T_SPA = max(0, ...) = 0), the upper (Reality Check) p-value does not reject;
-# the lower and consistent p-values are degenerate at T_SPA = 0 (see the docs).
-query IIIII
+# (T_SPA = max(0, ...) = 0) and all three p-values are P(T* >= 0) = 1.
+query IIIIII
 SELECT g, (r).p_value < 0.05, (r).p_value_upper < 0.05, (r).statistic > 0,
-    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper
+    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper,
+    (r).statistic > 0 OR ((r).p_value_lower = 1 AND (r).p_value_consistent = 1 AND (r).p_value_upper = 1)
 FROM (SELECT g, spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'seed': 3} ORDER BY t) AS r FROM fc GROUP BY g)
 ORDER BY g;
 ----
-a	true	true	true	true
-b	true	false	false	true
+a	true	true	true	true	true
+b	false	false	false	true	true
 
 # Default options: block length T^(1/3), 1000 bootstrap samples, fixed default seed.
 query III
@@ -182,14 +182,14 @@ FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'bl
 
 # Reproducible for a fixed seed with three or more models (anofox-statistics
 # >= 0.8.0; before, the pairwise bootstrap iterated a HashMap). The decision is
-# pinned; the p-values only to one decimal, because upstream's bootstrap draws
-# still differ between 64-bit and wasm32 builds (0.8858 vs 0.8978 here).
+# pinned exactly: since anofox-statistics 0.8.3 the seeded draws are the same on
+# 64-bit and wasm32 builds.
 query III
-SELECT r.elimination_order, [round(p, 1) FOR p IN r.mcs_p_values], r.included_models
+SELECT r.elimination_order, [round(p, 6) FOR p IN r.mcs_p_values], r.included_models
 FROM (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
           {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a');
 ----
-[5, 4, 3, 1, 2]	[0.9, 1.0, 0.0, 0.0, 0.0]	[1, 2]
+[5, 4, 3, 1, 2]	[0.885772, 1.0, 0.0, 0.0, 0.0]	[1, 2]
 
 # Same call twice in one process: identical results.
 query I

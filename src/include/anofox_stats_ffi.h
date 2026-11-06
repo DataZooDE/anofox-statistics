@@ -2779,6 +2779,61 @@ void anofox_free_aft_result(AnofoxAftFitResultCore *result);
 /** Free the arrays owned by AFT inference. */
 void anofox_free_aft_inference(AnofoxAftInference *inf);
 
+/* ============================================================================
+ * Cluster-robust covariance of the GLM and AFT fits
+ * (crates/anofox-stats-ffi/src/glm_cluster_ffi.rs)
+ *
+ * As anofox_<family>_fit, with the cluster-robust inference and covariance
+ * (sandwich::vcovCL(glm, cluster, type = hc_type, cadjust); upstream
+ * GlmResult::cluster_vcov) in out_inference / out_result->vcov. clusters holds
+ * n_dims arrays of y.len non-negative codes; out_n_clusters (NULL or n_dims
+ * entries) receives the clusters per dimension among the fitted rows. hc_type:
+ * ANOFOX_HC_NONE / HC0 (vcovCL's default for GLMs) or HC1 (HC2 / HC3 are an
+ * error). With fewer than two clusters in a dimension the inference is NaN and
+ * vcov NULL; a coefficient at an L1 prior's kink is an error.
+ * ============================================================================ */
+bool anofox_poisson_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                AnofoxPoissonOptions options, const int32_t *const *clusters, size_t n_dims,
+                                AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                AnofoxError *out_error);
+bool anofox_binomial_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                 AnofoxBinomialOptions options, const int32_t *const *clusters, size_t n_dims,
+                                 AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                 AnofoxError *out_error);
+bool anofox_negbinomial_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                    AnofoxNegBinomialOptions options, const int32_t *const *clusters,
+                                    size_t n_dims, AnofoxHcType hc_type, bool cadjust,
+                                    AnofoxGlmFitResultCore *out_result, AnofoxFitResultInference *out_inference,
+                                    int64_t *out_n_clusters, AnofoxError *out_error);
+bool anofox_tweedie_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                AnofoxTweedieOptions options, const int32_t *const *clusters, size_t n_dims,
+                                AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                AnofoxError *out_error);
+bool anofox_gamma_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                              AnofoxGammaOptions options, const int32_t *const *clusters, size_t n_dims,
+                              AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                              AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                              AnofoxError *out_error);
+bool anofox_logistic_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                 AnofoxLogisticOptions options, const int32_t *const *clusters, size_t n_dims,
+                                 AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxLogisticFitExtras *out_extras,
+                                 int64_t *out_n_clusters, AnofoxError *out_error);
+/**
+ * AFT with the cluster-robust covariance (survreg(..., cluster = id): hc_type HC0, cadjust false;
+ * upstream AftResult::cluster_vcov). Outputs as anofox_aft_fit plus the clustered covariance of
+ * (intercept, coefficients, log scale) in out_vcov (out_dim square, row-major; NULL when
+ * undefined; free with anofox_free_interval_matrix) and the clusters per dimension.
+ */
+bool anofox_aft_cluster_fit(AnofoxDataArray time, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray event,
+                            AnofoxAftOptions options, const int32_t *const *clusters, size_t n_dims,
+                            AnofoxHcType hc_type, bool cadjust, AnofoxAftFitResultCore *out_core,
+                            AnofoxAftInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+
 /** P(T <= t) for a fitted AFT model. */
 double anofox_aft_cdf(double t, double eta, double scale, AnofoxAftDistribution dist);
 
@@ -3679,6 +3734,9 @@ typedef enum {
 	ANOFOX_DRIFT_JENSEN_SHANNON = 6,
 	ANOFOX_DRIFT_HELLINGER = 7,
 	ANOFOX_DRIFT_TVD = 8,
+	ANOFOX_DRIFT_Z = 9,
+	ANOFOX_DRIFT_CHISQ = 10,
+	ANOFOX_DRIFT_G = 11,
 } AnofoxDriftKind;
 
 /**
@@ -3726,6 +3784,9 @@ typedef struct {
 	/** Current size (Anderson-Darling: number of groups) */
 	size_t n2;
 	size_t n_bins;
+	/** z test: shares of the non-smallest category (reference, current) */
+	double estimate_reference;
+	double estimate_current;
 	bool exact;
 	/** Unified test fields (#159); keep last */
 	AnofoxTestSummaryFFI unified;
@@ -3742,6 +3803,94 @@ bool anofox_drift_test(int32_t kind, AnofoxDataArray reference, AnofoxDataArray 
  */
 bool anofox_ad_test_ksamp(AnofoxDataArray values, AnofoxDataArray groups, bool midrank, AnofoxDriftResult *out_result,
                           AnofoxError *out_error);
+
+/**
+ * Options of anofox_column_drift (#300). Must match ColumnDriftOptionsFFI in
+ * crates/anofox-stats-ffi/src/drift_ffi.rs.
+ */
+typedef struct {
+	/** evidently's test name; NULL or "auto" for evidently's default choice */
+	const char *test;
+	/** Drift threshold; NaN for the test's default */
+	double threshold;
+	/** Zero fill of PSI / KL; NaN for evidently's rule */
+	double epsilon;
+	/** Permutations of TVD / empirical_mmd */
+	size_t n_permutations;
+	uint64_t seed;
+	/** Bins of the quantile binning */
+	size_t n_bins;
+	/** 0 auto (evidently), 1 sturges, 2 categorical, 3 quantile */
+	int32_t binning;
+	bool has_seed;
+} AnofoxColumnDriftOptions;
+
+/** Result of anofox_column_drift. Must match ColumnDriftResultFFI. */
+typedef struct {
+	/** A p-value or a distance (is_p_value) */
+	double score;
+	double threshold;
+	size_t n1;
+	size_t n2;
+	bool drifted;
+	bool is_p_value;
+	/** evidently's name of the test that was run */
+	char test[ANOFOX_TEST_NAME_LEN];
+} AnofoxColumnDriftResult;
+
+/**
+ * evidently's drift of one column (NaN entries are dropped). categorical: the
+ * values are category codes in label order.
+ */
+bool anofox_column_drift(AnofoxDataArray reference, AnofoxDataArray current, bool categorical,
+                         AnofoxColumnDriftOptions options, AnofoxColumnDriftResult *out_result,
+                         AnofoxError *out_error);
+
+/** Result of anofox_dataset_drift. Must match DatasetDriftResultFFI. */
+typedef struct {
+	double share_drifted;
+	size_t n_columns;
+	size_t n_drifted;
+	bool dataset_drift;
+} AnofoxDatasetDriftResult;
+
+/**
+ * evidently's dataset drift: drifted when the share of drifted columns is at
+ * least drift_share.
+ */
+bool anofox_dataset_drift(const bool *drifted, size_t len, double drift_share, AnofoxDatasetDriftResult *out_result,
+                          AnofoxError *out_error);
+
+/**
+ * evidently's default parameters (upstream drift::defaults) that the SQL layer
+ * fills in for unset options. Must match DriftDefaultsFFI.
+ */
+typedef struct {
+	size_t n_permutations;                /* TVD / column drift permutations (N_PERMUTATIONS) */
+	size_t embedding_bootstrap_resamples; /* EMBEDDING_BOOTSTRAP_RESAMPLES */
+	double dataset_drift_share;           /* DATASET_DRIFT_SHARE */
+} AnofoxDriftDefaults;
+
+void anofox_drift_defaults(AnofoxDriftDefaults *out);
+
+/**
+ * Drift statistic between two samples of category labels (#301), given as dense
+ * codes in label order (NaN entries are dropped): upstream's *_categorical
+ * divergences and tvd_test. kind: PSI, KL, Jensen-Shannon, Hellinger or TVD;
+ * options.binning is ignored.
+ */
+bool anofox_drift_test_categorical(int32_t kind, AnofoxDataArray reference, AnofoxDataArray current,
+                                   AnofoxDriftOptions options, AnofoxDriftResult *out_result, AnofoxError *out_error);
+
+/**
+ * Proportions of the reference and the current sample per category (#301,
+ * upstream category_proportions), given dense codes in label order (NaN entries
+ * are dropped). Writes n_categories values to each of out_p (reference) and
+ * out_q (current), in code order; fails unless the samples have exactly
+ * n_categories distinct codes.
+ */
+bool anofox_category_proportions(AnofoxDataArray reference, AnofoxDataArray current, size_t n_categories,
+                                 double *out_p, double *out_q, AnofoxError *out_error);
 
 /* ============================================================================
  * Per-term ANOVA table of an OLS fit (issue #231)
@@ -4037,6 +4186,1674 @@ typedef struct {
 bool anofox_model_confidence_set(const AnofoxDataArray *models, size_t n_models, AnofoxMcsOptions options,
                                  uint64_t *out_included, AnofoxMcsStep *out_steps, uint64_t *out_order,
                                  double *out_mcs_p_values, AnofoxMcsResult *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Two-way and repeated-measures ANOVA (#297)
+ * ============================================================================ */
+
+/**
+ * One F test of anofox_two_way_anova. Must match AnovaTermFFI in
+ * crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	double sum_sq;
+	double df;
+	double mean_sq;
+	double f_statistic;
+	double p_value;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxTwoWayAnovaTerm;
+
+/**
+ * Result of anofox_two_way_anova. Must match TwoWayAnovaResultFFI in
+ * crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	/** Factor A, factor B, A x B interaction */
+	AnofoxTwoWayAnovaTerm terms[3];
+	double residual_sum_sq;
+	double residual_df;
+	double residual_mean_sq;
+	double total_sum_sq;
+	double total_df;
+	size_t levels_a;
+	size_t levels_b;
+	size_t n;
+	double grand_mean;
+} AnofoxTwoWayAnovaResult;
+
+/**
+ * Two-way ANOVA with interaction, Type III sums of squares (car::Anova(type = 3)
+ * with sum contrasts), of values by the dense 0-based level codes factor_a and
+ * factor_b. Every cell must be observed.
+ */
+bool anofox_two_way_anova(AnofoxDataArray values, AnofoxDataArray factor_a, AnofoxDataArray factor_b,
+                          AnofoxTwoWayAnovaResult *out_result, AnofoxError *out_error);
+
+/**
+ * Result of anofox_repeated_measures_anova. The sphericity fields are NaN when
+ * fewer than three conditions were observed or sphericity was not requested.
+ * Must match RmAnovaResultFFI in crates/anofox-stats-ffi/src/anova_ffi.rs.
+ */
+typedef struct {
+	double ss_condition;
+	double df_condition;
+	double ms_condition;
+	double f_statistic;
+	double p_value;
+	double ss_subjects;
+	double df_subjects;
+	double ss_error;
+	double df_error;
+	double ms_error;
+	double ss_total;
+	size_t n_subjects;
+	size_t n_conditions;
+	double mauchly_w;
+	double mauchly_chi_square;
+	double mauchly_df;
+	double mauchly_p_value;
+	double gg_epsilon;
+	double gg_df1;
+	double gg_df2;
+	double gg_p_value;
+	double hf_epsilon;
+	double hf_df1;
+	double hf_df2;
+	double hf_p_value;
+	/** Unified test fields of the uncorrected F test (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxRmAnovaResult;
+
+/**
+ * One-way repeated-measures ANOVA of the complete row-major n_subjects x
+ * n_conditions matrix data; sphericity adds Mauchly's test and the
+ * Greenhouse-Geisser correction (three or more conditions).
+ */
+bool anofox_repeated_measures_anova(const double *data, size_t n_subjects, size_t n_conditions, bool sphericity,
+                                    AnofoxRmAnovaResult *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Principal component analysis (#303)
+ * ============================================================================ */
+
+/**
+ * A fitted PCA. Must match PcaResultFFI in crates/anofox-stats-ffi/src/pca_ffi.rs.
+ * The arrays are allocated by anofox_pca_fit; release them with
+ * anofox_free_pca_result.
+ */
+typedef struct {
+	/** Column means, n_features values */
+	double *center;
+	/** Component standard deviations (divisor n - 1), n_components values, decreasing */
+	double *sdev;
+	/** Share of the total variance per component, n_components values */
+	double *proportion_of_variance;
+	/** Loadings, component-major: loadings[j * n_features + i] is variable i of component j */
+	double *loadings;
+	size_t n_features;
+	size_t n_components;
+	size_t n_observations;
+	/** Column standard deviations the data were divided by (n_features values); NULL when unscaled */
+	double *scale;
+} AnofoxPcaResult;
+
+/**
+ * PCA (R's prcomp(x, center = TRUE, scale. = scale)) of n_rows rows of
+ * n_features values each, row-major in data, keeping the first n_components
+ * components (0: all min(n_rows - 1, n_features)).
+ */
+bool anofox_pca_fit(const double *data, size_t n_rows, size_t n_features, size_t n_components, bool scale,
+                    AnofoxPcaResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_pca_fit. */
+void anofox_free_pca_result(AnofoxPcaResult *result);
+
+/**
+ * Scores of one row x (x_len values) on the n_components components of a
+ * fitted PCA (predict.prcomp). scale is NULL for an unscaled model, else
+ * n_features column sds; loadings is component-major as in AnofoxPcaResult;
+ * out_scores receives n_components values.
+ */
+bool anofox_pca_transform(const double *center, const double *scale, const double *sdev, const double *loadings,
+                          size_t n_features,
+                          size_t n_components, const double *x, size_t x_len, double *out_scores,
+                          AnofoxError *out_error);
+
+/**
+ * GVIF of one term. Must match GvifTermFFI in
+ * crates/anofox-stats-ffi/src/gvif_ffi.rs.
+ */
+typedef struct {
+	uint64_t df;
+	double gvif;
+	double gvif_adj;
+} AnofoxGvifTerm;
+
+/**
+ * Generalized VIF (Fox & Monette 1992, car::vif) per term, on the rows where
+ * every x value is finite (#307). term_of_column[j] is the 0-based term of
+ * column j; out_terms receives n_terms entries.
+ */
+bool anofox_compute_gvif(const AnofoxDataArray *x, size_t x_count, const uint64_t *term_of_column, size_t n_terms,
+                         AnofoxGvifTerm *out_terms, size_t *out_n_observations, AnofoxError *out_error);
+
+/* ============================================================================
+ * Predictive accuracy indexes (issue #308). The structs must match
+ * crates/anofox-stats-ffi/src/accuracy_ffi.rs. An empty weights array means
+ * unweighted.
+ * ============================================================================ */
+
+typedef struct {
+	double concordant;
+	double discordant;
+	double tied_x;
+	double tied_y;
+	double tied_xy;
+	double c;
+	double dxy;
+	double gamma;
+	double tau_a;
+} AnofoxConcordanceResult;
+
+typedef struct {
+	double c;
+	double dxy;
+	/** Observations (sum of weights when weighted) */
+	double n;
+} AnofoxSomers2Result;
+
+typedef struct {
+	double c;
+	double dxy;
+	double sd;
+	double relevant_pairs;
+	double concordant;
+	double uncertain;
+	size_t n;
+	size_t missing;
+	size_t uncensored;
+} AnofoxRcorrCensResult;
+
+/** Hmisc::R2Measures; the ess fields are NaN without an effective sample size. */
+typedef struct {
+	double r2;
+	double r2_adj;
+	double r2_ess;
+	double r2_adj_ess;
+} AnofoxR2MeasuresResult;
+
+typedef struct {
+	double sum_weights;
+	double model_lr;
+	double df;
+	double p_value;
+	double c;
+	double dxy;
+	double gamma;
+	double tau_a;
+	double r2;
+	AnofoxR2MeasuresResult r2_measures;
+	/** Effective sample size 3 n1 n0 / n of the R2(m) measures */
+	double ess;
+	double brier;
+	double g;
+	double gr;
+	double gp;
+	size_t n;
+} AnofoxLrmStatsResult;
+
+typedef struct {
+	double dxy;
+	double c;
+	double r2;
+	double d;
+	double d_chisq;
+	double d_p;
+	double u;
+	double u_chisq;
+	double u_p;
+	double q;
+	double brier;
+	double intercept;
+	double slope;
+	double emax;
+	double e90;
+	double eavg;
+	double s_z;
+	double s_p;
+} AnofoxValProbResult;
+
+/** Concordance of x with the ordered response y (survival::concordance counts). */
+bool anofox_concordance(AnofoxDataArray x, AnofoxDataArray y, AnofoxDataArray weights,
+                        AnofoxConcordanceResult *out_result, AnofoxError *out_error);
+
+/** Hmisc::somers2(p, y, weights). */
+bool anofox_somers2(AnofoxDataArray p, AnofoxDataArray y, AnofoxDataArray weights, AnofoxSomers2Result *out_result,
+                    AnofoxError *out_error);
+
+/** Hmisc::rcorr.cens(x, Surv(time, event)); event non-zero = observed. */
+bool anofox_rcorr_cens(AnofoxDataArray x, AnofoxDataArray time, AnofoxDataArray event,
+                       AnofoxRcorrCensResult *out_result, AnofoxError *out_error);
+
+/** Hmisc::GiniMd(x); NaN for fewer than 2 values. */
+bool anofox_gini_md(AnofoxDataArray x, double *out_value, AnofoxError *out_error);
+
+/** Hmisc::R2Measures(lr, p, n, ess); ess NaN for none. */
+bool anofox_r2_measures(double lr, double p, double n, double ess, AnofoxR2MeasuresResult *out_result,
+                        AnofoxError *out_error);
+
+/** The stats vector of a binary rms::lrm fit from its response and linear predictor. */
+bool anofox_lrm_stats(AnofoxDataArray y, AnofoxDataArray lp, AnofoxDataArray weights, double df,
+                      AnofoxLrmStatsResult *out_result, AnofoxError *out_error);
+
+/** rms::val.prob(p, y, pl = FALSE). */
+bool anofox_val_prob(AnofoxDataArray p, AnofoxDataArray y, AnofoxValProbResult *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Embedding drift and multivariate two-sample tests (#302)
+ * A sample is n_rows embeddings of dim doubles each, row-major.
+ * ============================================================================ */
+
+/**
+ * Options of anofox_embedding_drift; each method reads only its own. Must match
+ * EmbeddingDriftOptionsFFI in crates/anofox-stats-ffi/src/embedding_ffi.rs.
+ */
+typedef struct {
+	/** evidently's drift test of each component (ratio); NULL for "wasserstein" */
+	const char *component_test;
+	/** Fixed threshold; NaN for evidently's default */
+	double threshold;
+	/** Bootstrap quantile; NaN for evidently's default */
+	double quantile;
+	/** Per-component threshold (ratio); NaN for the test's default */
+	double component_threshold;
+	size_t n_bootstrap;
+	uint64_t seed;
+	/** 0 distance, 1 ratio, 2 mmd */
+	int32_t method;
+	/** 0 euclidean, 1 cosine, 2 cityblock, 3 chebyshev */
+	int32_t metric;
+	bool bootstrap;
+	bool has_seed;
+} AnofoxEmbeddingDriftOptions;
+
+/** Result of anofox_embedding_drift. Must match EmbeddingDriftResultFFI. */
+typedef struct {
+	double score;
+	double threshold;
+	size_t n1;
+	size_t n2;
+	size_t dim;
+	/** Kernel bandwidth of the mmd method (drift::embedding_mmd_bandwidth); NaN otherwise */
+	double bandwidth;
+	bool drifted;
+} AnofoxEmbeddingDriftResult;
+
+/**
+ * evidently's embedding drift of current against reference. The options are
+ * parsed before the samples are looked at: a call with empty samples validates
+ * them (INVALID_INPUT for a bad name, otherwise insufficient data).
+ */
+bool anofox_embedding_drift(const double *reference, size_t n_reference, const double *current, size_t n_current,
+                            size_t dim, AnofoxEmbeddingDriftOptions options, AnofoxEmbeddingDriftResult *out_result,
+                            AnofoxError *out_error);
+
+/** Options of anofox_multivariate_two_sample. Must match MultivariateTestOptionsFFI. */
+typedef struct {
+	/** Bandwidth of the gaussian / laplacian kernel */
+	double bandwidth;
+	/** Polynomial kernel (scale x.y + offset)^degree */
+	double scale;
+	double offset;
+	size_t n_permutations;
+	uint64_t seed;
+	uint32_t degree;
+	/** MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial, 4 gaussian with the median-heuristic bandwidth */
+	int32_t kernel;
+	bool has_seed;
+} AnofoxMultivariateTestOptions;
+
+/** Result of anofox_multivariate_two_sample. Must match MultivariateTestResultFFI. */
+typedef struct {
+	double statistic;
+	double p_value;
+	size_t n1;
+	size_t n2;
+	size_t dim;
+	size_t n_permutations;
+	/** Bandwidth of the gaussian / laplacian kernel used (median heuristic with kernel 4); NaN otherwise */
+	double bandwidth;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxMultivariateTestResult;
+
+/**
+ * Multivariate two-sample permutation test of x against y. kind: 0 energy
+ * distance, 1 MMD with options.kernel.
+ */
+bool anofox_multivariate_two_sample(int32_t kind, const double *x, size_t n_x, const double *y, size_t n_y,
+                                    size_t dim, AnofoxMultivariateTestOptions options,
+                                    AnofoxMultivariateTestResult *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Cluster-robust (sandwich) covariance of OLS / WLS (#309)
+ * ============================================================================
+ * sandwich::vcovCL(lm(...), cluster, type, cadjust) through upstream's
+ * cluster_vcov. clusters holds n_dims arrays of y.len non-negative codes (two
+ * or more dimensions: multiway clustering, Cameron-Gelbach-Miller); the type is
+ * options.hc_type (ANOFOX_HC_NONE = HC1, vcovCL's default for linear models).
+ * With options.compute_inference the inference and the F test are the
+ * cluster-robust ones and out_vcov receives the dim x dim clustered covariance
+ * (intercept first; free with anofox_free_interval_matrix), else NULL and 0.
+ * out_n_clusters (NULL or n_dims entries) receives the number of clusters per
+ * dimension among the fitted rows (0 without inference). out_inference,
+ * out_vcov and out_dim may be NULL.
+ */
+bool anofox_ols_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            const int32_t *const *clusters, size_t n_dims, bool cadjust,
+                            AnofoxOlsOptions options, AnofoxFitResultCore *out_core,
+                            AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+bool anofox_wls_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                            const int32_t *const *clusters, size_t n_dims, bool cadjust,
+                            AnofoxWlsOptions options, AnofoxFitResultCore *out_core,
+                            AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+
+/**
+ * OLS / WLS whose covariance is the one the inference uses: with options.hc_type the HC
+ * covariance (sandwich::vcovHC; upstream FittedOls::hc_vcov / FittedWls::hc_vcov) in
+ * out_vcov (row-major, intercept first, zero rows for columns not estimated; free with
+ * anofox_free_interval_matrix), otherwise NULL. NULL also when the HC covariance is not
+ * available (a leverage-1 row for HC2 / HC3). Other outputs as anofox_ols_fit / anofox_wls_fit.
+ */
+bool anofox_ols_hc_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxOlsOptions options,
+                       AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference, double **out_vcov,
+                       size_t *out_dim, AnofoxError *out_error);
+bool anofox_wls_hc_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                       AnofoxWlsOptions options, AnofoxFitResultCore *out_core,
+                       AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                       AnofoxError *out_error);
+
+/* ============================================================================
+ * Likelihood-ratio and score tests, profile-likelihood CIs (#310)
+ * ============================================================================ */
+
+/**
+ * Likelihood summary of a fitted model STRUCT. Unknown numbers are NaN, unknown
+ * names empty, an unknown n_observations is -1. Must match ModelLikelihoodFFI
+ * in crates/anofox-stats-ffi/src/likelihood_ffi.rs.
+ */
+typedef struct {
+	char model_type[ANOFOX_MODEL_NAME_LEN];
+	char family[ANOFOX_MODEL_NAME_LEN];
+	double log_likelihood;
+	double null_log_likelihood;
+	double deviance;
+	double null_deviance;
+	double dispersion;
+	uint64_t n_parameters; /* intercept included */
+	int64_t n_observations;
+} AnofoxModelLikelihood;
+
+/** Result of anofox_lr_test / anofox_glm_score_test. Must match ChiSqTestResultFFI. */
+typedef struct {
+	double statistic;
+	double df;
+	double p_value;
+	double dispersion;
+	double theta;
+	int64_t n_observations;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxChiSqTestResult;
+
+/**
+ * GLM family: kind 0 gaussian, 1 poisson, 2 binomial, 3 negative binomial,
+ * 4 gamma, 5 tweedie (the GLMM family codes); link: the AnofoxPoissonLink /
+ * AnofoxBinomialLink code; param: Negative Binomial theta (NaN: estimate) or
+ * Tweedie power. Must match LikelihoodFamilyFFI.
+ */
+typedef struct {
+	int32_t kind;
+	int32_t link;
+	double param;
+} AnofoxLikelihoodFamily;
+
+/**
+ * Likelihood-ratio test of full against reduced (R's anova(reduced, full,
+ * test = "LRT") / lmtest::lrtest), or of full against its null model when
+ * reduced is NULL. Incompatible models are INVALID_INPUT.
+ */
+bool anofox_lr_test(AnofoxModelLikelihood full, const AnofoxModelLikelihood *reduced,
+                    AnofoxChiSqTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Rao score test for adding the x_add columns to the GLM of y on x_reduced
+ * (R's anova(reduced, full, test = "Rao")), on the rows where every value is
+ * finite. offset_column: 1-based column of x_reduced (0: none). out_z receives
+ * x_add_count per-column z statistics.
+ */
+bool anofox_glm_score_test(AnofoxLikelihoodFamily family, AnofoxDataArray y, const AnofoxDataArray *x_reduced,
+                           size_t x_reduced_count, const AnofoxDataArray *x_add, size_t x_add_count,
+                           bool fit_intercept, uint64_t offset_column, double *out_z,
+                           AnofoxChiSqTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Profile-likelihood confidence intervals (R's confint(glm)) of the GLM of y on
+ * x with fitted feature coefficients `coefficients` (NaN: dropped column, NaN
+ * interval). offset_column: 1-based column of x (0: none). out_lower/out_upper
+ * get coefficients_len bounds, out_intercept 2 (NaN without intercept). An
+ * unreached bound is NaN.
+ */
+bool anofox_glm_profile_confint(AnofoxLikelihoodFamily family, AnofoxDataArray y, const AnofoxDataArray *x,
+                                size_t x_count, const double *coefficients, size_t coefficients_len,
+                                bool fit_intercept, uint64_t offset_column, double level, double *out_lower,
+                                double *out_upper, double *out_intercept, AnofoxError *out_error);
+
+/* ---- Multinomial logistic regression (#314) ---- */
+
+/**
+ * Options of anofox_multinomial_fit. Must match MultinomialOptionsFFI in
+ * crates/anofox-stats-ffi/src/multinomial_ffi.rs.
+ */
+typedef struct {
+	double lambda;   /* penalty strength 1 / C, >= 0 */
+	double l1_ratio; /* elastic-net mixing in [0, 1] */
+	double tolerance;
+	uint32_t max_iterations;
+	bool fit_intercept;
+} AnofoxMultinomialOptions;
+
+/**
+ * A fitted multinomial logistic regression. Must match MultinomialFitResultFFI.
+ * coefficients: row-major n_rows x n_features (one row for two classes,
+ * n_classes rows otherwise); intercepts: n_rows values. Release with
+ * anofox_free_multinomial_result.
+ */
+typedef struct {
+	double *coefficients;
+	double *intercepts;
+	size_t n_rows;
+	size_t n_features;
+	size_t n_classes;
+	size_t n_observations;
+	double log_likelihood;
+	double objective;
+	double accuracy;
+	uint32_t iterations;
+	bool converged;
+} AnofoxMultinomialFitResult;
+
+/**
+ * Multinomial (softmax) logistic regression with an elastic-net penalty
+ * (upstream MultinomialLogisticRegressor, sklearn LogisticRegression) of the
+ * class indices y (0..K-1, every class present) on the x columns, with
+ * optional sample weights (NULL: unweighted). Fewer than two rows or classes
+ * is INSUFFICIENT_DATA.
+ */
+bool anofox_multinomial_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                            const double *weights, AnofoxMultinomialOptions options,
+                            AnofoxMultinomialFitResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_multinomial_fit. */
+void anofox_free_multinomial_result(AnofoxMultinomialFitResult *result);
+
+/**
+ * Class probabilities (n_classes values to out_proba) and the most probable
+ * class index (out_class) of one row x under a fitted model's coefficients
+ * (row-major n_rows x n_features) and intercepts (n_rows).
+ */
+bool anofox_multinomial_predict_proba(const double *coefficients, const double *intercepts, size_t n_rows,
+                                      size_t n_features, size_t n_classes, const double *x, size_t x_len,
+                                      double *out_proba, size_t *out_class, AnofoxError *out_error);
+
+/* ============================================================================
+ * rms-style Wald ANOVA and fast backward step-down (issue #311)
+ * ============================================================================ */
+
+/**
+ * One row of anofox_wald_anova (rms::anova.rms). NaN marks a value that does
+ * not apply. Must match WaldAnovaRowFFI in crates/anofox-stats-ffi/src/wald_ffi.rs.
+ */
+typedef struct {
+	char *label;
+	char *kind;
+	int64_t term;      /* 0-based term, -1 for the totals */
+	uint64_t *columns; /* 0-based slope columns tested */
+	size_t n_columns;
+	double chi_square;
+	double df;
+	double f_statistic;
+	double df_residual;
+	double p_value;
+	double partial_ss;
+} AnofoxWaldAnovaRow;
+
+/**
+ * Result of anofox_wald_anova; free with anofox_free_wald_anova. The error row
+ * is NaN unless an F test with sigma2 was requested. Must match
+ * WaldAnovaResultFFI.
+ */
+typedef struct {
+	AnofoxWaldAnovaRow *rows;
+	size_t n_rows;
+	double error_df;
+	double error_ss;
+	double error_ms;
+} AnofoxWaldAnovaResult;
+
+/**
+ * rms::anova.rms table of a fitted model: slopes `coefficients` (p, feature
+ * order), row-major covariance vcov (dim = p or p + 1, intercept first).
+ * term_of_column[j]: 0-based term of slope j (negative: none); term_names:
+ * n_terms names; interaction_factors (NULL: none): two 0-based main-effect
+ * terms per term, negative for a main effect; nonlinear (NULL: all linear): p
+ * flags. f_test refers the rows to F(df, df_residual); a finite sigma2 adds
+ * partial sums of squares.
+ */
+bool anofox_wald_anova(const double *coefficients, size_t p, const double *vcov, size_t dim,
+                       const int64_t *term_of_column, const bool *nonlinear, const char *const *term_names,
+                       size_t n_terms, const int64_t *interaction_factors, bool f_test, double df_residual,
+                       double sigma2, AnofoxWaldAnovaResult *out_result, AnofoxError *out_error);
+
+void anofox_free_wald_anova(AnofoxWaldAnovaResult *result);
+
+/**
+ * One deletion of anofox_fastbw (rms::fastbw). Must match FastbwStepFFI.
+ */
+typedef struct {
+	uint64_t term;
+	double chi_square;
+	double df;
+	double p_value;
+	double residual_chi_square;
+	double residual_df;
+	double residual_p_value;
+	double aic;
+} AnofoxFastbwStep;
+
+/**
+ * Result of anofox_fastbw; free with anofox_free_fastbw. Must match
+ * FastbwResultFFI.
+ */
+typedef struct {
+	AnofoxFastbwStep *deleted;
+	size_t n_deleted;
+	uint64_t *kept_terms;
+	size_t n_kept;
+	double *coefficients; /* approximate reduced-model slopes, 0 when deleted */
+	size_t n_coefficients;
+	double intercept; /* NaN without one */
+	/* approximate reduced-model covariance (fastbw's var), vcov_dim square, row-major in the
+	 * layout of the input covariance; zero rows / columns for deleted parameters */
+	double *vcov;
+	size_t vcov_dim;
+	uint64_t *kept_parameters; /* 0-based positions in that layout (parms.kept), ascending */
+	size_t n_kept_parameters;
+} AnofoxFastbwResult;
+
+/**
+ * rms::fastbw of a fitted model (inputs as anofox_wald_anova; slopes without a
+ * term are never deleted). rule 0: AIC (chi2 - k_aic * df <= aics), 1: P
+ * (p > sls); individual applies the rule to the term's own test instead of the
+ * residual test.
+ */
+bool anofox_fastbw(const double *coefficients, size_t p, double intercept, const double *vcov, size_t dim,
+                   const int64_t *term_of_column, size_t n_terms, int32_t rule, bool individual, double k_aic,
+                   double aics, double sls, AnofoxFastbwResult *out_result, AnofoxError *out_error);
+
+void anofox_free_fastbw(AnofoxFastbwResult *result);
+
+/* ============================================================================
+ * Cox proportional hazards regression -- issue #312 (crates/anofox-stats-ffi/src/cox_ffi.rs)
+ * ============================================================================ */
+
+/** Options of a Cox fit. ties: 0 Efron, 1 Breslow. zph_transform (anofox_cox_zph only):
+ * 0 km, 1 rank, 2 identity, 3 log. */
+typedef struct {
+	double tolerance;
+	double ridge;
+	double confidence_level;
+	uint32_t max_iterations;
+	int32_t ties;
+	int32_t zph_transform;
+	bool timefix;
+	bool robust;
+} AnofoxCoxOptions;
+
+/** Rows of a Cox fit; x column-major (n_rows * n_features), optional columns NULL when absent.
+ * Rows with a non-finite value in any column are left out. */
+typedef struct {
+	const double *time;
+	const double *event;
+	const double *x;
+	const double *weights;
+	const double *entry;
+	const double *offset;
+	const double *strata;
+	const double *cluster;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxCoxData;
+
+/** A fitted Cox model (release with anofox_free_cox_fit_result). vcov is n_features^2, row-major;
+ * the baseline is the cumulative hazard at covariates 0 per stratum (stratum NaN unstratified). */
+typedef struct {
+	double *coefficients;
+	double *std_errors;
+	double *naive_std_errors;
+	double *z_values;
+	double *p_values;
+	double *conf_low;
+	double *conf_high;
+	double *hazard_ratios;
+	double *hr_conf_low;
+	double *hr_conf_high;
+	double *vcov;
+	size_t n_features;
+	double *baseline_stratum;
+	double *baseline_time;
+	double *baseline_cumhaz;
+	size_t n_baseline;
+	double log_likelihood;
+	double null_log_likelihood;
+	double lr_statistic;
+	double lr_p_value;
+	double wald_statistic;
+	double wald_p_value;
+	double score_statistic;
+	double score_p_value;
+	double concordance;
+	double r_squared;
+	double aic;
+	double bic;
+	double confidence_level;
+	size_t df;
+	size_t n_observations;
+	size_t n_events;
+	size_t n_strata;
+	size_t iterations;
+	bool converged;
+	bool robust;
+	AnofoxModelSummaryFFI summary;
+} AnofoxCoxFitResult;
+
+/** Proportional-hazards tests, one per covariate and the global test last (len = n_features + 1). */
+typedef struct {
+	double *chisq;
+	double *df;
+	double *p_value;
+	size_t len;
+} AnofoxCoxZphResult;
+
+/** Per-input-row results (NaN for rows left out); *_mat are n_rows * n_features, row-major. */
+typedef struct {
+	double *linear_predictor;
+	double *risk;
+	double *martingale;
+	double *deviance;
+	double *stratum;
+	double *score_mat;
+	double *dfbeta_mat;
+	double *dfbetas_mat;
+	double *schoenfeld_mat;
+	double *scaled_schoenfeld_mat;
+	bool *is_training;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxCoxAugmentResult;
+
+bool anofox_cox_fit(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxFitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_cox_fit_result(AnofoxCoxFitResult *result);
+bool anofox_cox_zph(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxZphResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_cox_zph_result(AnofoxCoxZphResult *result);
+bool anofox_cox_augment(const AnofoxCoxData *data, AnofoxCoxOptions options, AnofoxCoxAugmentResult *out_result,
+                        AnofoxError *out_error);
+void anofox_free_cox_augment_result(AnofoxCoxAugmentResult *result);
+/** S(t | x) at n_times times from the stored baseline (exp(-H0(t) exp(x'beta))). */
+bool anofox_cox_survival(const double *coefficients, size_t n_coefficients, const double *base_time,
+                         const double *base_cumhaz, size_t n_baseline, const double *x, const double *times,
+                         size_t n_times, double *out_survival);
+
+/* ---- Ordinal regression (#313) ---- */
+
+/**
+ * Options of anofox_ordinal_fit. Must match OrdinalOptionsFFI in
+ * crates/anofox-stats-ffi/src/ordinal_ffi.rs.
+ */
+typedef struct {
+	double penalty;   /* rms orm penalty lambda, >= 0 (0: none) */
+	double tolerance; /* > 0 */
+	uint32_t link;    /* 0 logistic, 1 probit, 2 loglog, 3 cloglog, 4 cauchit */
+	uint32_t max_iterations;
+	uint32_t offset_column; /* 1-based column of x used as offset, 0: none */
+	int32_t po_test;        /* -1 auto (at most 50 levels), 0 no, 1 yes */
+} AnofoxOrdinalOptions;
+
+/**
+ * A fitted cumulative link model (rms::orm parametrisation
+ * P(Y >= y_{j+1}) = F(alpha_j + x'beta)). Must match OrdinalFitResultFFI.
+ * levels / counts: n_levels values; intercepts / intercept_std_errors:
+ * n_levels - 1 (intercept_std_errors NULL when not computed); coefficients,
+ * std_errors, z_values, p_values: n_features. info_*: the observed
+ * information in upstream's compact block form (FittedOrdinal::information):
+ * intercept block diagonal (n_levels - 1) and first off-diagonal
+ * (n_levels - 2), intercepts x slopes block (row-major (n_levels - 1) x
+ * n_features), slopes block (row-major n_features x n_features). po_*: NaN
+ * when the proportional-odds score test was not computed. Release with
+ * anofox_free_ordinal_result.
+ */
+typedef struct {
+	double *levels;
+	double *counts;
+	double *intercepts;
+	double *intercept_std_errors;
+	double *coefficients;
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	double *info_intercept_diagonal;
+	double *info_intercept_off_diagonal;
+	double *info_cross;
+	double *info_slopes;
+	size_t n_levels;
+	size_t n_features;
+	size_t n_observations;
+	double log_likelihood;
+	double penalized_log_likelihood;
+	double null_log_likelihood;
+	double lr_chisq;
+	double lr_df;
+	double lr_p_value;
+	double aic;
+	double po_statistic;
+	double po_df;
+	double po_p_value;
+	uint32_t iterations;
+	bool converged;
+} AnofoxOrdinalFitResult;
+
+/**
+ * A fitted continuation-ratio model (rms::cr.setup + lrm). coefficients:
+ * intercept, cohort effects (cohorts 2..k-1), slopes, then each
+ * cohort-specific column's slope differences (cohorts 2..k-1); std_errors,
+ * z_values, p_values alike (n_coefficients each). Must match
+ * ContinuationRatioFitResultFFI. Release with
+ * anofox_free_continuation_ratio_result.
+ */
+typedef struct {
+	double *levels;
+	double *coefficients;
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	size_t n_levels;
+	size_t n_coefficients;
+	size_t n_features;
+	size_t n_observations;
+	size_t n_records;
+	double log_likelihood;
+	double aic;
+	uint32_t iterations;
+	bool converged;
+} AnofoxContinuationRatioFitResult;
+
+/**
+ * Cumulative link model (upstream OrdinalRegressor) of the ordered response y
+ * (its distinct values are the levels) on the x columns, with optional case
+ * weights (NULL: unweighted). Fewer than two rows or levels is
+ * INSUFFICIENT_DATA.
+ */
+bool anofox_ordinal_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                        const double *weights, AnofoxOrdinalOptions options, AnofoxOrdinalFitResult *out_result,
+                        AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_ordinal_fit. */
+void anofox_free_ordinal_result(AnofoxOrdinalFitResult *result);
+
+/**
+ * Continuation-ratio model (upstream ContinuationRatioRegressor) of y (at
+ * least three levels) on the x columns, with optional case weights and the
+ * 0-based cohort-specific columns. Fewer than three levels is
+ * INSUFFICIENT_DATA.
+ */
+bool anofox_continuation_ratio_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features,
+                                   const double *weights, const uint64_t *cohort_specific, size_t n_cohort_specific,
+                                   AnofoxContinuationRatioFitResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a result filled by anofox_continuation_ratio_fit. */
+void anofox_free_continuation_ratio_result(AnofoxContinuationRatioFitResult *result);
+
+/**
+ * One row x (the columns of the fit, including an offset column) under a
+ * stored cumulative link model, rebuilt upstream from its levels, intercepts,
+ * coefficients and information blocks (as AnofoxOrdinalFitResult, each with
+ * its length): n_levels category probabilities to out_proba, n_levels - 1
+ * exceedance probabilities P(Y >= y_{j+1}) to out_exceedance, the mean to
+ * out_mean and the most probable level's index to out_class. With a
+ * quantile_q in (0, 1) (NaN: none) also the predicted quantile and its level
+ * confidence limits (rms Quantile.orm; quantile_method 0 interpolated,
+ * 1 discrete) to out_quantile[0..3] (estimate, lower, upper).
+ * offset_column: 1-based (0: none).
+ */
+bool anofox_ordinal_predict(uint32_t link, const double *levels, size_t n_levels, const double *intercepts,
+                            const double *coefficients, size_t n_coefficients, const double *info_intercept_diagonal,
+                            size_t n_info_intercept_diagonal, const double *info_intercept_off_diagonal,
+                            size_t n_info_intercept_off_diagonal, const double *info_cross, size_t n_info_cross,
+                            const double *info_slopes, size_t n_info_slopes, uint64_t offset_column, const double *x,
+                            size_t x_len, double quantile_q, uint32_t quantile_method, double level, double *out_proba,
+                            double *out_exceedance, double *out_mean, size_t *out_class, double *out_quantile,
+                            AnofoxError *out_error);
+
+/** As anofox_ordinal_predict for a stored continuation-ratio model. */
+bool anofox_continuation_ratio_predict(const double *levels, size_t n_levels, const double *coefficients,
+                                       size_t n_coefficients, const uint64_t *cohort_specific,
+                                       size_t n_cohort_specific, const double *x, size_t x_len, double *out_proba,
+                                       double *out_exceedance, double *out_mean, size_t *out_class,
+                                       AnofoxError *out_error);
+
+/* ============================================================================
+ * Generalized least squares, nlme::gls (#315). Must match crates/anofox-stats-ffi/src/gls_ffi.rs.
+ * ============================================================================ */
+
+/**
+ * correlation: 0 independent, 1 compound symmetry, 2 AR(1), 3 continuous AR(1),
+ * 4 exponential, 5 gaussian, 6 linear, 7 spherical, 8 unstructured.
+ * variance: 0 constant, 1 ident, 2 power, 3 exp.
+ * variogram_bins: 0 = none; variogram_residuals: 0 pearson, 1 normalized, 2 response.
+ */
+typedef struct {
+	double confidence_level;
+	uint32_t max_iterations;
+	int32_t correlation;
+	int32_t variance;
+	uint32_t variogram_bins;
+	int32_t variogram_residuals;
+	bool nugget;
+	bool reml;
+	bool fit_intercept;
+} AnofoxGlsOptions;
+
+/**
+ * The rows of a GLS fit: x column-major (n_rows * n_features), subject dense codes
+ * (negative: none), variance_covariate NULL without a variance function (varIdent:
+ * the stratum code). Rows with a non-finite value in a column the fit uses are left out.
+ */
+typedef struct {
+	const double *y;
+	const double *x;
+	const int32_t *subject;
+	const double *time;
+	const double *variance_covariate;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxGlsData;
+
+/**
+ * A fitted GLS model, released with anofox_free_gls_fit_result. Coefficient arrays
+ * have n_coefficients entries (intercept first when has_intercept); vcov is
+ * n_coefficients^2 row-major. The *_conf_* arrays are NULL (sigma limits NaN) when
+ * has_intervals is false. variance_strata: varIdent strata codes, the reference first
+ * (n_variance_params + 1 entries), NULL otherwise.
+ */
+typedef struct {
+	double *coefficients;
+	double *std_errors;
+	double *t_values;
+	double *p_values;
+	double *conf_low;
+	double *conf_high;
+	double *vcov;
+	size_t n_coefficients;
+	double *correlation_params;
+	double *correlation_conf_low;
+	double *correlation_conf_high;
+	size_t n_correlation_params;
+	double *variance_params;
+	double *variance_conf_low;
+	double *variance_conf_high;
+	size_t n_variance_params;
+	double *variance_strata;
+	double *variogram_dist;
+	double *variogram_variog;
+	double *variogram_n_pairs;
+	size_t n_variogram;
+	double sigma;
+	double sigma_conf_low;
+	double sigma_conf_high;
+	double log_likelihood;
+	double aic;
+	double bic;
+	double df_residual;
+	double confidence_level;
+	size_t n_params;
+	size_t n_observations;
+	size_t n_groups;
+	size_t iterations;
+	bool converged;
+	bool has_intercept;
+	bool has_intervals;
+	AnofoxModelSummaryFFI summary;
+} AnofoxGlsFitResult;
+
+/** Per-input-row GLS results (NaN where a value does not exist). */
+typedef struct {
+	double *fitted;
+	double *se_fit;
+	double *residual;
+	double *pearson_residual;
+	double *normalized_residual;
+	bool *is_training;
+	size_t n_rows;
+} AnofoxGlsAugmentResult;
+
+bool anofox_gls_fit(const AnofoxGlsData *data, AnofoxGlsOptions options, AnofoxGlsFitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_gls_fit_result(AnofoxGlsFitResult *result);
+bool anofox_gls_augment(const AnofoxGlsData *data, AnofoxGlsOptions options, AnofoxGlsAugmentResult *out_result,
+                        AnofoxError *out_error);
+void anofox_free_gls_augment_result(AnofoxGlsAugmentResult *result);
+
+/* ============================================================================
+ * P-spline smoother (#316)
+ * ============================================================================ */
+
+/** Options of anofox_pspline_fit_predict. Must match PSplineOptionsFFI.
+ *  n_basis 0 lets upstream choose; a NaN lambda selects it by GCV. */
+typedef struct {
+	uint32_t n_basis;
+	uint32_t penalty_order;
+	double lambda;
+} AnofoxPSplineOptions;
+
+/** A fitted P-spline and its predictions at n_points points. Must match PSplineResultFFI. */
+typedef struct {
+	double lambda;
+	double edf;
+	double sigma2;
+	double r_squared;
+	double *coefficients;
+	double *fitted;
+	double *se_fit;
+	double *lower;
+	double *upper;
+	double *knots;      /* coefficients_len + 4 */
+	double *covariance; /* row-major coefficients_len^2, mgcv's Vp */
+	size_t coefficients_len;
+	size_t n_points;
+	size_t n_observations;
+	size_t penalty_order;
+	AnofoxModelSummaryFFI summary;
+} AnofoxPSplineResult;
+
+/**
+ * Fit upstream's PSplineRegressor (mgcv s(x, bs = "ps")) on the complete rows of (x, y) and
+ * predict at the n_points values of x_new. interval: -1 none, 0 prediction, 1 confidence, at level.
+ * Release out with anofox_free_pspline_result.
+ */
+bool anofox_pspline_fit_predict(AnofoxDataArray x, AnofoxDataArray y, const double *x_new, size_t n_points,
+                                AnofoxPSplineOptions options, int32_t interval, double level,
+                                AnofoxPSplineResult *out, AnofoxError *out_error);
+void anofox_free_pspline_result(AnofoxPSplineResult *result);
+
+/**
+ * Predict at the n_points values of x_new from a stored P-spline (knots, coefficients, row-major
+ * covariance, sigma2, edf, n_observations of a fit), rebuilt upstream (FittedPSpline::from_parts).
+ * interval / level as anofox_pspline_fit_predict; each out_* receives n_points values.
+ */
+bool anofox_pspline_predict(const double *knots, size_t n_knots, const double *coefficients, size_t n_coefficients,
+                            const double *covariance, size_t n_covariance, double sigma2, double edf,
+                            size_t n_observations, const double *x_new, size_t n_points, int32_t interval, double level,
+                            double *out_fit, double *out_se, double *out_lower, double *out_upper,
+                            AnofoxError *out_error);
+
+/* ============================================================================
+ * Regression-spline bases (#317)
+ * ============================================================================
+ * Variable-length results go to caller buffers: *out_len is always set to the
+ * length of the result, and the values are written only when it fits into
+ * `capacity`, so the caller can grow the buffer and call again. */
+
+/** Spline specification. Must match SplineSpecFFI in crates/anofox-stats-ffi/src/splines_ffi.rs. */
+typedef struct AnofoxSplineSpec {
+	int32_t kind;          /* 0 rcs, 1 lsp, 2 bspline */
+	int32_t norm;          /* rcs: norm of Hmisc::rcspline.eval (0, 1, 2) */
+	int32_t extrapolation; /* bspline: 0 constant, 1 linear, 2 continue, 3 periodic, 4 error */
+	bool include_bias;     /* bspline: keep the last spline */
+	size_t degree;         /* bspline */
+	const double *knots;   /* knots (rcs, lsp) or base knots (bspline); NaN for NULL */
+	size_t n_knots;
+} AnofoxSplineSpec;
+
+/** Basis row of `spec` at x (a NaN row for non-finite x). */
+bool anofox_spline_basis(const AnofoxSplineSpec *spec, double x, double *out_values, size_t capacity,
+                         size_t *out_len, AnofoxError *out_error);
+
+/** Validate `spec`; the knots as kept upstream and the nonlinearity flag of every column. */
+bool anofox_spline_info(const AnofoxSplineSpec *spec, double *out_knots, size_t knots_capacity, size_t *out_n_knots,
+                        bool *out_nonlinear, size_t columns_capacity, size_t *out_n_columns, AnofoxError *out_error);
+
+/** Default rcs knots: Hmisc::rcspline.eval(x, nk, knots.only = TRUE, fractied). */
+bool anofox_rcs_default_knots(AnofoxDataArray x, size_t nk, double fractied, double *out_knots, size_t capacity,
+                              size_t *out_len, AnofoxError *out_error);
+
+/** B-spline base knots from data; placement 0 uniform, 1 quantile (sklearn SplineTransformer). */
+bool anofox_bspline_data_knots(AnofoxDataArray x, size_t n_knots, int32_t placement, double *out_knots,
+                               size_t capacity, size_t *out_len, AnofoxError *out_error);
+
+/** Knot quantiles of RMS Table 2.3 for nk knots. */
+bool anofox_default_knot_quantiles(size_t nk, double *out_values, size_t capacity, size_t *out_len,
+                                   AnofoxError *out_error);
+
+/** Restricted interaction (rms %ia%) of two basis rows with their nonlinearity flags. */
+bool anofox_restricted_interaction(const double *a, const bool *a_nonlinear, size_t n_a, const double *b,
+                                   const bool *b_nonlinear, size_t n_b, double *out_values, size_t capacity,
+                                   size_t *out_len, AnofoxError *out_error);
+
+/* ============================================================================
+ * Effects, contrasts, effect grids and nomograms (issue #319). The structs must
+ * match crates/anofox-stats-ffi/src/effects_ffi.rs. Variable-length results go
+ * to caller buffers (*out_len is the full length; values are written when it
+ * fits capacity); the nomogram is allocated and freed by anofox_free_nomogram.
+ * ============================================================================ */
+
+#define ANOFOX_TERM_LINEAR 0
+#define ANOFOX_TERM_RCS 1
+#define ANOFOX_TERM_LSP 2
+#define ANOFOX_TERM_CATEGORICAL 3
+#define ANOFOX_TERM_INTERACTION 4
+#define ANOFOX_TERM_RESTRICTED_INTERACTION 5
+
+typedef struct AnofoxEffectsTerm {
+	int32_t kind;
+	int32_t norm;         /* rcs */
+	const double *values; /* rcs / lsp knots; categorical levels (n_values 0: from the data) */
+	size_t n_values;
+	size_t a; /* interactions: predictor indices among the non-interaction terms */
+	size_t b;
+} AnofoxEffectsTerm;
+
+typedef struct AnofoxEffectsInput {
+	const AnofoxEffectsTerm *terms;
+	size_t n_terms;
+	const double *data; /* column-major: predictor k of row i at data[k * n_rows + i] */
+	size_t n_rows;
+	const double *beta; /* intercept first when intercept */
+	size_t n_beta;
+	const double *vcov; /* row-major n_beta x n_beta; may be NULL for the design and the nomogram */
+	bool intercept;
+	double df; /* t reference with df; NaN: standard normal */
+	double level;
+} AnofoxEffectsInput;
+
+typedef struct AnofoxEffectsSetting {
+	const size_t *predictors;
+	const double *values;
+	size_t n;
+} AnofoxEffectsSetting;
+
+typedef struct AnofoxContrastEstimate {
+	double estimate;
+	double se;
+	double lower;
+	double upper;
+	double statistic;
+	double p_value;
+} AnofoxContrastEstimate;
+
+typedef struct AnofoxEffectRow {
+	size_t predictor;
+	double low;
+	double high;
+	AnofoxContrastEstimate effect;
+} AnofoxEffectRow;
+
+typedef struct AnofoxNomogramResult {
+	size_t *axis_offsets; /* n_axes + 1 */
+	size_t n_axes;
+	double *axis_values;
+	double *axis_xbeta;
+	double *axis_points;
+	double scale;
+	double intercept;
+	double *total_points;
+	size_t n_total_points;
+	double *lp_at;
+	double *lp_points;
+	size_t n_lp;
+	double *fun_at;
+	double *fun_points;
+	size_t n_fun;
+} AnofoxNomogramResult;
+
+/** Design rows (row-major n_rows x n_columns) of the predictor data; categorical terms need levels. */
+bool anofox_effects_design(const AnofoxEffectsInput *input, double *out_values, size_t capacity, size_t *out_len,
+                           size_t *out_n_columns, AnofoxError *out_error);
+
+/** summary.rms rows. */
+bool anofox_effects_summary(const AnofoxEffectsInput *input, AnofoxEffectRow *out_rows, size_t capacity,
+                            size_t *out_len, AnofoxError *out_error);
+
+/** datadist adjust-to value (median / mode) of every predictor. */
+bool anofox_effects_adjust_to(const AnofoxEffectsInput *input, double *out_values, size_t capacity, size_t *out_len,
+                              AnofoxError *out_error);
+
+/** contrast.rms(fit, a, b); with non-NULL a2 / b2 the double difference. */
+bool anofox_effects_contrast(const AnofoxEffectsInput *input, const AnofoxEffectsSetting *a,
+                             const AnofoxEffectsSetting *b, const AnofoxEffectsSetting *a2,
+                             const AnofoxEffectsSetting *b2, AnofoxContrastEstimate *out, AnofoxError *out_error);
+
+/** Predict(fit, x_k) over values (n_values 0: default grid), pointwise or simultaneous band. */
+bool anofox_effects_predict_grid(const AnofoxEffectsInput *input, size_t predictor, const double *values,
+                                 size_t n_values, bool simultaneous, double *out_values,
+                                 AnofoxContrastEstimate *out_estimates, size_t capacity, size_t *out_len,
+                                 double *out_critical, AnofoxError *out_error);
+
+/** rms::nomogram of a main-effects model; fun 0 none, 1 plogis, 2 exp. */
+bool anofox_effects_nomogram(const AnofoxEffectsInput *input, const double *lp, size_t n_lp, double maxscale,
+                             size_t nint, int32_t fun, AnofoxNomogramResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a nomogram. */
+void anofox_free_nomogram(AnofoxNomogramResult *result);
+
+/* ---------------------------------------------------------------------------
+ * Penalized maximum likelihood a la rms (#323): rms::pentrace and
+ * rms::ols(penalty = ). Must match crates/anofox-stats-ffi/src/pentrace_ffi.rs.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Term specification of the columns: term_of_column[j] is the 0-based term of
+ * column j (every column needs one; NULL: every column its own linear term);
+ * term_names: n_terms names; interaction_factors (NULL: none): two 0-based
+ * main-effect terms per term, negative for a main effect; nonlinear (NULL: all
+ * linear): one flag per column; categorical (NULL: none): one flag per term.
+ */
+typedef struct {
+	const int64_t *term_of_column;
+	const bool *nonlinear;
+	const char *const *term_names;
+	size_t n_terms;
+	const int64_t *interaction_factors;
+	const bool *categorical;
+} AnofoxPenaltyTerms;
+
+/** The penalties to trace: every combination (rms complex.more); an empty component falls back as in rms. */
+typedef struct {
+	const double *simple;
+	size_t n_simple;
+	const double *nonlinear;
+	size_t n_nonlinear;
+	const double *interaction;
+	size_t n_interaction;
+	const double *nonlinear_interaction;
+	size_t n_nonlinear_interaction;
+} AnofoxPenaltyGrid;
+
+/** One row of anofox_pentrace; the penalty components are resolved. */
+typedef struct {
+	double simple;
+	double nonlinear;
+	double interaction;
+	double nonlinear_interaction;
+	double df;
+	double lr_chisq;
+	double aic;
+	double bic;
+	double aic_c;
+} AnofoxPentraceRow;
+
+/** Result of anofox_pentrace; free with anofox_free_pentrace. */
+typedef struct {
+	AnofoxPentraceRow *rows;
+	size_t n_rows;
+	size_t best; /* 0-based index of the best row */
+	size_t n_observations;
+} AnofoxPentraceResult;
+
+/**
+ * Result of anofox_penalized_ols; free with anofox_free_penalized_ols. vcov and
+ * vcov_sandwich are row-major (n_features + 1)^2, intercept first;
+ * effective_df_diagonal has n_features + 1 entries (intercept first),
+ * effective_df_by_term n_terms.
+ */
+typedef struct {
+	double *coefficients;
+	size_t n_features;
+	double intercept;
+	double *vcov;
+	double *vcov_sandwich;
+	double *effective_df_diagonal;
+	double *effective_df_by_term;
+	size_t n_terms;
+	double sigma;
+	double r_squared;
+	double lr_chisq;
+	double effective_df;
+	double simple;
+	double nonlinear;
+	double interaction;
+	double nonlinear_interaction;
+	size_t n_observations;
+} AnofoxPenalizedOlsResult;
+
+/**
+ * rms::pentrace. model 0: least squares (ols), 1: binary logistic, 2: ordinal
+ * (link 0 logistic, 1 probit, 2 loglog, 3 cloglog, 4 cauchit); criterion 0:
+ * corrected AIC, 1: AIC, 2: BIC. terms may be NULL.
+ */
+bool anofox_pentrace(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const AnofoxPenaltyTerms *terms,
+                     AnofoxPenaltyGrid grid, int32_t model, int32_t link, int32_t criterion,
+                     AnofoxPentraceResult *out_result, AnofoxError *out_error);
+void anofox_free_pentrace(AnofoxPentraceResult *result);
+
+/** rms::ols(penalty = list(simple, nonlinear, interaction, nonlinear.interaction)); NaN: rms fallback. */
+bool anofox_penalized_ols(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                          const AnofoxPenaltyTerms *terms, double simple, double nonlinear, double interaction,
+                          double nonlinear_interaction, AnofoxPenalizedOlsResult *out_result,
+                          AnofoxError *out_error);
+void anofox_free_penalized_ols(AnofoxPenalizedOlsResult *result);
+
+/* ===== Resampling model validation and calibration (#318) =====
+ * rms::validate / calibrate / calibrate.cph / bootcov through anofox-regression's
+ * validation module. Must match crates/anofox-stats-ffi/src/model_validation_ffi.rs.
+ * Every array of a result is allocated by the call; release it with the matching
+ * anofox_free_* function. */
+
+#define ANOFOX_VALIDATION_NAME_LEN 32
+
+/** model: 0 = ols, 1 = logistic (lrm); method: 0 = boot, 1 = crossvalidation, 2 = .632. */
+typedef struct {
+	int32_t model;
+	int32_t method;
+	uint32_t b;
+	uint64_t seed;
+} AnofoxResampleOptions;
+
+typedef struct {
+	char *names; /* n_indexes NUL-terminated names of ANOFOX_VALIDATION_NAME_LEN bytes */
+	double *index_orig;
+	double *training;
+	double *test;
+	double *optimism;
+	double *corrected;
+	uint64_t *n;
+	size_t n_indexes;
+	size_t failed;
+} AnofoxValidationResult;
+
+typedef struct {
+	double *predy;
+	double *calibrated_orig;
+	double *calibrated_corrected;
+	double *optimism;
+	uint64_t *n;
+	size_t len;
+	double mean_abs_error;
+	double mean_squared_error;
+	double quantile90_abs_error;
+} AnofoxCalibrationResult;
+
+/** ties: 0 = efron, 1 = breslow; cuts NULL = quantile groups of about m subjects. */
+typedef struct {
+	double u;
+	size_t m;
+	const double *cuts;
+	size_t cuts_len;
+	int32_t ties;
+	uint32_t max_iterations;
+	double tolerance;
+} AnofoxCalibrateCphOptions;
+
+/** One entry per group of predicted survival; cuts holds n_groups + 1 boundaries. */
+typedef struct {
+	double *cuts;
+	double *index_orig;
+	double *training;
+	double *test;
+	double *optimism;
+	double *corrected;
+	uint64_t *n;
+	double *mean_predicted;
+	double *km;
+	double *km_corrected;
+	double *std_err;
+	size_t n_groups;
+} AnofoxSurvivalCalibrationResult;
+
+/** n_coefficients coefficients (intercept first); vcov is row-major k * k. */
+typedef struct {
+	double *estimate;
+	double *boot_mean;
+	double *std_error;
+	double *conf_low;
+	double *conf_high;
+	double *vcov;
+	size_t n_coefficients;
+	size_t n_boot;
+	size_t failed;
+} AnofoxBootcovResult;
+
+/** x is column-major n_rows * n_features (no intercept column). */
+bool anofox_validate(const double *y, const double *x, size_t n_rows, size_t n_features,
+                     AnofoxResampleOptions options, AnofoxValidationResult *out_result, AnofoxError *out_error);
+void anofox_free_validation_result(AnofoxValidationResult *result);
+/** predy NULL: the default grid of 50 points. */
+bool anofox_calibrate(const double *y, const double *x, size_t n_rows, size_t n_features,
+                      AnofoxResampleOptions options, const double *predy, size_t predy_len,
+                      AnofoxCalibrationResult *out_result, AnofoxError *out_error);
+void anofox_free_calibration_result(AnofoxCalibrationResult *result);
+bool anofox_calibrate_cph(const double *time, const double *x, const double *event, size_t n_rows, size_t n_features,
+                          AnofoxResampleOptions options, AnofoxCalibrateCphOptions cph,
+                          AnofoxSurvivalCalibrationResult *out_result, AnofoxError *out_error);
+void anofox_free_survival_calibration_result(AnofoxSurvivalCalibrationResult *result);
+/** cluster NULL: ordinary bootstrap; else n_rows dense cluster codes (cluster bootstrap). */
+bool anofox_bootcov(const double *y, const double *x, const uint64_t *cluster, size_t n_rows, size_t n_features,
+                    AnofoxResampleOptions options, double conf_level, AnofoxBootcovResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_bootcov_result(AnofoxBootcovResult *result);
+
+/* ============================================================================
+ * Data reduction and transforms (#320). Must match
+ * crates/anofox-stats-ffi/src/reduction_ffi.rs.
+ * ============================================================================ */
+
+/** Generalized Spearman rho^2 (Hmisc::spearman2). */
+typedef struct {
+	double rho2;
+	double adjusted_rho2;
+	double statistic; /* F */
+	double df1;
+	double df2;
+	double p_value;
+	int64_t n;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxSpearman2Result;
+
+/** spearman2(x, y, p) of n values each, p = 1 or 2. */
+bool anofox_spearman2(const double *y, const double *x, size_t n, size_t p, AnofoxSpearman2Result *out_result,
+                      AnofoxError *out_error);
+/** spearman2(factor(x), y): codes holds the level code of each row. */
+bool anofox_spearman2_categorical(const double *y, const uint64_t *codes, size_t n,
+                                  AnofoxSpearman2Result *out_result, AnofoxError *out_error);
+
+/** Hoeffding's D of one pair (Hmisc::hoeffd): 30 D and its P-value. */
+typedef struct {
+	double d;
+	double p_value;
+	int64_t n;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxHoeffdingResult;
+
+bool anofox_hoeffding_d(const double *x, const double *y, size_t n, AnofoxHoeffdingResult *out_result,
+                        AnofoxError *out_error);
+
+/** Options of anofox_box_cox: NaN numbers / a NULL grid keep MASS's defaults. */
+typedef struct {
+	const double *lambdas;
+	size_t n_lambdas;
+	double eps;
+	bool fit_intercept;
+	double confidence_level;
+} AnofoxBoxCoxOptions;
+
+/** A Box-Cox profile; release with anofox_free_box_cox_result. */
+typedef struct {
+	double lambda;
+	double max_log_likelihood;
+	double ci_lower; /* NaN: not reached within the grid */
+	double ci_upper;
+	double confidence_level;
+	double *lambdas;
+	double *log_likelihood;
+	size_t n_lambdas;
+	size_t n_observations;
+} AnofoxBoxCoxResult;
+
+/** MASS::boxcox(lm(y ~ x)) for n responses and x_count predictor columns (none: intercept only). */
+bool anofox_box_cox(const double *y, size_t n, const AnofoxDataArray *x, size_t x_count, AnofoxBoxCoxOptions options,
+                    AnofoxBoxCoxResult *out_result, AnofoxError *out_error);
+void anofox_free_box_cox_result(AnofoxBoxCoxResult *result);
+/** (y^lambda - 1) / lambda, log y at lambda = 0. */
+double anofox_box_cox_transform(double y, double lambda);
+/** (lambda z + 1)^(1 / lambda), exp z at lambda = 0. */
+double anofox_box_cox_inverse(double z, double lambda);
+
+/**
+ * A fitted Hmisc::areg model (must match AregResultFFI in crates/anofox-stats-ffi/src/areg_ffi.rs);
+ * release with anofox_free_areg_result. x_coefficients / y_coefficients: intercept first. Per
+ * predictor: x_df basis columns, x_kinds (0 linear, 1 spline, 2 categorical) and x_values_len
+ * parameters (knots or levels), concatenated in x_values; the response's in y_values (y_kind).
+ * mad / med: NaN when the response transformation is not monotone.
+ */
+typedef struct {
+	double *x_coefficients;
+	double *y_coefficients;
+	int64_t *x_df;
+	int64_t *x_kinds;
+	double *x_values;
+	int64_t *x_values_len;
+	double *y_values;
+	size_t n_x_coefficients;
+	size_t n_y_coefficients;
+	size_t n_predictors;
+	size_t n_y_values;
+	size_t y_df;
+	size_t y_kind;
+	size_t n_observations;
+	double r_squared;
+	double mad;
+	double med;
+	double y_min;
+	double y_max;
+} AnofoxAregResult;
+
+/** Hmisc::areg(x, y, xtype, ytype, nk). Type codes: 0 spline, 1 linear, 2 categorical; x_types NULL: all splines. */
+bool anofox_areg_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features, uint32_t nk,
+                     const int32_t *x_types, int32_t y_type, AnofoxAregResult *out_result, AnofoxError *out_error);
+void anofox_free_areg_result(AnofoxAregResult *result);
+/**
+ * Apply a stored areg model (parts laid out as AnofoxAregResult), rebuilt upstream (Areg::from_parts):
+ * what 0 the linear predictor of the predictor row input (n_input = n_predictors), 1 the response
+ * transformation of input[0], 2 its back-transformation (NaN when not monotone / categorical).
+ */
+bool anofox_areg_apply(uint32_t what, const int64_t *x_kinds, const double *x_values, const int64_t *x_values_len,
+                       size_t n_predictors, const double *x_coefficients, size_t n_x_coefficients, int64_t y_kind,
+                       const double *y_values, size_t n_y_values, const double *y_coefficients, size_t n_y_coefficients,
+                       double y_min, double y_max, const double *input, size_t n_input, double *out_value,
+                       AnofoxError *out_error);
+
+/** A variable clustering (Hmisc::varclus); release with anofox_free_varclus_result. */
+typedef struct {
+	/** n_variables^2 similarities, row-major */
+	double *similarity;
+	/** 2 (n_variables - 1) values in R's hclust merge convention (merge k at 2k, 2k + 1) */
+	int64_t *merge;
+	double *height;
+	/** dendrogram order, 1-based */
+	int64_t *order;
+	/** 1-based cluster of each variable after the cut; NULL without a cut */
+	int64_t *clusters;
+	size_t n_variables;
+	size_t n_observations;
+} AnofoxVarclusResult;
+
+/** varclus of x_count columns; NULL names keep spearman / square / complete; NaN cut_height: no cut. */
+bool anofox_varclus(const AnofoxDataArray *x, size_t x_count, const char *similarity, const char *transform,
+                    const char *linkage, double cut_height, AnofoxVarclusResult *out_result, AnofoxError *out_error);
+void anofox_free_varclus_result(AnofoxVarclusResult *result);
+
+/** Options of anofox_redun: NaN r2, negative nk or a flag of -1 keep Hmisc's defaults. */
+typedef struct {
+	double r2;
+	int64_t nk;
+	int32_t adjusted;
+	int32_t tlinear;
+	int32_t rank;
+	int32_t qrank;
+	int32_t allcat;
+} AnofoxRedunOptions;
+
+/** A redundancy analysis (Hmisc::redun), 1-based variable numbers; release with anofox_free_redun_result. */
+typedef struct {
+	int64_t *kept;
+	size_t n_kept;
+	int64_t *removed;
+	double *r_squared;
+	size_t n_removed;
+	/** removal k (0-based, from the second) contributes k values */
+	double *r_squared_later;
+	size_t n_r_squared_later;
+	int64_t *analysed;
+	double *r_squared_first;
+	size_t n_analysed;
+	int64_t *too_few;
+	size_t n_too_few;
+	size_t n_observations;
+} AnofoxRedunResult;
+
+/** redun of x_count columns; kinds: one name per column (spline, linear, categorical) or NULL. */
+bool anofox_redun(const AnofoxDataArray *x, size_t x_count, const char *const *kinds, AnofoxRedunOptions options,
+                  AnofoxRedunResult *out_result, AnofoxError *out_error);
+void anofox_free_redun_result(AnofoxRedunResult *result);
+
+/* ============================================================================
+ * Multiple imputation (aregImpute) and Rubin pooling (#321)
+ * ============================================================================ */
+
+/**
+ * Options of anofox_areg_impute (Hmisc::aregImpute names in brackets). Must match
+ * AregImputeOptionsFFI in crates/anofox-stats-ffi/src/imputation_ffi.rs.
+ */
+typedef struct {
+	/** Tricube scale of weighted donor matching (fweighted) */
+	double fweighted;
+	/** Iterations before the first kept imputation (burnin); negative: Hmisc's default */
+	int64_t burnin;
+	/** Number of imputations (n.impute) */
+	uint64_t n_impute;
+	/** Spline knots (nk) */
+	uint64_t nk;
+	/** Seed of R's generator (set.seed) */
+	int32_t seed;
+	/** Non-zero: match = "closest"; zero: "weighted" */
+	int32_t closest;
+	/** Non-zero: tlinear = TRUE */
+	int32_t tlinear;
+	int32_t reserved;
+} AnofoxAregImputeOptions;
+
+/** One pooled coefficient. Must match PooledTermFFI. */
+typedef struct {
+	double estimate;
+	double std_error;
+	double statistic;
+	double df;
+	double p_value;
+	double conf_low;
+	double conf_high;
+	double riv;
+	double lambda;
+	double fmi;
+} AnofoxPooledTerm;
+
+/** The D1 pooled Wald test (NaN when not computed). Must match PooledWaldFFI. */
+typedef struct {
+	double f;
+	double df1;
+	double df2;
+	double p_value;
+	double riv;
+} AnofoxPooledWald;
+
+/**
+ * Hmisc::aregImpute of n_rows rows of n_cols values (row-major, NaN = missing).
+ * kinds: one per column, 0 numeric (spline), 1 linear, 2 categorical. Writes the
+ * completed data sets (n_impute * n_rows * n_cols, imputation-major then row-major)
+ * to out_completed and each column's last imputation-model R^2 (NaN for complete
+ * columns) to out_r_squared (n_cols).
+ */
+bool anofox_areg_impute(const double *data, size_t n_rows, size_t n_cols, const int32_t *kinds,
+                        AnofoxAregImputeOptions options, double *out_completed, double *out_r_squared,
+                        AnofoxError *out_error);
+
+/**
+ * Rubin's rules over m fits with dim coefficients: estimates (m * dim) and vcovs
+ * (m * dim * dim, each row-major). df_complete NaN: Rubin's d.f., else Barnard-Rubin.
+ * The D1 Wald test covers coefficients wald_from..dim. Writes dim terms, the pooled
+ * covariance (dim * dim) and the test.
+ */
+bool anofox_pool_rubin(const double *estimates, const double *vcovs, size_t m, size_t dim, double df_complete,
+                       double confidence_level, size_t wald_from, AnofoxPooledTerm *out_terms, double *out_vcov,
+                       AnofoxPooledWald *out_wald, AnofoxError *out_error);
+
+/* ---- AFT residuals, extended survfit / survdiff (#322) ---- */
+
+/** Per-input-row results of an AFT fit (NaN for rows left out); score_mat is n_rows * n_params, row-major
+ *  (intercept, coefficients, log(scale)). */
+typedef struct {
+	double *linear_predictor;
+	double *standardized_residual;
+	double *cox_snell_residual;
+	double *score_mat;
+	bool *is_training;
+	size_t n_rows;
+	size_t n_params;
+} AnofoxAftAugmentResult;
+
+bool anofox_aft_augment(AnofoxDataArray time, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray event,
+                        AnofoxAftOptions options, AnofoxAftAugmentResult *out_result, AnofoxError *out_error);
+void anofox_free_aft_augment_result(AnofoxAftAugmentResult *result);
+
+/** conf_type: 0 log, 1 log-log, 2 plain; hazard: 0 Nelson-Aalen, 1 Fleming-Harrington;
+ *  robust: -1 survfit's default, 0 Greenwood, 1 infinitesimal jackknife. */
+typedef struct {
+	double conf_level;
+	int32_t conf_type;
+	int32_t hazard;
+	int32_t robust;
+	bool timefix;
+} AnofoxSurvfitOptions;
+
+/** time / event (non-zero = event) required; entry, weights, cluster NULL when absent. */
+typedef struct {
+	const double *time;
+	const double *event;
+	const double *entry;
+	const double *weights;
+	const double *cluster;
+	size_t n_rows;
+} AnofoxSurvfitData;
+
+/** One curve, len distinct times; counts are weighted sums; NaN where R gives NA. */
+typedef struct {
+	double *time;
+	double *n_risk;
+	double *n_event;
+	double *n_censor;
+	double *surv;
+	double *std_err;
+	double *conf_low;
+	double *conf_high;
+	double *cumhaz;
+	double *std_chaz;
+	size_t len;
+	size_t n;
+} AnofoxSurvfitResult;
+
+bool anofox_survfit(const AnofoxSurvfitData *data, AnofoxSurvfitOptions options, AnofoxSurvfitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_survfit_result(AnofoxSurvfitResult *result);
+
+/** G-rho test (survdiff(rho)); strata NULL or time.len values. */
+bool anofox_survdiff(AnofoxDataArray time, AnofoxDataArray event, const uint64_t *groups, const double *strata,
+                     double rho, AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

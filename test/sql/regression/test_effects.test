@@ -1,0 +1,359 @@
+# name: test/sql/regression/test_effects.test
+# description: #319 effects_term / effects_design / effects_summary_agg / contrast_agg / predict_grid_agg / nomogram_agg: shapes, NULLs, groups, errors
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i, (i % 2)::INT AS grp, round(20 + (i * 37 % 101) / 2.0, 1) AS x, ((i * 7) % 3)::DOUBLE AS g,
+    1 + 0.03 * (20 + (i * 37 % 101) / 2.0) + 0.2 * ((i * 7) % 3) + ((i * 13) % 11 - 5) / 10.0 AS y,
+    ((i * 17) % 5 < 2)::DOUBLE AS yb
+FROM range(200) t(i);
+
+statement ok
+CREATE TABLE tt AS SELECT [effects_term('x', spline_spec('rcs', [25.0, 40.0, 55.0, 65.0])),
+                           effects_term('g', 'categorical', [0, 1, 2])] AS t;
+
+statement ok
+CREATE TABLE m AS SELECT ols_fit_agg(y, effects_design([x, g], t), {'compute_inference': true}) AS m, any_value(t) AS t
+FROM d, tt;
+
+# ---- term constructors ----
+
+query IIIII
+SELECT (t).name, (t).kind, (t).knots, (t).norm, (t).levels FROM (SELECT effects_term('a', spline_spec('rcs', [3.0, 1.0, 2.0])) AS t);
+----
+a	rcs	[1.0, 2.0, 3.0]	2	NULL
+
+query IIII
+SELECT (t).kind, (t).knots, (t).levels, (t).norm FROM (SELECT effects_term('z', spline_spec('lsp', [0.5])) AS t);
+----
+lsp	[0.5]	NULL	NULL
+
+query III
+SELECT (t).name, (t).kind, (t).levels FROM (SELECT effects_term('g', 'factor', [2, 1]) AS t);
+----
+g	categorical	[2.0, 1.0]
+
+query IIII
+SELECT (t).name, (t).kind, (t).a, (t).b FROM (SELECT effects_interaction('a', 'b', true) AS t);
+----
+a %ia% b	restricted_interaction	a	b
+
+query II
+SELECT (effects_interaction('a', 'b')).name, (effects_interaction('a', 'b')).kind;
+----
+a * b	interaction
+
+query I
+SELECT effects_term(NULL, 'linear') IS NULL;
+----
+true
+
+statement error
+SELECT effects_term('a', 'rcs');
+----
+needs knots
+
+statement error
+SELECT effects_term('a', 'cubic');
+----
+term kind must be
+
+statement error
+SELECT effects_term('a', spline_spec('bspline', [0.0, 1.0, 2.0]));
+----
+B-spline terms are not supported
+
+statement error
+SELECT effects_term('a', 'linear', [1, 2]);
+----
+levels apply only to categorical terms
+
+# ---- effects_design ----
+
+query I
+SELECT effects_design([30.0, 2.0, 1.0], [effects_term('x', 'linear'), effects_term('g', 'categorical', [0, 2]),
+    effects_term('z', spline_spec('lsp', [0.5])), effects_interaction('x', 'g'), effects_interaction('x', 'z', true)]);
+----
+[30.0, 1.0, 1.0, 0.5, 30.0, 30.0, 15.0]
+
+query IIII
+SELECT len(effects_design([30.0, 2], t)), effects_design(NULL, t), effects_design([30.0, NULL], t),
+       effects_design([30.0, 'nan'::DOUBLE], t) FROM tt;
+----
+5	NULL	NULL	NULL
+
+# the design matches spline_basis and the treatment dummies
+query I
+SELECT bool_and(effects_design([x, g], t) = list_concat(spline_basis(x, spline_spec('rcs', [25.0, 40.0, 55.0, 65.0])),
+       [(g = 1)::DOUBLE, (g = 2)::DOUBLE])) FROM d, tt;
+----
+true
+
+statement error
+SELECT effects_design([30.0, 5], t) FROM tt;
+----
+is not a level
+
+statement error
+SELECT effects_design([30.0], t) FROM tt;
+----
+the terms define 2 predictors
+
+statement error
+SELECT effects_design([30.0, 1.0], [effects_term('x', 'linear'), effects_term('g', 'categorical')]);
+----
+needs its levels
+
+statement error
+SELECT effects_design([30.0, 1.0], [effects_term('x', 'linear'), effects_interaction('x', 'w')]);
+----
+unknown predictor 'w'
+
+statement error
+SELECT effects_design([30.0, 1.0], [effects_term('x', 'linear'), effects_term('x', 'linear')]);
+----
+duplicate term name
+
+# ---- aggregates: shapes ----
+
+query IIII
+SELECT len(s), array_to_string([r.label FOR r IN s], '|'), [r.conf_level FOR r IN s][1], ([r.ratio FOR r IN s][1] IS NULL)::VARCHAR
+FROM (SELECT effects_summary_agg([x, g], m.m, m.t) AS s FROM d, m);
+----
+3	x|g - 1:0|g - 2:0	0.95	true
+
+# ratio := true gives exp(effect); level changes the limits
+query II
+SELECT abs([r.ratio FOR r IN s][1] - exp([r.estimate FOR r IN s][1])) < 1e-12,
+       [r.conf_level FOR r IN s][1]
+FROM (SELECT effects_summary_agg([x, g], m.m, m.t, {'ratio': true, 'level': 0.9}) AS s FROM d, m);
+----
+true	0.9
+
+# a summary effect is the contrast between its low and high values
+query I
+SELECT abs((SELECT (contrast_agg([x, g], m.m, m.t, {'x': 55.0}, {'x': 32.6})).estimate FROM d, m)
+     - (SELECT r.estimate FROM (SELECT unnest(effects_summary_agg([x, g], m.m, m.t)) AS r FROM d, m) WHERE r.term = 'x'))
+     < 1e-10 OR (SELECT r.low FROM (SELECT unnest(effects_summary_agg([x, g], m.m, m.t)) AS r FROM d, m) WHERE r.term = 'x') <> 32.6;
+----
+true
+
+query II
+SELECT len(predict_grid_agg([x, g], m.m, m.t, 'x')),
+       [p.x FOR p IN predict_grid_agg([x, g], m.m, m.t, 'g')]
+FROM d, m;
+----
+200	[0.0, 1.0, 2.0]
+
+# simultaneous bands are wider than pointwise ones and carry the critical value
+query III
+SELECT (s[1]).critical > 1.96, (p[1]).critical IS NULL, (s[2]).yhat_upper - (s[2]).yhat > (p[2]).yhat_upper - (p[2]).yhat
+FROM (SELECT predict_grid_agg([x, g], m.m, m.t, 'x', {'values': [30, 40, 50], 'simultaneous': true}) AS s,
+             predict_grid_agg([x, g], m.m, m.t, 'x', {'values': [30, 40, 50]}) AS p FROM d, m);
+----
+true	true	true
+
+# the grid's yhat (g at its mode 0) equals predict() on the design row
+query I
+SELECT abs((gr[1]).yhat - predict(m.m, effects_design([40.0, 0.0], m.t))) < 1e-10
+FROM (SELECT predict_grid_agg([x, g], m.m, m.t, 'x', {'values': [40.0]}) AS gr FROM d, m), m;
+----
+true
+
+query I
+SELECT abs((c).estimate - 0.2408687800668194) < 1e-9 AND (c).conf_level = 0.95
+FROM (SELECT contrast_agg([x, g], m.m, m.t, MAP {'x': 40}, MAP {'x': 30}) AS c FROM d, m);
+----
+true
+
+# double contrast of a main-effects model: no interaction, so zero
+query I
+SELECT abs((double_contrast_agg([x, g], m.m, m.t, {'x': 40, 'g': 2}, {'x': 30, 'g': 2}, {'x': 40, 'g': 0}, {'x': 30, 'g': 0})).estimate) < 1e-10
+FROM d, m;
+----
+true
+
+# ---- NULL handling ----
+
+# no rows -> NULL
+query IIII
+SELECT effects_summary_agg([x, g], m.m, m.t) IS NULL, contrast_agg([x, g], m.m, m.t, {'x': 40}, {'x': 30}) IS NULL,
+       predict_grid_agg([x, g], m.m, m.t, 'x') IS NULL,
+       nomogram_agg([x, g], 0.0, m.m, m.t) IS NULL
+FROM d, m WHERE false;
+----
+true	true	true	true
+
+# a NULL model / terms -> NULL
+query II
+SELECT effects_summary_agg([x, g], NULL::STRUCT(coefficients DOUBLE[], intercept DOUBLE, vcov DOUBLE[]), m.t) IS NULL,
+       effects_summary_agg([x, g], m.m, NULL::STRUCT(name VARCHAR, kind VARCHAR)[]) IS NULL
+FROM d, m;
+----
+true	true
+
+# rows with NULL / NaN x (or a NULL x element) are skipped
+query I
+SELECT (SELECT effects_summary_agg([x, g], m.m, m.t) FROM d, m)
+     = (SELECT effects_summary_agg(xs, m.m, m.t)
+        FROM (SELECT [x, g] AS xs FROM d UNION ALL SELECT [NULL, 1.0] UNION ALL SELECT ['nan'::DOUBLE, 1.0]
+              UNION ALL SELECT NULL::DOUBLE[]), m);
+----
+true
+
+# ---- groups and parallel combine ----
+
+query II
+SELECT grp, round((contrast_agg([x, g], m.m, m.t, {'x': 40}, {'x': 30})).estimate, 9) FROM d, m GROUP BY grp ORDER BY grp;
+----
+0	0.24086878
+1	0.24086878
+
+statement ok
+CREATE TABLE big AS SELECT i, round(20 + (i * 37 % 1001) / 20.0, 2) AS x, ((i * 7) % 3)::DOUBLE AS g FROM range(50000) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE s1 AS SELECT effects_summary_agg([x, g], m.m, m.t) AS s, predict_grid_agg([x, g], m.m, m.t, 'x') AS p FROM big, m;
+
+statement ok
+SET threads = 4;
+
+query II
+SELECT (SELECT effects_summary_agg([x, g], m.m, m.t) FROM big, m) = s, (SELECT predict_grid_agg([x, g], m.m, m.t, 'x') FROM big, m) = p FROM s1;
+----
+true	true
+
+# ---- nomogram ----
+
+statement ok
+CREATE TABLE lm AS SELECT logistic_fit_agg(yb, effects_design([x, g], t), {'compute_inference': true}) AS m, any_value(t) AS t FROM d, tt;
+
+query IIII
+SELECT len((n).axes), (n).axes[2].values, ((n).fun_at IS NULL)::VARCHAR,
+       (abs(list_max(list_transform((n).axes, lambda a: list_max(a.points))) - 100) < 1e-9)::VARCHAR
+FROM (SELECT nomogram_agg([x, g], predict(lm.m, effects_design([x, g], lm.t), {'type': 'link'}), lm.m, lm.t) AS n FROM d, lm);
+----
+2	[0.0, 1.0, 2.0]	true	true
+
+query II
+SELECT len((n).fun_at) > 0, len((n).fun_at) = len((n).fun_points)
+FROM (SELECT nomogram_agg([x, g], predict(lm.m, effects_design([x, g], lm.t), {'type': 'link'}), lm.m, lm.t, {'fun': 'plogis', 'maxscale': 10}) AS n FROM d, lm);
+----
+true	true
+
+# ---- errors ----
+
+statement error
+SELECT effects_summary_agg([x, g], f.m, m.t) FROM d, m, (SELECT ols_fit_agg(y, effects_design([x, g], t)) AS m FROM d, tt) f;
+----
+vcov
+
+statement error
+SELECT effects_summary_agg([x, g], {'coefficients': [1.0, 2.0], 'intercept': 0.5, 'vcov': [1, 0, 0, 0, 1, 0, 0, 0, 1]}, m.t) FROM d, m;
+----
+coefficients
+
+statement error
+SELECT effects_summary_agg([x], m.m, m.t) FROM d, m;
+----
+the terms define 2 predictors
+
+statement error
+SELECT contrast_agg([x, g], m.m, m.t, {'w': 40}, {'x': 30}) FROM d, m;
+----
+unknown predictor 'w'
+
+statement error
+SELECT contrast_agg([x, g], m.m, m.t, {'g': 7}, {'g': 1}) FROM d, m;
+----
+is not a level
+
+statement error
+SELECT contrast_agg([x, g], m.m, m.t, {'x': NULL}, {'x': 30}) FROM d, m;
+----
+gives NULL
+
+statement error
+SELECT contrast_agg([x, g], m.m, m.t, {'x': x}, {'x': 30}) FROM d, m;
+----
+must be a constant
+
+statement error
+SELECT effects_summary_agg([x, g], m.m, m.t, {'level': 1.5}) FROM d, m;
+----
+must be in (0, 1)
+
+statement error
+SELECT effects_summary_agg([x, g], m.m, m.t, {'simultaneous': true}) FROM d, m;
+----
+unknown option 'simultaneous'
+
+statement error
+SELECT predict_grid_agg([x, g], m.m, m.t, 'w') FROM d, m;
+----
+unknown predictor 'w'
+
+statement error
+SELECT predict_grid_agg([x, g], m.m, m.t, 'g', {'values': [5]}) FROM d, m;
+----
+is not a level
+
+statement error
+SELECT nomogram_agg([x, g], 0.0, m.m, m.t, {'fun': 'probit'}) FROM d, m;
+----
+option 'fun'
+
+# levels in the data must match the term's levels
+statement error
+SELECT effects_summary_agg([x, g], m.m, m.t) FROM d, m WHERE g < 2;
+----
+differ from the term's levels
+
+# the nomogram needs a main-effects model
+statement error
+SELECT nomogram_agg([x, g], 0.0, f.m, f.t) FROM d, (SELECT ols_fit_agg(y, effects_design([x, g], s.t2), {'compute_inference': true}) AS m, any_value(s.t2) AS t
+    FROM d, (SELECT list_append(t, effects_interaction('x', 'g')) AS t2 FROM tt) s) f;
+----
+main effects only
+
+# ---- predict_grid_by (prediction schema) ----
+
+statement ok
+CREATE VIEW dm AS SELECT d.*, m.m, m.t FROM d, m;
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM predict_grid_by('dm', grp, [x, g], m, t, 'x'));
+----
+grp	INTEGER
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+focal	BIGINT
+x	DOUBLE
+y	DOUBLE
+yhat	DOUBLE
+yhat_lower	DOUBLE
+yhat_upper	DOUBLE
+level	DOUBLE
+split	VARCHAR
+se_fit	DOUBLE
+focal_name	VARCHAR
+row_order	BIGINT
+
+query IIIIII
+SELECT grp, focal, focal_name, x, level, row_order FROM predict_grid_by('dm', grp, [x, g], m, t, 'G', grid_values := [0, 2], level := 0.9) ORDER BY grp, x;
+----
+0	2	G	0.0	0.9	1
+0	2	G	2.0	0.9	2
+1	2	G	0.0	0.9	1
+1	2	G	2.0	0.9	2
+
+query I
+SELECT count(*) FROM predict_grid_by('dm', grp, [x, g], m, t, 'x', simultaneous := true);
+----
+400

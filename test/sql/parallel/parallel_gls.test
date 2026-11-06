@@ -1,0 +1,38 @@
+# name: test/sql/parallel/parallel_gls.test
+# description: #315 gls_fit_agg on 12k rows, parallel (threads=8) vs single-threaded, grouped (4 groups interleaved so every scan task touches every group) and ungrouped. The rows are sorted before the fit, so the results are bitwise equal.
+# group: [parallel]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE big AS
+SELECT i, i % 4 AS g, (i // 4) // 6 AS subject, ((i // 4) % 6) + 1 AS week, ['a', 'b', 'c'][((i // 24) % 3) + 1] AS arm,
+       ((hash(i * 7 + 1) % 1000003) / 1000003.0) * 4.0 AS x,
+       1.0 + 0.5 * ((hash(i * 7 + 1) % 1000003) / 1000003.0) * 4.0 - 0.1 * (((i // 4) % 6) + 1)
+       + ((hash((i // 24) * 7 + 2) % 1000003) / 1000003.0) - 0.5
+       + ((hash(i * 7 + 3) % 1000003) / 1000003.0) - 0.5 AS y
+FROM range(0, 12000) r(i);
+
+statement ok
+CREATE TABLE single AS
+SELECT g, gls_fit_agg(y, [x, week], subject, week, arm, {'correlation': 'ar1', 'variance': 'ident', 'compute_inference': true}) AS m
+FROM big GROUP BY g;
+
+statement ok
+CREATE TABLE single_all AS
+SELECT gls_fit_agg(y, [x, week], subject, week, {'correlation': 'cs'}) AS m FROM big;
+
+statement ok
+SET threads = 8;
+
+query II
+SELECT count(*), bool_and(s.m = p.m)
+FROM single s JOIN (SELECT g, gls_fit_agg(y, [x, week], subject, week, arm, {'correlation': 'ar1', 'variance': 'ident', 'compute_inference': true}) AS m
+                    FROM big GROUP BY g) p USING (g);
+----
+4	true
+
+query I
+SELECT (SELECT m FROM single_all) = (SELECT gls_fit_agg(y, [x, week], subject, week, {'correlation': 'cs'}) FROM big);
+----
+true

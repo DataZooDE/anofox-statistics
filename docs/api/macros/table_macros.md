@@ -23,6 +23,8 @@ passed through and the prediction columns appended.
 | `negbinom_fit_predict_by` | `negbinom_fit_agg` + `predict` | one row per input row, no intervals |
 | `gamma_fit_predict_by` | `gamma_fit_agg` + `predict` | one row per input row, no intervals |
 | `tweedie_fit_predict_by` | `tweedie_fit_agg` + `predict` | one row per input row, no intervals |
+| `multinomial_fit_predict_by` | `multinomial_fit_agg` + `multinomial_predict` | one row per input row: `yhat` (class) and `probabilities`, see [Multinomial](../glm/multinomial.md#multinomial_fit_predict_by) |
+| `ordinal_fit_predict_by`, `continuation_ratio_fit_predict_by` | `ordinal_fit_agg` / `continuation_ratio_fit_agg` + `ordinal_predict` | one row per input row: `yhat` (most probable level), `yhat_mean` and `probabilities`, see [Ordinal](../glm/ordinal.md#ordinal_fit_predict_by-and-continuation_ratio_fit_predict_by) |
 | `bayesian_ridge_fit_predict_by` | `bayesian_ridge_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `ard_fit_predict_by` | `ard_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `passive_aggressive_fit_predict_by` | `passive_aggressive_fit_predict_agg` | one row per input row in `order_by` order, no intervals |
@@ -31,6 +33,7 @@ passed through and the prediction columns appended.
 | `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
+| `pspline_fit_predict_by` | `pspline_fit_predict_agg` | one row per input row, prediction (or confidence) interval |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
 | `glmm_tidy_by` | `glmm_fit_agg` + `tidy` | one row per fixed effect, variance component and BLUP (`terms`) |
 | `glmm_glance_by` | `glmm_fit_agg` | one row per fit statistic (`summary`) |
@@ -39,6 +42,7 @@ passed through and the prediction columns appended.
 | `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
 | `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
 | `ols_anova_table_by` | `ols_anova_table_agg` | one row per group and term (type I / II ANOVA table, `test` schema) |
+| `glm_score_test_by` | `glm_score_test_agg` | one row per group (Rao score test of added GLM predictors, `test` schema) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
@@ -50,6 +54,7 @@ passed through and the prediction columns appended.
 | `ridge_augment_by` | `ridge_augment_agg` | one row per input row (`obs`: fitted, residual, the ridge `leverage`, exact `loo_residual`, `loo_fitted`; no standardised residuals / Cook's distance), see [Model tools](../regression/model_tools.md#ridge) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
+| `validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by` | `validate_agg`, `calibrate_agg`, `calibrate_cph_agg`, `bootcov_agg` | one row per index / grid point (`curve`) / survival group / term (`terms`), see [Validation](../regression/validation.md#table-macros) |
 | `<model>_prediction_by` | `<model>_fit_predict_by` | one row per input row (`prediction` schema), see [Model tools](../regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_effects_by` | `<model>_fit_agg` + `predict` | one row per grid point of the focal feature (`prediction` schema) |
 
@@ -72,6 +77,7 @@ Some macros differ:
 ```text
 wls_fit_predict_by(source, group_col, y_col, x_cols, weight_col, options := NULL, split := NULL, order_by := NULL)
 isotonic_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL, order_by := NULL)   -- single x column
+pspline_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL, order_by := NULL)    -- single x column
 
 -- GLM macros (fit the model per group, then predict(model, x) on every row); no order_by
 binomial_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
@@ -370,6 +376,18 @@ SELECT * FROM isotonic_fit_predict_by('macro_demo', region, sales, price)
 LIMIT 5;
 ```
 
+## pspline_fit_predict_by
+
+Options: [P-spline](../regression/pspline.md#options) (`n_basis`,
+`penalty_order`, `lambda`, `confidence_level`, `interval`). Takes a single
+`x_col`, not a list. Returns `yhat`, `yhat_lower` / `yhat_upper` (prediction
+interval by default) and `is_training`.
+
+```sql
+SELECT * FROM pspline_fit_predict_by('macro_demo', region, sales, price, options := {'n_basis': 6})
+LIMIT 5;
+```
+
 ## glmm_fit_by
 
 ```text
@@ -451,6 +469,26 @@ See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
 ```sql
 SELECT region, round(statistic, 2) AS f, df1, df2, round(delta_adj_r_squared, 4) AS delta_adj_r2
 FROM ols_anova_by('macro_demo', region, sales, x_reduced := [price], x_full := [price, promo]);
+```
+
+## glm_score_test_by
+
+```text
+glm_score_test_by(source VARCHAR, group_col, y_col, x_reduced := [], x_add := [...], options := NULL) -> TABLE
+```
+
+Rao score test per group for adding the `x_add` predictors to the GLM of `y`
+on `x_reduced`, as R's `anova(reduced, full, test = "Rao")`; only the reduced
+model is fitted. Returns one row per group: the group column, `id`,
+`model_id` / `model_name` (`'glm'`), `method` (`'Rao score'`), `statistic`,
+`p_value`, `df1`, `z_values`, `dispersion`, `theta` and `n_observations`.
+Options as `glm_score_test_agg` (`family`, `link`, `power`, `theta`,
+`fit_intercept`, `offset`; default family `'gaussian'`).
+See [Likelihood tests](../glm/likelihood.md#glm_score_test_agg--glm_score_test_by).
+
+```sql
+SELECT region, round(statistic, 3) AS score_chisq, round(p_value, 4) AS p_value
+FROM glm_score_test_by('macro_demo', region, sales, x_reduced := [price], x_add := [promo]);
 ```
 
 ## ols_anova_table_by

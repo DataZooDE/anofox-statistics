@@ -542,7 +542,11 @@ static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
 	if (v == "naive" || v == "unpenalized" || v == "unpenalised") {
 		return VcovTypeOpt::NAIVE;
 	}
-	throw InvalidInputException("Unknown vcov type '%s'. Expected 'laplace', 'sandwich' or 'naive'.", val.ToString());
+	if (v == "cluster" || v == "vcovcl" || v == "cluster_robust") {
+		return VcovTypeOpt::CLUSTER;
+	}
+	throw InvalidInputException("Unknown vcov type '%s'. Expected 'laplace', 'sandwich', 'naive' or 'cluster'.",
+	                            val.ToString());
 }
 
 // Extract a LIST of positive integers (1-based column indices).
@@ -836,6 +840,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"fit_intercept", {"intercept"}},
 	    {"compute_inference", {"inference"}},
 	    {"compute_loo", {}},
+	    {"cadjust", {"cluster_adjust"}},
 	    {"confidence_level", {"confidence"}},
 	    {"alpha", {}},
 	    {"lambda", {}},
@@ -922,6 +927,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"conditioning", {"conditioning_aware"}},
 	    {"lambda_small", {}},
 	    {"cond_threshold", {"condition_threshold"}},
+	    {"profile_ci", {}},
 	};
 	return table;
 }
@@ -1026,6 +1032,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.compute_inference = ExtractBool(val);
 		} else if (key == "compute_loo") {
 			result.compute_loo = ExtractBool(val);
+		} else if (key == "cadjust") {
+			result.cadjust = ExtractBool(val);
 		} else if (key == "confidence_level") {
 			result.confidence_level = ExtractConfidenceLevel(val, function_name);
 		} else if (key == "alpha") {
@@ -1076,6 +1084,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 					                            val.ToString());
 				}
 			}
+		} else if (key == "profile_ci") {
+			result.profile_ci = ExtractBool(val);
 		} else if (key == "span") {
 			result.lowess_span = ExtractDouble(val);
 		} else if (key == "epsilon") {
@@ -1558,6 +1568,28 @@ AnovaTableMapOptions AnovaTableMapOptions::ParseFromValue(const Value &map_value
 	    });
 }
 
+GvifMapOptions GvifMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"terms", {"term_names"}}};
+	return ParseTestOptions<GvifMapOptions>(
+	    map_value, function_name, keys, [&](GvifMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull() || key != "terms") {
+			    return;
+		    }
+		    if (val.type().id() != LogicalTypeId::LIST) {
+			    throw InvalidInputException("%s: terms must be a LIST of labels, one per x column, got %s",
+			                                function_name, val.type().ToString());
+		    }
+		    vector<string> labels;
+		    for (auto &child : ListValue::GetChildren(val)) {
+			    if (child.IsNull()) {
+				    throw InvalidInputException("%s: terms must not contain NULL", function_name);
+			    }
+			    labels.push_back(child.ToString());
+		    }
+		    result.terms = std::move(labels);
+	    });
+}
+
 MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {
 	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};
@@ -1696,6 +1728,18 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 	case 7:
 		keys = {KEY_REFERENCE, KEY_BINNING, KEY_N_BINS, KEY_THRESHOLD};
 		break;
+	case 9: // z_drift_agg
+		keys = {KEY_REFERENCE, KEY_ALTERNATIVE};
+		break;
+	case 10: // chisq_drift_agg
+	case 11: // g_drift_agg
+	case -3: // category_proportions_agg
+		keys = {KEY_REFERENCE};
+		break;
+	case -2: // column_drift_agg
+		keys = {KEY_REFERENCE, {"test", {}}, KEY_THRESHOLD, KEY_BINNING, KEY_N_BINS, {"epsilon", {}}, KEY_PERMUTATIONS,
+		        KEY_SEED};
+		break;
 	default:
 		keys = {KEY_REFERENCE, KEY_PERMUTATIONS, KEY_SEED};
 		break;
@@ -1741,6 +1785,8 @@ DriftMapOptions DriftMapOptions::ParseFromValue(const Value &map_value, const st
 			    }
 		    } else if (key == "threshold") {
 			    result.threshold = ExtractDouble(val);
+		    } else if (key == "test") {
+			    result.test = val.ToString(); // evidently names are case-sensitive ('TVD')
 		    }
 	    });
 	if (result.n_bins && result.binning.value_or("auto") != "quantile") {
@@ -2143,6 +2189,219 @@ McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string
 		    } else if (key == "method") {
 			    result.method =
 			        ExtractChoice(val, "method", {"stationary", "moving_block", "circular_block", "iid"});
+		    }
+	    });
+}
+
+TwoWayAnovaMapOptions TwoWayAnovaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"terms", {"term_names"}}};
+	return ParseTestOptions<TwoWayAnovaMapOptions>(
+	    map_value, function_name, keys, [&](TwoWayAnovaMapOptions &result, const string &key, const Value &val) {
+		    if (key != "terms" || val.IsNull()) {
+			    return;
+		    }
+		    if (val.type().id() != LogicalTypeId::LIST || ListValue::GetChildren(val).size() != 2) {
+			    throw InvalidInputException("%s: terms must be a LIST of two VARCHAR labels (factor A, factor B), got %s",
+			                                function_name, val.ToString());
+		    }
+		    vector<string> labels;
+		    for (auto &child : ListValue::GetChildren(val)) {
+			    if (child.IsNull() || child.ToString().empty()) {
+				    throw InvalidInputException("%s: terms must not contain NULL or empty labels", function_name);
+			    }
+			    labels.push_back(child.ToString());
+		    }
+		    if (labels[0] == labels[1]) {
+			    throw InvalidInputException("%s: the two terms labels must differ", function_name);
+		    }
+		    result.terms = std::move(labels);
+	    });
+}
+
+RmAnovaMapOptions RmAnovaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"sphericity", {}}};
+	return ParseTestOptions<RmAnovaMapOptions>(map_value, function_name, keys,
+	                                           [](RmAnovaMapOptions &result, const string &key, const Value &val) {
+		                                           if (key == "sphericity" && !val.IsNull()) {
+			                                           result.sphericity = ExtractBool(val);
+		                                           }
+	                                           });
+}
+
+EmbeddingDriftMapOptions EmbeddingDriftMapOptions::ParseFromValue(const Value &map_value,
+                                                                  const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"reference", {}},
+	                                          {"method", {}},
+	                                          {"metric", {"dist"}},
+	                                          {"threshold", {}},
+	                                          {"bootstrap", {}},
+	                                          {"n_bootstrap", {"n_boot"}},
+	                                          {"quantile", {"quantile_probability"}},
+	                                          {"component_test", {"drift_method"}},
+	                                          {"component_threshold", {"drift_threshold"}},
+	                                          KEY_SEED};
+	auto result = ParseTestOptions<EmbeddingDriftMapOptions>(
+	    map_value, function_name, keys, [&](EmbeddingDriftMapOptions &result, const string &key, const Value &val) {
+		    auto finite = [&](const char *name) {
+			    auto v = ExtractDouble(val);
+			    if (v && !std::isfinite(*v)) {
+				    throw InvalidInputException("%s: %s must be finite, got %s", function_name, name, val.ToString());
+			    }
+			    return v;
+		    };
+		    if (key == "reference") {
+			    if (!val.IsNull()) {
+				    result.reference = val;
+			    }
+		    } else if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"distance", "ratio", "mmd"});
+		    } else if (key == "metric") {
+			    result.metric = ExtractChoice(val, "metric", {"euclidean", "cosine", "cityblock", "chebyshev"});
+		    } else if (key == "threshold") {
+			    result.threshold = finite("threshold");
+		    } else if (key == "bootstrap") {
+			    result.bootstrap = ExtractBool(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+			    if (result.n_bootstrap && *result.n_bootstrap < 1) {
+				    throw InvalidInputException("%s: n_bootstrap must be at least 1", function_name);
+			    }
+		    } else if (key == "quantile") {
+			    result.quantile = ExtractDouble(val);
+			    if (result.quantile && !(*result.quantile >= 0.0 && *result.quantile <= 1.0)) {
+				    throw InvalidInputException("%s: quantile must be in [0, 1], got %s", function_name,
+				                                val.ToString());
+			    }
+		    } else if (key == "component_test") {
+			    result.component_test = val.ToString(); // evidently names are case-sensitive ('TVD')
+		    } else if (key == "component_threshold") {
+			    result.component_threshold = finite("component_threshold");
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+	auto method = result.method.value_or("distance");
+	auto only = [&](bool present, const char *key, const char *methods) {
+		if (present) {
+			throw InvalidInputException("%s: option '%s' applies only to method %s", function_name, key, methods);
+		}
+	};
+	only(result.metric && method != "distance", "metric", "'distance'");
+	only(result.bootstrap && method == "ratio", "bootstrap", "'distance' or 'mmd'");
+	only(result.component_test && method != "ratio", "component_test", "'ratio'");
+	only(result.component_threshold && method != "ratio", "component_threshold", "'ratio'");
+	const bool bootstrap = result.bootstrap.value_or(false);
+	if ((result.n_bootstrap || result.quantile) && !bootstrap) {
+		throw InvalidInputException("%s: n_bootstrap and quantile need bootstrap = true", function_name);
+	}
+	if (bootstrap && result.threshold) {
+		throw InvalidInputException("%s: threshold and bootstrap = true exclude each other (the bootstrap "
+		                            "quantile is the threshold)",
+		                            function_name);
+	}
+	return result;
+}
+
+MultivariateTestMapOptions MultivariateTestMapOptions::ParseFromValue(const Value &map_value,
+                                                                      const string &function_name, bool mmd) {
+	vector<OptionKeyDef> keys = {KEY_PERMUTATIONS, KEY_SEED};
+	if (mmd) {
+		keys.insert(keys.end(),
+		            {{"kernel", {}}, {"bandwidth", {"sigma"}}, {"degree", {}}, {"scale", {}}, {"offset", {}}});
+	}
+	auto result = ParseTestOptions<MultivariateTestMapOptions>(
+	    map_value, function_name, keys, [&](MultivariateTestMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_permutations") {
+			    result.n_permutations = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "kernel") {
+			    result.kernel = ExtractChoice(val, "kernel", {"gaussian", "laplacian", "linear", "polynomial"});
+		    } else if (key == "degree") {
+			    result.degree = ExtractUInt32(val);
+		    } else if (key == "bandwidth" && !val.IsNull() && val.type().id() == LogicalTypeId::VARCHAR) {
+			    if (ToLower(val.ToString()) != "median") {
+				    throw InvalidInputException("%s: bandwidth must be a number > 0 or 'median', got '%s'",
+				                                function_name, val.ToString());
+			    }
+			    result.median_bandwidth = true;
+		    } else {
+			    auto v = ExtractDouble(val);
+			    if (v && !std::isfinite(*v)) {
+				    throw InvalidInputException("%s: %s must be finite, got %s", function_name, key, val.ToString());
+			    }
+			    if (v && key == "bandwidth" && !(*v > 0.0)) {
+				    throw InvalidInputException("%s: bandwidth must be > 0, got %s", function_name, val.ToString());
+			    }
+			    (key == "bandwidth" ? result.bandwidth : key == "scale" ? result.scale : result.offset) = v;
+		    }
+	    });
+	auto kernel = result.kernel.value_or("gaussian");
+	if ((result.bandwidth || result.median_bandwidth) && kernel != "gaussian" && kernel != "laplacian") {
+		throw InvalidInputException("%s: bandwidth applies only to the gaussian and laplacian kernels", function_name);
+	}
+	if (result.median_bandwidth && kernel != "gaussian") {
+		throw InvalidInputException("%s: bandwidth 'median' (the median heuristic) applies only to the gaussian kernel",
+		                            function_name);
+	}
+	if ((result.degree || result.scale || result.offset) && kernel != "polynomial") {
+		throw InvalidInputException("%s: degree, scale and offset apply only to the polynomial kernel", function_name);
+	}
+	return result;
+}
+
+SplineMapOptions SplineMapOptions::ParseFromValue(const Value &map_value, const string &function_name, int kind) {
+	static const OptionKeyDef KEY_NORM = {"norm", {}};
+	static const OptionKeyDef KEY_DEGREE = {"degree", {}};
+	static const OptionKeyDef KEY_EXTRAPOLATION = {"extrapolation", {}};
+	static const OptionKeyDef KEY_BIAS = {"include_bias", {}};
+	vector<OptionKeyDef> keys;
+	switch (kind) {
+	case 0:
+		keys = {KEY_NORM};
+		break;
+	case 1:
+		break;
+	case 2:
+		keys = {KEY_EXTRAPOLATION, KEY_BIAS};
+		break;
+	case 3:
+		keys = {{"fractied", {}}};
+		break;
+	case 4:
+		keys = {{"knots", {"placement"}}};
+		break;
+	default:
+		keys = {KEY_NORM, KEY_DEGREE, KEY_EXTRAPOLATION, KEY_BIAS};
+		break;
+	}
+	return ParseTestOptions<SplineMapOptions>(
+	    map_value, function_name, keys, [&](SplineMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "norm") {
+			    auto v = ExtractDouble(val);
+			    if (!v || (*v != 0 && *v != 1 && *v != 2)) {
+				    throw InvalidInputException("%s: norm must be 0, 1 or 2, got %s", function_name, val.ToString());
+			    }
+			    result.norm = static_cast<int32_t>(*v);
+		    } else if (key == "degree") {
+			    result.degree = ExtractUInt32(val);
+		    } else if (key == "extrapolation") {
+			    result.extrapolation =
+			        ExtractChoice(val, "extrapolation", {"constant", "linear", "continue", "periodic", "error"});
+		    } else if (key == "include_bias") {
+			    result.include_bias = ExtractBool(val);
+		    } else if (key == "fractied") {
+			    auto v = ExtractDouble(val);
+			    if (!v || !std::isfinite(*v)) {
+				    throw InvalidInputException("%s: fractied must be a finite number, got %s", function_name,
+				                                val.ToString());
+			    }
+			    result.fractied = v;
+		    } else if (key == "knots") {
+			    result.knots = ExtractChoice(val, "knots", {"uniform", "quantile"});
 		    }
 	    });
 }

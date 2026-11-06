@@ -260,15 +260,18 @@ approx_loo_fitted	DOUBLE
 approx_loo_residual	DOUBLE
 row_order	BIGINT
 
-# All ten macros (incl. glmm_augment_by, #218, and ridge_augment_by, #235) are tagged as obs producers of contract version 1
+# All twelve macros (incl. glmm_augment_by, #218, ridge_augment_by, #235, cox_augment_by, #312, and gls_augment_by, #315) are tagged as obs producers of contract version 1
 query III
 SELECT DISTINCT function_name, tags['anofox.output'], tags['anofox.contract'] FROM duckdb_functions()
 WHERE function_name LIKE '%\_augment\_by' ESCAPE '\'
 ORDER BY function_name
 ----
+aft_augment_by	obs	1
 binomial_augment_by	obs	1
+cox_augment_by	obs	1
 gamma_augment_by	obs	1
 glmm_augment_by	obs	1
+gls_augment_by	obs	1
 logistic_augment_by	obs	1
 negbinom_augment_by	obs	1
 ols_augment_by	obs	1

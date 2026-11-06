@@ -95,6 +95,7 @@ error rather than being silently ignored. Option values must be constants.
 | NNLS | - | `nnls_fit_agg` | - | - | - | [BLS/NNLS](api/regression/bls.md) |
 | PLS | - | `pls_fit_agg` | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
 | Isotonic | - | `isotonic_fit_agg` | - | `isotonic_fit_predict_agg` | `isotonic_fit_predict_by` | [Isotonic](api/regression/isotonic.md) |
+| P-spline | - | `pspline_fit_agg` | - | `pspline_fit_predict_agg` | `pspline_fit_predict_by` | [P-spline](api/regression/pspline.md) |
 | Passive-Aggressive | - | `passive_aggressive_fit_agg` | `passive_aggressive_fit_predict` | `passive_aggressive_fit_predict_agg` | `passive_aggressive_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | lmDynamic | - | `lm_dynamic_fit_agg` | - | `lm_dynamic_fit_predict_agg` | `lm_dynamic_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | LOWESS | - | `lowess_agg` | - | - | `lowess_by` | [Online / dynamic](api/regression/online_dynamic.md) |
@@ -116,27 +117,36 @@ fitted model struct).
 | Poisson | `poisson_fit_agg` | `poisson_fit_predict_agg`, `poisson_fit_predict_by` | [Poisson](api/glm/poisson.md) |
 | Binomial | `binomial_fit_agg` | `binomial_fit_predict_by` | [Binomial](api/glm/binomial.md) |
 | Logistic | `logistic_fit_agg` | `logistic_fit_predict_by` | [Logistic](api/glm/logistic.md) |
+| Multinomial logistic (softmax, L1 / elastic net) | `multinomial_fit_agg` | `multinomial_predict`, `multinomial_fit_predict_by` | [Multinomial](api/glm/multinomial.md) |
 | Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
-| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
+| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) | [Ordinal](api/glm/ordinal.md) |
+| Ordinal (cumulative link, continuation ratio) | `ordinal_fit_agg`, `continuation_ratio_fit_agg` | `ordinal_predict`, `ordinal_fit_predict_by`, `continuation_ratio_fit_predict_by` | [Ordinal](api/glm/ordinal.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
-| AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
+| AFT survival | `aft_fit_agg`, `aft_augment_agg` | `aft_augment_by` (`obs`), scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
+| Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_augment_agg` | `cox_fit_by`, `cox_tidy_by` (`terms`), `cox_glance_by` (`summary`), `cox_augment_by` (`obs`), scalar `cox_survival` | [Cox](api/survival/cox.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Generalized least squares (`nlme::gls`) | `gls_fit_agg`, `gls_augment_agg` | `gls_fit_by`, `gls_tidy_by` (`terms`), `gls_glance_by` (`summary`), `gls_augment_by` (`obs`) | [GLS](api/regression/gls.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
+| Likelihood-ratio / score tests, profile CIs | `lr_test` (scalar), `glm_score_test_agg`, `profile_ci` option on the GLM fits | `glm_score_test_by` | [Likelihood tests](api/glm/likelihood.md) |
+| Wald ANOVA (chunk tests), fast backward step-down | `wald_anova`, `fastbw` (scalars on any model STRUCT with `vcov`) | - | [Wald ANOVA](api/regression/wald_anova.md) |
+| Penalized ML a la rms (penalty trace, penalized OLS) | `pentrace_agg`, `penalized_ols_fit_agg` | `pentrace_by`, `penalized_ols_fit_by` | [Pentrace](api/regression/pentrace.md) |
+| Model validation / calibration | `validate_agg`, `calibrate_agg`, `calibrate_cph_agg`, `bootcov_agg` | `validate_by`, `calibrate_by` (`curve`), `calibrate_cph_by`, `bootcov_by` (`terms`) | [Validation](api/regression/validation.md) |
 
 ### Statistical Tests
 
 | Category | Functions | Page |
 |----------|-----------|------|
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Parametric | `t_test_agg`, `t_test_one_sample_agg`, `t_test_paired_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Parametric | `t_test_agg`, `t_test_one_sample_agg`, `t_test_paired_agg`, `one_way_anova_agg`, `two_way_anova_agg`, `repeated_measures_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg`, `bootstrap_mean_ci_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
+| Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg`, `category_proportions_agg`, `z_drift_agg`, `chisq_drift_agg`, `g_drift_agg`, `column_drift_agg`, `dataset_drift_agg`, `dataset_drift_by` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
+| Embedding drift, multivariate two-sample tests | `embedding_drift_agg`, `energy_distance_test_agg`, `mmd_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md#embedding_drift_agg-energy_distance_test_agg-mmd_test_agg) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg`, `tost_one_sample_agg`, `tost_prop_one_agg`, `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg`, `tost_bootstrap_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg`, `spa_test_agg`, `mspe_adjusted_spa_agg`, `model_confidence_set_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
@@ -149,7 +159,11 @@ fitted model struct).
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
+| Predictive accuracy (rms) | `concordance_agg`, `somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures` | [Accuracy indexes](api/statistics/accuracy.md) |
 | Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
+| Principal components | `pca_agg`, `pca_transform`, `pca_by` (R's `prcomp` / `predict.prcomp`) | [Multivariate](api/statistics/multivariate.md) |
+| Data reduction and transforms | `spearman2_agg`, `hoeffding_d_agg`, `box_cox_agg`, `box_cox_transform`, `box_cox_inverse`, `varclus_agg`, `redun_agg`, `areg_fit_agg`, `areg_predict`, `areg_transform`, `areg_inverse` (Hmisc / MASS) | [Data reduction](api/statistics/reduction.md) |
+| Multiple imputation, Rubin pooling | `areg_impute_agg`, `areg_impute_by` (`Hmisc::aregImpute`), `pool_rubin_agg` (`mice::pool`, `mice::D1`) | [Imputation](api/statistics/imputation.md) |
 
 ### Diagnostics and Utilities
 
@@ -170,6 +184,7 @@ fitted model struct).
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `condition_diagnostic_agg` | BKW condition indices and variance-decomposition proportions | [Diagnostics](api/diagnostics/diagnostics.md#condition-indices) |
 | `detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg` | Separation of a binary response (exact LP / per predictor), count sparsity | [Diagnostics](api/diagnostics/diagnostics.md#separation) |
+| `gvif_agg` | Generalized VIF per term (car::vif) | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -1175,6 +1190,8 @@ FROM reg_data;
 | `t_test_one_sample_agg` | `(x DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
 | `t_test_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
 | `one_way_anova_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
+| `two_way_anova_agg` **MAP** | `(y DOUBLE, factor_a BIGINT \| VARCHAR, factor_b BIGINT \| VARCHAR [, options])` | `terms` (['factor_a', 'factor_b']) | LIST of `term, method, statistic, df1, df2, p_value, sum_sq, mean_sq, residual_sum_sq, residual_mean_sq, n_observations` (Type III) |
+| `repeated_measures_anova_agg` **MAP** | `(y DOUBLE, subject BIGINT \| VARCHAR, condition BIGINT \| VARCHAR [, options])` | `sphericity` (true) | `method, statistic, df1, df2, p_value, ss_condition, ss_subjects, ss_error, ms_condition, ms_error, n_subjects, n_conditions, n_excluded_subjects, mauchly_*, gg_*, hf_*` |
 | `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `brown_forsythe_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
 
@@ -2295,7 +2312,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 - **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [Bayesian Ridge / ARD](api/regression/bayesian.md) | [Passive-Aggressive / lmDynamic / LOWESS](api/regression/online_dynamic.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md) | [LS states](api/regression/ls_state.md)
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
-- **Survival:** [AFT](api/survival/aft.md)
+- **Survival:** [AFT](api/survival/aft.md) | [Cox PH](api/survival/cox.md)
 - **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md) | [Mediation](api/statistics/mediation.md)
 - **Demand:** [AID](api/aid/aid.md)
 - **Diagnostics:** [Model diagnostics](api/diagnostics/diagnostics.md)

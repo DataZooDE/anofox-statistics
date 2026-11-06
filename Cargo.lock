@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "anofox-regression"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d309917e63caee74ce45cadc8f974996c4c756e6ba6a40d1e6bade913d750e0"
+checksum = "3fa58ab3c9538f11cd1819c422cadc6095a996da9730cb0a205ebdec34653339"
 dependencies = [
  "basin",
  "faer",
@@ -17,9 +17,9 @@ dependencies = [
 
 [[package]]
 name = "anofox-statistics"
-version = "0.8.1"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05033f6ec6cf06220d1e712e080110d12ad683923e6d10efeb33af013a5898c2"
+checksum = "ee35597cec1d88d485d30103fcf538d91561f3f83ed3780946d55dbf2e7920b3"
 dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",

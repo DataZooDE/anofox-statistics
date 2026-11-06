@@ -13,7 +13,10 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_weights_arg.hpp"
 #include "../include/glm_prior_options.hpp"
+#include "../include/cluster_ids.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/model_struct.hpp"
+#include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -28,6 +31,7 @@ struct PoissonAggregateState {
 	GlmPriorState prior_state;
 	vector<double> y_values;
 	vector<double> weights; // prior weights (#305); empty unless weighted
+	ClusterRows cluster;    // cluster ids of the cluster form; empty otherwise
 	vector<vector<double>> x_columns;
 	idx_t n_features;
 	bool initialized;
@@ -41,6 +45,7 @@ struct PoissonAggregateState {
 	double confidence_level;
 	double glm_lambda;
 	idx_t offset_column;
+	bool profile_ci = false;
 
 	PoissonAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_POISSON_LINK_LOG), max_iterations(100),
@@ -51,6 +56,7 @@ struct PoissonAggregateState {
 		prior_state.Clear();
 		y_values.clear();
 		weights.clear();
+		cluster.Clear();
 		x_columns.clear();
 		n_features = 0;
 		initialized = false;
@@ -71,6 +77,8 @@ struct PoissonAggregateBindData : public FunctionData {
 	double glm_lambda = 0.0;
 	idx_t offset_column = 0;
 	bool weighted = false; // f(y, x, w [, options]) (#305)
+	bool profile_ci = false;
+	ClusterBind cluster; // f(y, x, cluster, {'vcov': 'cluster', ...})
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<PoissonAggregateBindData>();
@@ -84,6 +92,8 @@ struct PoissonAggregateBindData : public FunctionData {
 		result->glm_lambda = glm_lambda;
 		result->offset_column = offset_column;
 		result->weighted = weighted;
+		result->profile_ci = profile_ci;
+		result->cluster = cluster;
 		return std::move(result);
 	}
 
@@ -92,14 +102,15 @@ struct PoissonAggregateBindData : public FunctionData {
 		return fit_intercept == other.fit_intercept && link == other.link && max_iterations == other.max_iterations &&
 		       tolerance == other.tolerance && compute_inference == other.compute_inference &&
 		       confidence_level == other.confidence_level && glm_lambda == other.glm_lambda &&
-		       offset_column == other.offset_column && weighted == other.weighted;
+		       offset_column == other.offset_column && weighted == other.weighted && profile_ci == other.profile_ci &&
+		       cluster.Equals(other.cluster) && prior_opts.Equals(other.prior_opts);
 	}
 };
 
 //===--------------------------------------------------------------------===//
 // Result type definition
 //===--------------------------------------------------------------------===//
-static LogicalType GetPoissonAggResultType() {
+static LogicalType GetPoissonAggResultType(bool clustered = false) {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -125,6 +136,9 @@ static LogicalType GetPoissonAggResultType() {
 
 	AppendModelSummaryFields(children);
 	AppendCovarianceFields(children);
+	if (clustered) {
+		AppendClusterFields(children);
+	}
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -173,6 +187,7 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 	if (bind_data.weighted) {
 		w_input.Load(inputs[2], count);
 	}
+	vector<string> cluster_ids;
 
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
 	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
@@ -198,6 +213,7 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 		state.confidence_level = bind_data.confidence_level;
 		state.glm_lambda = bind_data.glm_lambda;
 		state.offset_column = bind_data.offset_column;
+		state.profile_ci = bind_data.profile_ci;
 
 		auto y_idx = y_data.sel->get_index(i);
 		if (!y_data.validity.RowIsValid(y_idx)) {
@@ -212,6 +228,9 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 
 		auto list_entry = x_list_data[x_idx];
 		idx_t n_features = list_entry.length;
+		if (bind_data.cluster.active && !ReadClusterIds(inputs[2].GetValue(i), cluster_ids)) {
+			continue; // NULL cluster id: the row is left out
+		}
 
 		if (!state.initialized) {
 			state.n_features = n_features;
@@ -231,6 +250,9 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 				continue; // NULL weight: the row is left out, as wls_fit_agg
 			}
 			state.weights.push_back(w_val);
+		}
+		if (bind_data.cluster.active) {
+			state.cluster.Push(cluster_ids, "poisson_fit_agg");
 		}
 		state.y_values.push_back(y_val);
 
@@ -259,6 +281,7 @@ static void PoissonAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 			continue;
 		}
 
+		target.cluster.Append(source.cluster, "poisson_fit_agg");
 		if (!target.initialized) {
 			target.y_values = CombineTake(source.y_values, aggr_input_data);
 			target.weights = CombineTake(source.weights, aggr_input_data);
@@ -276,6 +299,7 @@ static void PoissonAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.offset_column = source.offset_column;
+			target.profile_ci = source.profile_ci;
 			continue;
 		}
 
@@ -308,6 +332,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 
 static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                                idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<PoissonAggregateBindData>();
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (PoissonAggregateState **)sdata.data;
@@ -327,7 +352,13 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		// Note: Detailed min_obs validation including zero-variance column handling is done in Rust
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
 		const bool weighted = !state.weights.empty();
-		if (weighted) {
+		const bool clustered = !state.cluster.dims.empty();
+		if (clustered) {
+			CanonicalRows rows;
+			rows.Keys(state.x_columns).Key(state.y_values);
+			state.cluster.AddTo(rows);
+			rows.Sort();
+		} else if (weighted) {
 			CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
 		} else {
 			SortRowsCanonically(state.y_values, state.x_columns);
@@ -365,7 +396,14 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		// Prior weights (#305): upstream's weighted Poisson fit; the unweighted fit is unchanged.
 		AnofoxDataArray w_array {state.weights.data(), nullptr, state.weights.size()};
 		AnofoxFitResultInference *inference_out = state.compute_inference ? &inference_result : nullptr;
-		bool success = weighted ? anofox_poisson_fit_weighted(y_array, x_arrays.data(), x_arrays.size(), w_array, options,
+		auto cluster_ptrs = state.cluster.Pointers();
+		vector<int64_t> n_clusters(cluster_ptrs.size(), 0);
+		bool success = clustered ? anofox_poisson_cluster_fit(y_array, x_arrays.data(), x_arrays.size(), options,
+		                                                      cluster_ptrs.data(), cluster_ptrs.size(),
+		                                                      ConvertHcType(bind.cluster.hc_type),
+		                                                      bind.cluster.cadjust, &core_result, inference_out,
+		                                                      n_clusters.data(), &error)
+		               : weighted ? anofox_poisson_fit_weighted(y_array, x_arrays.data(), x_arrays.size(), w_array, options,
 		                                                 &core_result, inference_out, &error)
 		                        : anofox_poisson_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
 		                                          inference_out, &error);
@@ -374,6 +412,18 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			ThrowUnlessDegenerate("poisson_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
+		}
+		if (state.profile_ci) {
+			if (clustered) {
+				throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with the cluster-robust "
+				                            "covariance");
+			}
+			if (weighted) {
+				throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with prior weights");
+			}
+			ApplyProfileConfint("poisson_fit_agg", AnofoxLikelihoodFamily {1, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
+			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
+			                    inference_result);
 		}
 
 		idx_t struct_idx = 0;
@@ -399,6 +449,9 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		writer.WriteCovariance(result_idx, state.compute_inference ? core_result.vcov : nullptr, core_result.vcov_dim,
 		                       ResidualDf(core_result.n_observations, core_result.coefficients,
 		                                  core_result.coefficients_len, std::isfinite(core_result.intercept)));
+		if (bind.cluster.active) {
+			WriteClusterFields(result, result_idx, state.compute_inference, bind.cluster.VcovTypeName(), n_clusters);
+		}
 		if (state.compute_inference) {
 			anofox_free_result_inference(&inference_result);
 		}
@@ -416,13 +469,21 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
                                                vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<PoissonAggregateBindData>();
 
-	// f(y, x, w) / f(y, x, w, options): prior weights (#305).
+	// f(y, x, w) / f(y, x, w, options): prior weights (#305); f(y, x, cluster, {'vcov': 'cluster'}):
+	// the cluster-robust covariance.
 	result->weighted = GlmWeightsArgument(arguments);
 	const idx_t options_idx = result->weighted ? 3 : 2;
 	if (arguments.size() > options_idx) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[options_idx], "poisson_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "poisson_link", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "poisson_link", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci", "hc_type", "cadjust"});
+		result->cluster.Load(opts, GlmClusterForm(opts, arguments), true, "poisson_fit_agg",
+		                     "poisson_fit_agg(y, x, cluster, {'vcov': 'cluster'})");
+		if (result->cluster.active) {
+			result->weighted = false;
+			result->compute_inference = true; // the default of the cluster form, as ols_fit_agg's
+		}
+		CheckGlmWeightsArgument(arguments, result->weighted, "poisson_fit_agg");
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -448,11 +509,16 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
 		}
+		result->profile_ci = ProfileCiOption(opts, "poisson_fit_agg");
+		if (result->profile_ci) {
+			result->compute_inference = true;
+		}
 	}
 
-	SetReturnTypeOf(function, GetPoissonAggResultType());
+	SetReturnTypeOf(function, GetPoissonAggResultType(result->cluster.active));
 
-	PostHogTelemetry::Instance().RecordFunctionCall("poisson_fit_agg");
+	PostHogTelemetry::Instance().RecordFunctionCall(result->cluster.active ? "poisson_fit_agg_cluster"
+	                                                                       : "poisson_fit_agg");
 	return std::move(result);
 }
 
@@ -484,6 +550,15 @@ void RegisterPoissonAggregateFunction(ExtensionLoader &loader) {
 	    ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr,
 	    ANOFOX_AGG_BIND(PoissonAggBind), PoissonAggDestroy);
 	func_set.AddFunction(weighted_func);
+	// (y, x, cluster, {'vcov': 'cluster'}): the cluster-robust covariance; also (y, x, w, options) with a
+	// non-DOUBLE numeric w, which binds here rather than to the DOUBLE overload above.
+	func_set.AddFunction(AggregateFunction(
+	    "poisson_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
+	    LogicalType::ANY, AggregateFunction::StateSize<PoissonAggregateState>, ANOFOX_AGG_INIT(PoissonAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(PoissonAggUpdate, PoissonAggDestroy, PoissonAggInitialize), PoissonAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr,
+	    ANOFOX_AGG_BIND(PoissonAggBind), PoissonAggDestroy));
 
 	CreateAggregateFunctionInfo info(std::move(func_set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
@@ -512,6 +587,7 @@ void RegisterPoissonAggregateFunction(ExtensionLoader &loader) {
 	d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
 	                      LogicalType::ANY};
 	info.descriptions.push_back(std::move(d3));
+	info.descriptions.push_back(GlmClusterDescription("poisson_fit_agg"));
 	loader.RegisterFunction(std::move(info));
 
 }

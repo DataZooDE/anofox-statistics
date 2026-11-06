@@ -1,0 +1,225 @@
+# name: test/sql/survival/test_survival_options.test
+# description: #322 kaplan_meier_agg / log_rank_test_agg options (anofox-regression survfit / survdiff): same results as the original forms without options, NULLs, invalid options
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE p AS SELECT i, (1 + (i * 7) % 11)::DOUBLE AS dur, (i % 4 <> 0)::INTEGER AS ev, (i % 3)::VARCHAR AS arm,
+    (i % 2)::DOUBLE AS site, 1 + (i % 3)::DOUBLE AS w, ((i * 3) % 5)::DOUBLE * 0.1 AS entry, (i // 2)::DOUBLE AS id
+FROM range(60) t(i);
+
+# Without new options the options form gives the original curve (anofox-statistics): same
+# times and counts, survival / std_err / limits to rounding, for every conf_type and level.
+query I
+WITH a AS (SELECT kaplan_meier_agg(dur, ev, 0.9, 'log') AS o, kaplan_meier_agg(dur, ev, {'conf_level': 0.9}) AS n FROM p),
+     b AS (SELECT kaplan_meier_agg(dur, ev, 0.95, 'log-log') AS o, kaplan_meier_agg(dur, ev, {'conf_type': 'log-log'}) AS n FROM p),
+     c AS (SELECT kaplan_meier_agg(dur, ev::BOOLEAN, 0.8, 'plain') AS o, kaplan_meier_agg(dur, ev::BOOLEAN, {'conf_type': 'plain', 'conf_level': 0.8}) AS n FROM p),
+     all_curves AS (SELECT * FROM a UNION ALL SELECT * FROM b UNION ALL SELECT * FROM c)
+SELECT bool_and(len(o) = len(n) AND list_bool_and(list_transform(range(1, len(o) + 1), lambda k:
+    o[k].time = n[k].time AND o[k].n_risk = n[k].n_risk AND o[k].n_event = n[k].n_event
+    AND o[k].n_censor = n[k].n_censor AND abs(o[k].surv - n[k].surv) <= 1e-14
+    AND coalesce(abs(o[k].std_err - n[k].std_err) <= 1e-14, o[k].std_err IS NULL AND n[k].std_err IS NULL)
+    AND coalesce(abs(o[k].conf_low - n[k].conf_low) <= 1e-12, o[k].conf_low IS NULL AND n[k].conf_low IS NULL)
+    AND coalesce(abs(o[k].conf_high - n[k].conf_high) <= 1e-12, o[k].conf_high IS NULL AND n[k].conf_high IS NULL))))
+FROM all_curves
+----
+true
+
+# The original forms keep their result type; the options forms add the cumulative hazard and
+# report the (weighted) counts as DOUBLE.
+query II
+SELECT typeof(kaplan_meier_agg(dur, ev)), typeof(kaplan_meier_agg(dur, ev, {'hazard': 'nelson-aalen'})) FROM p
+----
+STRUCT("time" DOUBLE, surv DOUBLE, conf_low DOUBLE, conf_high DOUBLE, n_risk BIGINT, n_event BIGINT, n_censor BIGINT, std_err DOUBLE)[]	STRUCT("time" DOUBLE, surv DOUBLE, conf_low DOUBLE, conf_high DOUBLE, n_risk DOUBLE, n_event DOUBLE, n_censor DOUBLE, std_err DOUBLE, cumhaz DOUBLE, std_chaz DOUBLE)[]
+
+# A numeric third argument is still the positional conf_level (also as a DECIMAL literal).
+query I
+SELECT kaplan_meier_agg(dur, ev, 0.9) = kaplan_meier_agg(dur, ev, 0.9::DOUBLE) FROM p
+----
+true
+
+# Unit weights and a constant entry before every time change nothing.
+query II
+SELECT kaplan_meier_agg(dur, ev, [1.0], {'weight': 1}) = kaplan_meier_agg(dur, ev, {'conf_type': 'log'}),
+       kaplan_meier_agg(dur, ev, [-1.0], {'entry': 1}) = kaplan_meier_agg(dur, ev, {'conf_type': 'log'})
+FROM p
+----
+true	true
+
+# Integer weights w are w copies of the row.
+query I
+SELECT (SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 1}) FROM p)
+     = (SELECT kaplan_meier_agg(dur, ev, {'conf_type': 'log'}) FROM p, range(3) r(k) WHERE k < w)
+----
+true
+
+# A NULL in columns drops the row, a NULL columns list skips it.
+query II
+SELECT kaplan_meier_agg(dur, ev, [CASE WHEN i = 3 THEN NULL ELSE w END], {'weight': 1})
+     = (SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 1}) FROM p WHERE i <> 3),
+       kaplan_meier_agg(dur, ev, CASE WHEN i = 3 THEN NULL ELSE [w] END, {'weight': 1})
+     = (SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 1}) FROM p WHERE i <> 3)
+FROM p
+----
+true	true
+
+# The Fleming-Harrington hazard is below Nelson-Aalen once there are tied events; S is unchanged.
+query II
+SELECT list_bool_and(list_transform(range(1, len(na) + 1), lambda k: fh[k].cumhaz >= na[k].cumhaz)),
+       list_transform(na, lambda e: e.surv) = list_transform(fh, lambda e: e.surv)
+FROM (SELECT kaplan_meier_agg(dur, ev, {'hazard': 'nelson-aalen'}) AS na,
+             kaplan_meier_agg(dur, ev, {'hazard': 'fleming-harrington'}) AS fh FROM p)
+----
+true	true
+
+# Robust standard errors: per-row clusters (robust = true) and cluster ids.
+query II
+SELECT len(kaplan_meier_agg(dur, ev, {'robust': true})) = len(kaplan_meier_agg(dur, ev)),
+       kaplan_meier_agg(dur, ev, [id], {'cluster': 1})[3].std_err > 0
+FROM p
+----
+true	true
+
+# Empty input and an all-NULL group give NULL.
+query II
+SELECT kaplan_meier_agg(dur, ev, {'robust': true}), kaplan_meier_agg(dur, ev, [w], {'weight': 1}) FROM p WHERE i < 0
+----
+NULL	NULL
+
+query I
+SELECT kaplan_meier_agg(dur, ev, [NULL::DOUBLE], {'weight': 1}) FROM p
+----
+NULL
+
+# GROUP BY gives one curve per group, as the original form does.
+query I
+SELECT count(*) FROM (SELECT arm, kaplan_meier_agg(dur, ev, [w], {'weight': 1}) AS r FROM p GROUP BY arm) WHERE r IS NOT NULL
+----
+3
+
+# ---- invalid options ----
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'bogus': 1}) FROM p
+----
+unknown option 'bogus'
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'weight': 1}) FROM p
+----
+names a column of the columns argument
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 2}) FROM p
+----
+beyond the 1 values of columns
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 1, 'entry': 1}) FROM p
+----
+must name different columns
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, [w], {'weight': 0}) FROM p
+----
+1-based position
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'hazard': 'kaplan'}) FROM p
+----
+unknown hazard 'kaplan'
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'conf_level': 1.5}) FROM p
+----
+conf_level must be in (0, 1)
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'conf_type': 'logit'}) FROM p
+----
+unknown conf_type 'logit'
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'robust': 'maybe'}) FROM p
+----
+must be a boolean
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, [w - 2], {'weight': 1}) FROM p
+----
+weights must be finite and non-negative
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, [dur + 1], {'entry': 1}) FROM p
+----
+entry must be finite and before the stop time
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, CASE WHEN i = 0 THEN [w, w] ELSE [w] END, {'weight': 1}) FROM p
+----
+inconsistent length of columns
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, {'conf_level': dur}) FROM p
+----
+must be a constant
+
+# ---- log_rank_test_agg ----
+
+# rho = 0 without strata is the original test (same code path): identical.
+query I
+SELECT log_rank_test_agg(dur, ev, arm) = log_rank_test_agg(dur, ev, arm, {'rho': 0}) FROM p
+----
+true
+
+# survdiff with rho = 0 (forced through anofox-regression by a single stratum) gives the same test.
+query III
+SELECT abs(a.statistic - b.statistic) < 1e-10, a.df1 = b.df1, a.n = b.n
+FROM (SELECT log_rank_test_agg(dur, ev, arm) AS a, log_rank_test_agg(dur, ev, arm, [1.0], {'strata': 1}) AS b FROM p)
+----
+true	true	true
+
+query II
+SELECT (log_rank_test_agg(dur, ev, arm, {'rho': 1})).method, (log_rank_test_agg(dur, ev, arm, [site], {'strata': 1, 'rho': 0.5})).method FROM p
+----
+Peto-Peto test	G-rho test
+
+# BIGINT groups, BOOLEAN events.
+query I
+SELECT (log_rank_test_agg(dur, ev::BOOLEAN, i % 2, {'rho': 1})).df1 FROM p
+----
+1.0
+
+# One group: NULL. A NULL stratum drops the row.
+query II
+SELECT log_rank_test_agg(dur, ev, arm, {'rho': 1}) IS NULL,
+       log_rank_test_agg(dur, ev, arm, [CASE WHEN i = 7 THEN NULL ELSE site END], {'strata': 1})
+     = (SELECT log_rank_test_agg(dur, ev, arm, [site], {'strata': 1}) FROM p WHERE i <> 7)
+FROM p
+----
+false	true
+
+query I
+SELECT log_rank_test_agg(dur, ev, arm, {'rho': 1}) FROM p WHERE arm = '1'
+----
+NULL
+
+statement error
+SELECT log_rank_test_agg(dur, ev, arm, {'strata': 1}) FROM p
+----
+names a column of the columns argument
+
+statement error
+SELECT log_rank_test_agg(dur, ev, arm, {'rho': 'x'}) FROM p
+----
+must be a number
+
+statement error
+SELECT log_rank_test_agg(dur, ev, arm, {'weights': 1}) FROM p
+----
+unknown option 'weights'
+
+statement error
+SELECT log_rank_test_agg(dur, ev, arm, [site], {'strata': 3}) FROM p
+----
+beyond the 1 values of columns

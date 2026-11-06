@@ -1,0 +1,369 @@
+# name: test/sql/regression/test_ordinal.test
+# description: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict, predict(model, x) and the
+#              *_fit_predict_by macros (#313): shapes, options, NULL handling, edge cases
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE r AS
+SELECT i AS id, i % 2 AS grp,
+       round(sin(i * 0.37) * 2, 3) AS x1,
+       (i % 3)::DOUBLE AS x2,
+       round(0.1 * (i % 4), 2) AS off,
+       1 + (i % 3) * 0.5 AS w,
+       CASE WHEN sin(i * 0.37) * 2 + cos(i * 1.3) < -1 THEN 1
+            WHEN sin(i * 0.37) * 2 + cos(i * 1.3) < 0.2 THEN 2
+            WHEN sin(i * 0.37) * 2 + cos(i * 1.3) < 1.2 THEN 3
+            ELSE 5 END::DOUBLE AS y
+FROM range(1, 201) t(i);
+
+# ---- ordinal_fit_agg: shape ----
+query IIIIIII
+SELECT m.levels, len(m.counts), len(m.intercepts), len(m.coefficients), m.n_levels, m.n_observations, m.model_type
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+[1.0, 2.0, 3.0, 5.0]	4	3	2	4	200	ordinal
+
+# intercepts decrease (P(Y >= y_{j+1}) = F(alpha_j + x'beta)); the slope of x1 is positive
+query IIIIII
+SELECT m.intercepts[1] > m.intercepts[2], m.intercepts[2] > m.intercepts[3], m.coefficients[1] > 0,
+       m.converged, m.link, m.po_test_df
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+true	true	true	true	logistic	4.0
+
+# the counts are the level frequencies; lr_chisq = 2 (logLik - null logLik); lr_df = 2
+query IIII
+SELECT list_sum(m.counts), abs(m.lr_chisq - 2 * (m.log_likelihood - m.null_log_likelihood)) < 1e-9,
+       m.lr_df, m.offset_column IS NULL
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+200.0	true	2.0	true
+
+# ---- links ----
+query IIIII
+SELECT (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}).link FROM r),
+       (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'LOGLOG'}).link FROM r),
+       (SELECT ordinal_fit_agg(y, [x1, x2], MAP {'link': 'cloglog'}).link FROM r),
+       (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'cauchit'}).link FROM r),
+       (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logit'}).link FROM r);
+----
+probit	loglog	cloglog	cauchit	logistic
+
+# ---- predictions: probabilities sum to 1, exceedance is the upper tail, mean in the level range ----
+query IIIII
+SELECT abs(list_sum(ordinal_predict(m, [0.5, 1.0], {'type': 'prob'})) - 1) < 1e-12,
+       len(ordinal_predict(m, [0.5, 1.0], {'type': 'exceedance'})) = 3,
+       abs(ordinal_predict(m, [0.5, 1.0], {'type': 'exceedance'})[3]
+           - ordinal_predict(m, [0.5, 1.0], {'type': 'prob'})[4]) < 1e-12,
+       ordinal_predict(m, [0.5, 1.0], {'type': 'mean'}) BETWEEN 1 AND 5,
+       ordinal_predict(m, [0.5, 1.0]) IN (1, 2, 3, 5)
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+true	true	true	true	true
+
+# predict(model, x) dispatches ordinal models; the mean is sum_j y_j P(Y = y_j)
+query III
+SELECT predict(m, [0.5, 1.0]) = ordinal_predict(m, [0.5, 1.0]),
+       abs(predict(m, [0.5, 1.0], {'type': 'mean'})
+           - list_sum(list_transform(ordinal_predict(m, [0.5, 1.0], {'type': 'prob'}),
+                                     lambda p, j: p * m.levels[j]))) < 1e-12,
+       typeof(predict(m, [0.5, 1.0], {'type': 'prob'}))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+true	true	DOUBLE[]
+
+# the mean prediction increases with x1 (positive slope)
+query I
+SELECT ordinal_predict(m, [2.0, 1.0], {'type': 'mean'}) > ordinal_predict(m, [-2.0, 1.0], {'type': 'mean'})
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+true
+
+# ---- weights: integer weights equal row replication ----
+query III
+WITH rep AS (SELECT r.* FROM r, range(2) t(k) WHERE k < 2)
+SELECT abs(a.m.coefficients[1] - b.m.coefficients[1]) < 1e-7,
+       abs(a.m.log_likelihood - b.m.log_likelihood) < 1e-7,
+       a.m.n_observations
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], 2.0, NULL) AS m FROM r) a,
+     (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM rep) b;
+----
+true	true	200
+
+# a NULL weight leaves the row out
+query I
+SELECT ordinal_fit_agg(y, [x1, x2], CASE WHEN id <= 10 THEN NULL ELSE w END, NULL).n_observations FROM r;
+----
+190
+
+# ---- offset: removed from the slopes, added back by predict ----
+query IIII
+SELECT len(m.coefficients), m.offset_column, m.n_features,
+       ordinal_predict(m, [0.5, 1.3, 1.0], {'type': 'mean'}) > ordinal_predict(m, [0.5, 0.3, 1.0], {'type': 'mean'})
+FROM (SELECT ordinal_fit_agg(y, [x1, off, x2], {'offset': 2}) AS m FROM r);
+----
+2	2	2	true
+
+# x of the fit's width (3 values, with the offset column) is required
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0]) FROM (SELECT ordinal_fit_agg(y, [x1, off, x2], {'offset': 2}) AS m FROM r);
+----
+x has 2 values
+
+# ---- penalty shrinks the slopes; lr_df is the effective d.f. ----
+query III
+SELECT abs(p.m.coefficients[1]) < abs(u.m.coefficients[1]), p.m.lr_df < 2, p.m.penalty
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'penalty': 5}) AS m FROM r) p,
+     (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r) u;
+----
+true	true	5.0
+
+# ---- po_test: off on request; NULL with two levels ----
+query II
+SELECT m.po_test_statistic IS NULL, m.po_test_p_value IS NULL
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'po_test': false}) AS m FROM r);
+----
+true	true
+
+query III
+SELECT m.n_levels, m.po_test_statistic IS NULL, len(m.intercepts)
+FROM (SELECT ordinal_fit_agg((y > 2)::DOUBLE, [x1, x2]) AS m FROM r);
+----
+2	true	1
+
+# a continuous response: one intercept per distinct value (orm's semiparametric model);
+# above 50 levels the PO test is not computed by default
+query III
+SELECT m.n_levels > 50, len(m.intercepts) = m.n_levels - 1, m.po_test_statistic IS NULL
+FROM (SELECT ordinal_fit_agg(x1 + 0.3 * x2, [x2]) AS m FROM r);
+----
+true	true	true
+
+# ---- NULL handling ----
+# rows with a NULL y, a NULL x or a NULL / NaN feature are left out
+query I
+SELECT ordinal_fit_agg(CASE WHEN id <= 5 THEN NULL ELSE y END,
+                       CASE WHEN id BETWEEN 6 AND 8 THEN NULL WHEN id = 9 THEN [x1, NULL] WHEN id = 10 THEN [x1, 'nan'::DOUBLE] ELSE [x1, x2] END).n_observations
+FROM r;
+----
+190
+
+# a single level, one row or an empty group is NULL
+query III
+SELECT (SELECT ordinal_fit_agg(1.0, [x1]) FROM r) IS NULL,
+       (SELECT ordinal_fit_agg(y, [x1]) FROM r WHERE id = 1) IS NULL,
+       (SELECT ordinal_fit_agg(y, [x1]) FROM r WHERE id < 0) IS NULL;
+----
+true	true	true
+
+# a NULL model or x, or a NULL element of x, predicts NULL
+query III
+SELECT ordinal_predict(NULL::STRUCT(levels DOUBLE[], intercepts DOUBLE[], coefficients DOUBLE[],
+                                     information STRUCT(intercept_diagonal DOUBLE[], intercept_off_diagonal DOUBLE[],
+                                                        intercept_slope DOUBLE[], slopes DOUBLE[])), [1.0]) IS NULL,
+       ordinal_predict(m, NULL::DOUBLE[]) IS NULL,
+       ordinal_predict(m, [1.0, NULL]) IS NULL
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+true	true	true
+
+# GROUP BY: one model per group
+query II
+SELECT grp, m.n_observations FROM (SELECT grp, ordinal_fit_agg(y, [x1, x2]) AS m FROM r GROUP BY grp) ORDER BY grp;
+----
+0	100
+1	100
+
+# a hand-written model literal (DECIMAL fields are cast); the model is rebuilt from its information
+query I
+SELECT round(ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0], 'link': 'logistic',
+                              'information': {'intercept_diagonal': [1], 'intercept_off_diagonal': [],
+                                              'intercept_slope': [0], 'slopes': [1]}},
+                             [0.0], {'type': 'mean'}), 12);
+----
+0.5
+
+# a model without its information cannot be rebuilt
+statement error
+SELECT ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0]}, [0.0]);
+----
+needs its information field
+
+# the information blocks must match the intercepts and slopes
+statement error
+SELECT ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0],
+                        'information': {'intercept_diagonal': [1], 'intercept_off_diagonal': [],
+                                        'intercept_slope': [0, 0], 'slopes': [1]}}, [0.0]);
+----
+intercept_slope block of 2
+
+# the information blocks are stored with the fit: (k - 1), (k - 2), (k - 1) * p and p * p values
+query IIII
+SELECT len(m.information.intercept_diagonal), len(m.information.intercept_off_diagonal),
+       len(m.information.intercept_slope), len(m.information.slopes)
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+3	2	6	4
+
+# ---- type 'quantile' (rms Quantile.orm): the estimate inside its confidence limits ----
+query IIII
+SELECT (q).yhat BETWEEN 1 AND 5, (q).yhat_lower <= (q).yhat AND (q).yhat <= (q).yhat_upper,
+       (d).yhat IN (1, 2, 3, 5), typeof(q)
+FROM (SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile'}) AS q,
+             predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.25, 'method': 'discrete', 'level': 0.9}) AS d
+      FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r));
+----
+true	true	true	STRUCT(yhat DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE)
+
+# a higher quantile is not lower; with an offset the quantile moves with it
+query II
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.9}).yhat
+           >= ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.1}).yhat,
+       ordinal_predict(o, [0.5, 1.3, 1.0], {'type': 'quantile'}).yhat
+           >= ordinal_predict(o, [0.5, 0.3, 1.0], {'type': 'quantile'}).yhat
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m, ordinal_fit_agg(y, [x1, off, x2], {'offset': 2}) AS o FROM r);
+----
+true	true
+
+# the predicted median of a continuous response (one intercept per distinct value)
+query I
+SELECT ordinal_predict(m, [1.0], {'type': 'quantile'}).yhat BETWEEN -3 AND 4
+FROM (SELECT ordinal_fit_agg(x1 + 0.3 * x2, [x2]) AS m FROM r);
+----
+true
+
+# ---- invalid options ----
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'identity'}) FROM r;
+----
+option 'link' must be one of
+
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], {'penalty': -1}) FROM r;
+----
+option 'penalty' must be finite and >= 0
+
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], {'offset': 3}) FROM r;
+----
+option 'offset' is column 3 but x has 2 values
+
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], {'tolerance': 0}) FROM r;
+----
+option 'tolerance' must be finite and > 0
+
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], {'alpha': 0.1}) FROM r;
+----
+unknown option 'alpha'
+
+statement error
+SELECT ordinal_fit_agg(y, [x1, x2], -1.0, NULL) FROM r;
+----
+weights
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 1}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+option 'q' must be in (0, 1)
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'method': 'nearest'}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+option 'method' must be 'interpolated' or 'discrete'
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'q': 0.5}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+apply to {'type': 'quantile'} only
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile'}) FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+type 'quantile' is available for ordinal_fit_agg models only
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'link'}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+option 'type' must be 'class', 'prob', 'exceedance', 'mean' or 'quantile'
+
+statement error
+SELECT ordinal_predict({'intercept': 1.0, 'coefficients': [1.0]}, [1.0]);
+----
+must be the STRUCT returned by ordinal_fit_agg or continuation_ratio_fit_agg
+
+statement error
+SELECT ordinal_fit_agg(y, CASE WHEN id = 1 THEN [x1] ELSE [x1, x2] END) FROM r;
+----
+inconsistent feature count
+
+# ---- continuation_ratio_fit_agg ----
+query IIIIIII
+SELECT m.levels, len(m.coefficients), len(m.std_errors), m.cohort_specific, m.n_records > m.n_observations,
+       m.model_type, m.link
+FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+[1.0, 2.0, 3.0, 5.0]	5	5	[]	true	continuation_ratio	logit
+
+# a cohort-specific column adds one slope difference per cohort 2..k-1
+query II
+SELECT len(m.coefficients), m.cohort_specific
+FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2], {'cohort_specific': [2]}) AS m FROM r);
+----
+7	[2]
+
+query IIII
+SELECT abs(list_sum(predict(m, [0.5, 1.0], {'type': 'prob'})) - 1) < 1e-12,
+       len(ordinal_predict(m, [0.5, 1.0], {'type': 'exceedance'})),
+       ordinal_predict(m, [0.5, 1.0]) IN (1, 2, 3, 5),
+       ordinal_predict(m, [0.5, 1.0], {'type': 'mean'}) BETWEEN 1 AND 5
+FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2], {'cohort_specific': 1}) AS m FROM r);
+----
+true	3	true	true
+
+# fewer than three levels is NULL
+query I
+SELECT continuation_ratio_fit_agg((y > 2)::DOUBLE, [x1, x2]) IS NULL FROM r;
+----
+true
+
+statement error
+SELECT continuation_ratio_fit_agg(y, [x1, x2], {'cohort_specific': [3]}) FROM r;
+----
+option 'cohort_specific' names column 3 but x has 2 values
+
+statement error
+SELECT continuation_ratio_fit_agg(y, [x1, x2], {'link': 'probit'}) FROM r;
+----
+unknown option 'link'
+
+# ---- table macros ----
+query IIII
+SELECT count(*), count(yhat), bool_and(abs(list_sum(probabilities) - 1) < 1e-12), bool_and(yhat_mean BETWEEN 1 AND 5)
+FROM ordinal_fit_predict_by('r', grp, y, [x1, x2], options := {'link': 'probit'});
+----
+200	200	true	true
+
+# test rows are predicted but not used in the fit
+query II
+SELECT count(*) FILTER (WHERE is_training), count(yhat) FILTER (WHERE NOT is_training)
+FROM ordinal_fit_predict_by('r', grp, y, [x1, x2], split := CASE WHEN id % 5 = 0 THEN 'test' ELSE 'train' END);
+----
+160	40
+
+query III
+SELECT count(*), count(yhat), bool_and(len(probabilities) = 4)
+FROM continuation_ratio_fit_predict_by('r', grp, y, [x1, x2]);
+----
+200	200	true
+
+# the macro's prediction equals the aggregate + ordinal_predict
+query I
+SELECT bool_and(abs(b.yhat_mean - ordinal_predict(f.m, [b.x1, b.x2], {'type': 'mean'})) < 1e-12)
+FROM ordinal_fit_predict_by('r', grp, y, [x1, x2]) b
+JOIN (SELECT grp, ordinal_fit_agg(y, [x1, x2]) AS m FROM r GROUP BY grp) f USING (grp);
+----
+true

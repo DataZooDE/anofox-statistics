@@ -1,0 +1,155 @@
+# name: test/sql/survival/test_cox_basic.test
+# description: Cox PH (#312): result shape, the macros, cox_survival and thread-count independence
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE c AS SELECT i, (1 + (i * 37 % 50))::DOUBLE AS t, ((i * 13) % 3 <> 0)::DOUBLE AS ev,
+    (i % 5)::DOUBLE AS x1, ((i * 7) % 11)::DOUBLE / 3 AS x2, (i % 2)::DOUBLE AS s, (i % 4)::VARCHAR AS g
+FROM range(400) r(i);
+
+# The stable model STRUCT: inference fields present (and on by default), the shared tail last
+query I
+SELECT string_agg(column_name, ',') FROM (DESCRIBE SELECT unnest(cox_fit_agg(t, [x1, x2], ev)) FROM c);
+----
+coefficients,hazard_ratios,log_likelihood,null_log_likelihood,lr_statistic,lr_p_value,wald_statistic,wald_p_value,score_statistic,score_p_value,test_df,concordance,pseudo_r_squared,n_observations,n_events,n_censored,n_features,n_strata,iterations,converged,ties,robust,std_errors,z_values,p_values,ci_lower,ci_upper,hr_conf_low,hr_conf_high,naive_std_errors,vcov,baseline,conf_low,conf_high,conf_level,intercept_std_error,intercept_statistic,intercept_p_value,intercept_conf_low,intercept_conf_high,aic,bic,model_type,family,link
+
+query IIIIIIII
+SELECT m.n_observations, m.n_events + m.n_censored, m.n_features, m.test_df, m.converged, m.ties, m.model_type, m.conf_level
+FROM (SELECT cox_fit_agg(t, [x1, x2], ev) AS m FROM c);
+----
+400	400	2	2	true	efron	cox	0.95
+
+# hazard ratios are exp(coefficients); their intervals exp(conf_low / conf_high)
+query III
+SELECT abs(m.hazard_ratios[1] - exp(m.coefficients[1])) < 1e-12,
+       abs(m.hr_conf_low[2] - exp(m.conf_low[2])) < 1e-12,
+       abs(m.hr_conf_high[2] - exp(m.conf_high[2])) < 1e-12
+FROM (SELECT cox_fit_agg(t, [x1, x2], ev) AS m FROM c);
+----
+true	true	true
+
+# confidence_level moves the intervals; the vcov diagonal is the squared standard error
+query II
+SELECT m.conf_level, abs(m.vcov[1] - m.std_errors[1] ^ 2) < 1e-15
+FROM (SELECT cox_fit_agg(t, [x1, x2], ev, {'confidence_level': 0.9}) AS m FROM c);
+----
+0.9	true
+
+# MAP options (as the *_tidy_by macros pass them) work like STRUCT options
+query I
+SELECT (cox_fit_agg(t, [x1, x2], ev, MAP {'ties': 'breslow', 'compute_inference': 'false'})).std_errors IS NULL FROM c;
+----
+true
+
+# robust: std_errors are the sandwich, naive_std_errors the model-based ones
+query II
+SELECT m.robust, m.std_errors[1] <> m.naive_std_errors[1]
+FROM (SELECT cox_fit_agg(t, [x1, x2], ev, {'robust': true}) AS m FROM c);
+----
+true	true
+
+# Strata: one baseline per stratum, stratum value carried
+query II
+SELECT m.n_strata, list_sort(list_distinct(list_transform(m.baseline, lambda b: b.stratum))) = [0.0, 1.0]
+FROM (SELECT cox_fit_agg(t, [x1, x2, s], ev, {'strata': 3}) AS m FROM c);
+----
+2	true
+
+# The baseline cumulative hazard is non-decreasing and starts at the first time
+query II
+SELECT list_sort(list_transform(m.baseline, lambda b: b.cumhaz)) = list_transform(m.baseline, lambda b: b.cumhaz),
+       m.baseline[1].time
+FROM (SELECT cox_fit_agg(t, [x1, x2], ev) AS m FROM c);
+----
+true	1.0
+
+# cox_survival: S(t | x) decreasing in t, and lower for a higher-risk x
+query II
+WITH f AS (SELECT cox_fit_agg(t, [x1, x2], ev) AS m FROM c)
+SELECT list_sort(list_transform(cox_survival(m, [1.0, 1.0], [5, 10, 20, 40]), lambda p: p.surv), 'DESC')
+           = list_transform(cox_survival(m, [1.0, 1.0], [5, 10, 20, 40]), lambda p: p.surv),
+       (cox_survival(m, [4.0, 1.0], [20])[1].surv < cox_survival(m, [0.0, 1.0], [20])[1].surv)
+           = (m.coefficients[1] > 0)
+FROM f;
+----
+true	true
+
+# exp(-cumhaz) of the baseline at x = 0
+query I
+WITH f AS (SELECT cox_fit_agg(t, [x1, x2], ev) AS m FROM c)
+SELECT abs(cox_survival(m, [0.0, 0.0], [m.baseline[10].time])[1].surv - exp(-m.baseline[10].cumhaz)) < 1e-12 FROM f;
+----
+true
+
+# cox_zph_agg: one row per covariate plus GLOBAL
+query III
+SELECT len(z), z[3].term, z[3].df FROM (SELECT cox_zph_agg(t, [x1, x2], ev) AS z FROM c);
+----
+3	GLOBAL	2.0
+
+# ==== Macros ====
+query IIII
+SELECT count(*), count(DISTINCT g), min(term), max(term) FROM cox_tidy_by('c', g, t, [x1, x2], ev);
+----
+8	4	x1	x2
+
+query II
+SELECT term, std_error IS NOT NULL FROM cox_tidy_by('c', g, t, [x1, x2], ev, names := ['dose', 'age']) WHERE g = '0' ORDER BY term;
+----
+age	true
+dose	true
+
+query I
+SELECT list(DISTINCT metric ORDER BY metric) FROM cox_glance_by('c', g, t, [x1, x2], ev);
+----
+[aic, bic, iterations, log_likelihood, n_features, n_observations, pseudo_r_squared]
+
+query III
+SELECT count(*), bool_and(len(coefficients) = 2), bool_and(n_observations = 100) FROM cox_fit_by('c', g, t, [x1, x2], ev);
+----
+4	true	true
+
+# cox_fit_by and cox_fit_agg ... GROUP BY agree
+query I
+SELECT bool_and(a.coefficients = b.coefficients)
+FROM cox_fit_by('c', g, t, [x1, x2], ev, options := {'ties': 'breslow'}) a
+JOIN (SELECT g, (cox_fit_agg(t, [x1, x2], ev, {'ties': 'breslow'})).coefficients AS coefficients FROM c GROUP BY g) b USING (g);
+----
+true
+
+# cox_augment_by: every row once, martingale residuals sum to 0 per group, risk = exp(fitted)
+query IIII
+SELECT count(*), count(DISTINCT row_id), max(abs(sum_m)) < 1e-9, bool_and(ok)
+FROM (SELECT row_id, sum(residual) OVER (PARTITION BY g) AS sum_m, abs(risk - exp(fitted)) < 1e-12 AS ok
+      FROM cox_augment_by('c', g, t, [x1, x2], ev));
+----
+400	400	true	true
+
+# Schoenfeld residuals only on event rows
+query I
+SELECT bool_and((schoenfeld_residuals IS NOT NULL) = (ev = 1)) FROM cox_augment_by('c', g, t, [x1, x2], ev);
+----
+true
+
+# The augment rows line up with the fit: linear predictor = x'beta
+query I
+SELECT max(abs(a.fitted - (f.c[1] * a.x1 + f.c[2] * a.x2))) < 1e-9
+FROM cox_augment_by('c', g, t, [x1, x2], ev) a
+JOIN (SELECT g, (cox_fit_agg(t, [x1, x2], ev)).coefficients AS c FROM c GROUP BY g) f USING (g);
+----
+true
+
+# ==== Thread-count independence (#226) ====
+statement ok
+CREATE TABLE r1 AS SELECT g, cox_fit_agg(t, [x1, x2], ev) AS m FROM c GROUP BY g;
+
+statement ok
+SET threads = 1;
+
+query I
+SELECT bool_and(r1.m.coefficients = r2.m.coefficients AND r1.m.std_errors = r2.m.std_errors AND r1.m.baseline = r2.m.baseline)
+FROM r1 JOIN (SELECT g, cox_fit_agg(t, [x1, x2], ev) AS m FROM c GROUP BY g) r2 USING (g);
+----
+true

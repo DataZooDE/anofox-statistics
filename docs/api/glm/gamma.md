@@ -37,6 +37,7 @@ gamma_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE [, options MAP]) -> STRUCT
 | `confidence_level` | DOUBLE | `0.95` | Interval level |
 | `glm_lambda` | DOUBLE | `0.0` | L2 (ridge) penalty strength |
 | `offset` | INTEGER | none | 1-based index into `x` of an offset column (coefficient fixed at 1, removed from the design) |
+| `profile_ci` | BOOLEAN | `false` | Profile-likelihood confidence intervals (R's `confint(glm)`) in place of the Wald ones; implies `compute_inference`, needs an unpenalized fit. See [Likelihood tests](likelihood.md#profile_ci-option) |
 | `feature_names`, `prior`, `vcov` | | | See [Explicit priors](priors.md) |
 
 The link is always log.
@@ -77,6 +78,21 @@ FROM (
     SELECT gamma_fit_agg(amount, [risk_score], {'compute_inference': true}) AS fit
     FROM claims
 );
+```
+
+### Cluster-robust covariance
+
+`gamma_fit_agg(y, x, cluster, {'vcov': 'cluster', ...})` clusters the standard
+errors, z tests and `vcov` by `cluster`, as R's `sandwich::vcovCL(glm(...), cluster =
+~id)`, and appends `vcov_type` and `n_clusters`. `cluster` is one id per row of any
+type (a `LIST` / `STRUCT` of ids for multiway clustering); `'hc_type'` is `'hc0'`
+(default) or `'hc1'`, `'cadjust'` defaults to true; with priors or `glm_lambda` the
+bread is the penalized information. See [Poisson: cluster-robust
+covariance](poisson.md#cluster-robust-covariance) for the details.
+
+```sql
+SELECT (fit).std_errors, (fit).vcov_type, (fit).n_clusters
+FROM (SELECT gamma_fit_agg(amount, [risk_score], claim_id % 10, {'vcov': 'cluster'}) AS fit FROM claims);
 ```
 
 ### Prior weights

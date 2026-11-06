@@ -1,0 +1,163 @@
+# name: test/sql/reference/drift_evidently_reference.test
+# description: evidently drift aggregates (#300) vs R reference values
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_drift_evidently.R (base R:
+# prop.test, chisq.test, ks.test, t.test, wilcox.test and the documented formulas of
+# evidently's stattests), cross-checked against scipy (chisquare, power_divergence,
+# energy_distance, wasserstein_distance, mannwhitneyu, ttest_ind). Group 0 is the
+# reference sample, group 1 the current sample.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c,
+       (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s
+FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ((i*3) % 5)::INTEGER,
+       (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1]
+FROM range(40) r(i);
+
+# ---------------------------------------------------------------------------
+# z_drift_agg. R: prop.test(c(x1, x2), c(m, n), correct = FALSE),
+# z = sign(p1 - p2) * sqrt(X-squared)
+# ---------------------------------------------------------------------------
+query IIIIIIIII
+SELECT abs(r.statistic + 1.53291275669323) < 1e-12, abs(r.p_value - 0.12529735230714) < 1e-12,
+       r.p_reference, r.p_current, r.n_categories, r.n1, r.n2, r.n, r.alternative
+FROM (SELECT z_drift_agg(b, grp) r FROM ev);
+----
+true	true	0.34	0.5	2	50	40	90	two_sided
+
+query II
+SELECT abs((z_drift_agg(b, grp, {'alternative': 'less'})).p_value - 0.0626486761535701) < 1e-10,
+       abs((z_drift_agg(b, grp, {'alternative': 'greater'})).p_value - 0.93735132384643) < 1e-10
+FROM ev;
+----
+true	true
+
+# VARCHAR categories: the share of the labels other than the smallest ('a').
+query II
+SELECT abs(r.statistic - 0.586939185653422) < 1e-12, abs(r.p_value - 0.557244551033796) < 1e-12
+FROM (SELECT z_drift_agg(s, grp) r FROM ev);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# chisq_drift_agg / g_drift_agg. R: chisq.test(o, p = r / sum(r));
+# G = 2 sum o log(o / e), e = sum(o) r / sum(r)
+# ---------------------------------------------------------------------------
+query IIIIIII
+SELECT abs(c.statistic - 2.64705882352941) < 1e-12, abs(c.p_value - 0.266194133351106) < 1e-12, c.df, c.n_categories,
+       abs(g.statistic - 2.88115341992583) < 1e-12, abs(g.p_value - 0.236791159476047) < 1e-12, g.df
+FROM (SELECT chisq_drift_agg(s, grp) c, g_drift_agg(s, grp) g FROM ev);
+----
+true	true	2	3	true	true	2
+
+query IIII
+SELECT abs(c.statistic - 4.5632798573975) < 1e-12, abs(c.p_value - 0.0326644614947516) < 1e-12,
+       abs(g.statistic - 4.32122976854821) < 1e-12, abs(g.p_value - 0.037639710816592) < 1e-12
+FROM (SELECT chisq_drift_agg(b, grp) c, g_drift_agg(b, grp) g FROM ev);
+----
+true	true	true	true
+
+# Numeric codes with group 1 as the reference.
+query IIII
+SELECT abs(c.statistic - 12.6) < 1e-12, abs(c.p_value - 0.013405024872311) < 1e-12,
+       abs(g.statistic - 22.3943764784194) < 1e-12, abs(g.p_value - 0.000167256367784766) < 1e-12
+FROM (SELECT chisq_drift_agg(c, grp, {'reference': 1}) c, g_drift_agg(c, grp, {'reference': 1}) g FROM ev);
+----
+true	true	true	true
+
+# A category (4) absent from the reference: infinite statistic, p = 0 (scipy).
+query IIII
+SELECT isinf(c.statistic), c.p_value, isinf(g.statistic), g.p_value
+FROM (SELECT chisq_drift_agg(c, grp) c, g_drift_agg(c, grp) g FROM ev);
+----
+true	0.0	true	0.0
+
+# ---------------------------------------------------------------------------
+# column_drift_agg: evidently's default test, thresholds and drift rules
+# ---------------------------------------------------------------------------
+# auto, numeric with > 5 distinct values and a reference <= 1000 rows: ks, drift at p <= 0.05.
+query IIIIIII
+SELECT r.test, abs(r.score - 0.0574636491581379) < 1e-9, r.is_p_value, r.threshold, r.drifted, r.n1, r.n2
+FROM (SELECT column_drift_agg(v, grp) r FROM ev);
+----
+ks	true	true	0.05	false	50	40
+
+# auto, numeric with 3..5 distinct values: chisquare (category 4 absent from the reference: p = 0).
+query IIII
+SELECT r.test, r.score, r.threshold, r.drifted FROM (SELECT column_drift_agg(c, grp) r FROM ev);
+----
+chisquare	0.0	0.05	true
+
+# auto, binary: z.
+query III
+SELECT r.test, abs(r.score - 0.12529735230714) < 1e-12, r.drifted FROM (SELECT column_drift_agg(b, grp) r FROM ev);
+----
+z	true	false
+
+# auto, VARCHAR with 3 categories: chisquare.
+query III
+SELECT r.test, abs(r.score - 0.266194133351106) < 1e-12, r.drifted FROM (SELECT column_drift_agg(s, grp) r FROM ev);
+----
+chisquare	true	false
+
+# Named tests. t_test: t.test(var.equal = TRUE); mannw: wilcox.test(alternative = 'less',
+# exact = FALSE) (n_reference = 50 is not < 50); ed: scipy energy_distance;
+# wasserstein: W1 / max(population sd of the reference, 0.001).
+query IIII
+SELECT abs((column_drift_agg(v, grp, {'test': 't_test'})).score - 0.042838945791025) < 1e-12,
+       abs((column_drift_agg(v, grp, {'test': 'mannw'})).score - 0.0131817683078261) < 1e-12,
+       abs((column_drift_agg(v, grp, {'test': 'ed'})).score - 0.435949389837772) < 1e-12,
+       abs((column_drift_agg(v, grp, {'test': 'wasserstein'})).score - 0.439402854950154) < 1e-12
+FROM ev;
+----
+true	true	true	true
+
+query IIIII
+SELECT r.test, r.is_p_value, r.threshold, r.drifted, abs(r.score - 0.435949389837772) < 1e-12
+FROM (SELECT column_drift_agg(v, grp, {'test': 'ed'}) r FROM ev);
+----
+ed	false	0.1	true	true
+
+# Custom threshold: the ks p-value 0.0575 drifts at 0.1.
+query II
+SELECT r.threshold, r.drifted FROM (SELECT column_drift_agg(v, grp, {'test': 'ks', 'threshold': 0.1}) r FROM ev);
+----
+0.1	true
+
+# Large reference (> 1000 rows): wasserstein (numeric) and jensenshannon (categorical).
+statement ok
+CREATE TABLE ev_large AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, ['a','b','c'][i % 3 + 1] AS s FROM range(1200) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ['a','b','c'][((i*7) % 5) % 3 + 1] FROM range(400) r(i);
+
+query IIIIII
+SELECT n.test, abs(n.score - 0.357228193832003) < 1e-9, n.drifted,
+       c.test, abs(c.score - 0.107036795082814) < 1e-12, c.drifted
+FROM (SELECT column_drift_agg(v, grp) n, column_drift_agg(s, grp) c FROM ev_large);
+----
+wasserstein	true	true	jensenshannon	true	true
+
+# ---------------------------------------------------------------------------
+# dataset_drift_by: v (ks, no drift), c (chisquare, drift), b (z, no drift),
+# s (chisquare, no drift): share 0.25.
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT column_name, test, drifted, n_columns, n_drifted, share_drifted, drift_share, dataset_drift
+FROM dataset_drift_by('ev', grp, ['v', 'c', 'b', 's']);
+----
+v	ks	false	4	1	0.25	0.5	false
+c	chisquare	true	4	1	0.25	0.5	false
+b	z	false	4	1	0.25	0.5	false
+s	chisquare	false	4	1	0.25	0.5	false
+
+query II
+SELECT DISTINCT share_drifted, dataset_drift FROM dataset_drift_by('ev', grp, ['v', 'c', 'b', 's'], drift_share := 0.25);
+----
+0.25	true

@@ -190,6 +190,134 @@ Brown-Forsythe test for equality of variances.
 brown_forsythe_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
+### two_way_anova_agg
+
+Two-way (factorial) ANOVA with interaction: tests the main effect of each factor and
+their interaction. Sums of squares are Type III (each effect adjusted for all others),
+matching R's `car::Anova(lm(y ~ a * b, contrasts = list(a = "contr.sum", b = "contr.sum")), type = 3)`;
+for a balanced design they equal `summary(aov(y ~ a * b))`. Unbalanced designs are
+supported, but every combination of the two factors must be observed (otherwise the
+result is NULL).
+
+**Signature:**
+```text
+two_way_anova_agg(y DOUBLE, factor_a BIGINT | VARCHAR, factor_b BIGINT | VARCHAR, [options]) -> LIST(STRUCT)
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| terms | LIST(VARCHAR) | ['factor_a', 'factor_b'] | Labels of the two factors; the interaction is labelled `a:b` |
+
+**Returns:** one list element per F test (factor A, factor B, interaction):
+```
+LIST(STRUCT(
+    term VARCHAR,              -- 'factor_a', 'factor_b', 'factor_a:factor_b' (or the terms labels)
+    method VARCHAR,            -- 'Two-way ANOVA: factor A', ...
+    statistic DOUBLE,          -- F
+    df1 DOUBLE,                -- effect df
+    df2 DOUBLE,                -- residual df (n - levels_a * levels_b)
+    p_value DOUBLE,
+    sum_sq DOUBLE,             -- Type III sum of squares of the effect
+    mean_sq DOUBLE,
+    residual_sum_sq DOUBLE,
+    residual_mean_sq DOUBLE,
+    n_observations BIGINT,
+    ... unified fields: effect_size is partial eta squared (effect_name 'partial_eta_squared')
+))
+```
+
+A row is skipped when `y` is NULL or NaN or a factor is NULL. Levels are ordered by
+label, so the result does not depend on the row order.
+
+**Example:**
+```sql
+-- Yield by fertilizer (3 levels) and irrigation (2 levels), one row per term
+SELECT t.term, round(t.statistic, 4) AS f, t.df1, t.df2, round(t.p_value, 6) AS p_value,
+       round(t.effect_size, 4) AS partial_eta_sq
+FROM (SELECT unnest(two_way_anova_agg(yield, fertilizer, irrigation,
+                                      {'terms': ['fertilizer', 'irrigation']})) AS t
+      FROM (SELECT ['none', 'low', 'high'][(i % 3) + 1] AS fertilizer,
+                   (i // 3) % 2 AS irrigation,
+                   10 + (i % 3) * 1.5 + ((i // 3) % 2) * 0.8 + sin(i * 1.3) AS yield
+            FROM range(36) r(i)) field_trial);
+```
+
+### repeated_measures_anova_agg
+
+One-way repeated-measures ANOVA: compares the means of conditions measured on the same
+subjects (long format, one row per subject and condition). The F test is R's
+`summary(aov(y ~ condition + Error(subject / condition)))`. With three or more
+conditions it adds Mauchly's test of sphericity and the Greenhouse-Geisser (`gg_*`) and
+Huynh-Feldt (`hf_*`) corrected tests, as `afex::aov_ez` / `car::Anova` on the wide
+matrix report them.
+
+**Signature:**
+```text
+repeated_measures_anova_agg(y DOUBLE, subject BIGINT | VARCHAR, condition BIGINT | VARCHAR, [options]) -> STRUCT
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| sphericity | BOOLEAN | true | Compute Mauchly's test and the Greenhouse-Geisser and Huynh-Feldt corrections |
+
+**Returns:**
+```
+STRUCT(
+    method VARCHAR,              -- 'Repeated measures ANOVA'
+    statistic DOUBLE,            -- F of the within-subjects effect
+    df1 DOUBLE,                  -- k - 1
+    df2 DOUBLE,                  -- (n - 1)(k - 1)
+    p_value DOUBLE,              -- uncorrected p-value
+    ss_condition DOUBLE,
+    ss_subjects DOUBLE,
+    ss_error DOUBLE,             -- subject x condition residual
+    ms_condition DOUBLE,
+    ms_error DOUBLE,
+    n_subjects BIGINT,           -- complete subjects used
+    n_conditions BIGINT,
+    n_excluded_subjects BIGINT,  -- subjects missing at least one condition
+    mauchly_w DOUBLE,            -- Mauchly's W (NULL for k = 2 or sphericity := false)
+    mauchly_statistic DOUBLE,    -- chi-square approximation
+    mauchly_df DOUBLE,
+    mauchly_p_value DOUBLE,
+    gg_epsilon DOUBLE,           -- Greenhouse-Geisser epsilon
+    gg_df1 DOUBLE,
+    gg_df2 DOUBLE,
+    gg_p_value DOUBLE,           -- Greenhouse-Geisser corrected p-value
+    hf_epsilon DOUBLE,           -- Huynh-Feldt epsilon (Lecoutre-corrected, capped at 1)
+    hf_df1 DOUBLE,
+    hf_df2 DOUBLE,
+    hf_p_value DOUBLE,           -- Huynh-Feldt corrected p-value
+    ... unified fields: effect_size is partial eta squared, n is n_subjects
+)
+```
+
+Subjects that lack a value for some condition are excluded (listwise, like afex and
+ez) and counted in `n_excluded_subjects`; a second value for the same subject and
+condition is an error (aggregate replicates first). The result is NULL with fewer than
+two complete subjects or two conditions. `mauchly_statistic` is the chi-square
+approximation with Bartlett's correction factor and `mauchly_p_value` includes its
+second-order term, as R's `mauchly.test`. `hf_epsilon` is the Huynh-Feldt epsilon with
+the Lecoutre (1991) correction, `(n p ε_GG - 2) / (p (n - 1 - p ε_GG))` with
+`p = k - 1`, capped at 1: car and afex print the uncapped value but compute the
+corrected p-value with the capped one, which `hf_p_value` matches.
+
+**Example:**
+```sql
+-- Reaction time of 10 participants under 4 conditions
+-- (the spread grows with the condition, so sphericity is doubtful)
+SELECT round(r.statistic, 4) AS f, r.df1, r.df2, r.p_value,
+       round(r.mauchly_w, 4) AS mauchly_w, round(r.mauchly_p_value, 4) AS mauchly_p,
+       round(r.gg_epsilon, 4) AS gg_epsilon, r.gg_p_value,
+       round(r.hf_epsilon, 4) AS hf_epsilon, r.hf_p_value
+FROM (SELECT repeated_measures_anova_agg(rt, participant, 'c' || condition) AS r
+      FROM (SELECT i // 4 AS participant, i % 4 AS condition,
+                   300 + (i % 4) * 6 + (i // 4) * 5 + (hash(i) % 1000) / 100.0 * (1 + i % 4) AS rt
+            FROM range(40) t(i)) trials);
+```
+
 ## Reproducibility
 
 The tests return bitwise-identical results for the same rows, whatever the thread
@@ -571,6 +699,12 @@ skipped. One group, or an empty group, gives NULL. Every result also carries the
 | `jensen_shannon_agg` | `jensenshannon` | numeric or VARCHAR | Jensen-Shannon distance |
 | `hellinger_agg` | `hellinger` | numeric or VARCHAR | Hellinger distance |
 | `tvd_agg` | `TVD` | numeric or VARCHAR | Total variation distance + permutation p-value |
+| `category_proportions_agg` | (shares) | numeric or VARCHAR | Share of each category in both groups |
+| `z_drift_agg` | `z` | numeric or VARCHAR | Two-proportion z test |
+| `chisq_drift_agg` | `chisquare` | numeric or VARCHAR | Chi-squared goodness-of-fit against the reference shares |
+| `g_drift_agg` | `g_test` | numeric or VARCHAR | G goodness-of-fit against the reference shares |
+| `column_drift_agg` | all tests | numeric or VARCHAR | evidently's column drift (default test, threshold, rule) |
+| `dataset_drift_agg`, `dataset_drift_by` | dataset drift | BOOLEAN flags / table | Share of drifted columns |
 
 ```sql
 CREATE OR REPLACE TABLE drift AS
@@ -704,7 +838,11 @@ Binning:
 - `'quantile'` uses `n_bins` bins at the reference quantiles (R type 7), the classic
   credit-scoring PSI. The outer edges are open, so current values outside the
   reference range fall into the first or last bin. Tied breaks are merged.
-- VARCHAR values always get one bin per category.
+- VARCHAR values always get one bin per category: the categories are the labels seen
+  in either group, sorted by byte order (DuckDB's default `ORDER BY`). They go to
+  upstream's `*_categorical` variants, so a label missing from one group is an empty bin
+  (zero-filled for PSI and KL). Only `'auto'` and `'categorical'` binning apply.
+  `category_proportions_agg` returns the shares p and q these divergences use.
 
 `drift` is `statistic ≥ threshold`, with evidently's default threshold 0.1.
 
@@ -724,6 +862,23 @@ SELECT (psi_agg(v, grp, {'binning': 'quantile', 'n_bins': 10})).psi AS psi_decil
 FROM drift;
 ```
 
+On string labels (here `'amber'` only occurs in the reference and `'violet'` only in the
+current sample):
+
+```sql
+CREATE OR REPLACE TABLE colors AS
+SELECT 'ref' AS grp, ['red','green','blue','amber'][((i*7) % 11) % 4 + 1] AS s FROM range(60) r(i)
+UNION ALL
+SELECT 'cur' AS grp, ['red','green','blue','violet'][((i*5) % 13) % 4 + 1] AS s FROM range(45) r(i);
+
+SELECT (psi_agg(s, grp, {'reference': 'ref'})).psi                AS psi,       -- 3.247
+       (kl_divergence_agg(s, grp, {'reference': 'ref'})).kl       AS kl,        -- 1.549
+       (jensen_shannon_agg(s, grp, {'reference': 'ref'})).distance AS js,       -- 0.385
+       (hellinger_agg(s, grp, {'reference': 'ref'})).distance     AS hellinger, -- 0.462
+       (tvd_agg(s, grp, {'reference': 'ref'})).statistic          AS tvd        -- 0.267
+FROM colors;
+```
+
 ### tvd_agg
 
 `tvd_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(statistic, p_value, n_categories, n1, n2, method, ...)`
@@ -738,6 +893,249 @@ the same table. On the example data, TVD gives p ≈ 0.29, while `chisq_test_agg
 | reference | smaller label | Reference group |
 | n_permutations (alias `permutations`) | 1000 | Number of permutations |
 | seed (alias `random_state`) | 42 | Seed of the permutation draw |
+
+### category_proportions_agg
+
+`category_proportions_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(categories, p_reference, p_current, n_categories, n1, n2)`
+
+The share of each category in the reference (`p_reference`) and the current group
+(`p_current`), over the categories seen in either group, in sorted order (upstream
+`category_proportions`). These are the p and q of `psi_agg`, `kl_divergence_agg`,
+`jensen_shannon_agg`, `hellinger_agg` and `tvd_agg` on categories, before any zero fill,
+so they show which categories drive the drift. `categories` is a `VARCHAR[]` for VARCHAR
+values and a `DOUBLE[]` (one category per distinct value) for numeric values. The
+result has no unified test fields: it is not a test.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+
+```sql
+SELECT r.categories, r.p_reference, r.p_current
+FROM (SELECT category_proportions_agg(s, grp, {'reference': 'ref'}) AS r FROM colors);
+-- [amber, blue, green, red, violet], [0.2, 0.283, 0.25, 0.267, 0.0], [0.0, 0.244, 0.222, 0.311, 0.222]
+```
+
+### z_drift_agg, chisq_drift_agg, g_drift_agg
+
+```
+z_drift_agg(category DOUBLE | VARCHAR, group, [options])     -> STRUCT(statistic, p_value, p_reference, p_current, n_categories, n1, n2, method, ...)
+chisq_drift_agg(category DOUBLE | VARCHAR, group, [options]) -> STRUCT(statistic, df, p_value, n_categories, n1, n2, method, ...)
+g_drift_agg(category DOUBLE | VARCHAR, group, [options])     -> STRUCT(statistic, df, p_value, n_categories, n1, n2, method, ...)
+```
+
+evidently's frequency tests for categorical (or low-cardinality numeric) columns. Every
+distinct value is a category.
+
+- `z_drift_agg` (evidently `z`): pooled two-proportion z test, without continuity
+  correction, of the share of labels other than the smallest category.
+  `p_reference` / `p_current` are these shares, and `statistic` is
+  z = (p_reference − p_current) / √(P(1 − P)(1/n1 + 1/n2)). It matches
+  R `prop.test(correct = FALSE)` with z² = X². One category gives z = 0, p = 1.
+  evidently flags drift at p < 0.05.
+- `chisq_drift_agg` (evidently `chisquare`): Pearson goodness-of-fit test of the current
+  counts against the reference shares, with expected counts e = r · n2 / n1 on k − 1 df,
+  as R `chisq.test(o, p = r / sum(r))`. The reference is the known distribution, not a
+  second sample (that is `chisq_test_agg`). A category that appears only in the current
+  sample gives `statistic = inf` and p = 0. evidently flags drift at p < 0.05.
+- `g_drift_agg` (evidently `g_test`): the same comparison with G = 2 Σ o ln(o / e).
+  evidently flags drift at p < 0.1. evidently passes the unscaled reference counts as
+  expected counts, so its value agrees only for equal sample sizes. Here the expected
+  counts are always scaled to the current size.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+| alternative | two_sided | `z_drift_agg` only: `two_sided`, `less` (p_reference < p_current) or `greater` |
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s FROM range(50) r(i)
+UNION ALL
+SELECT 1, (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1] FROM range(40) r(i);
+
+SELECT (z_drift_agg(b, grp)).p_value     AS z_p,     -- 0.125
+       (chisq_drift_agg(s, grp)).p_value AS chisq_p, -- 0.266
+       (g_drift_agg(s, grp)).statistic   AS g        -- 2.881
+FROM ev;
+```
+
+### column_drift_agg
+
+`column_drift_agg(value DOUBLE | VARCHAR, group, [options]) -> STRUCT(test, score, is_p_value, threshold, drifted, n1, n2)`
+
+evidently's per-column drift detection. It runs one of evidently's tests (by default
+evidently's choice for the column) and compares the score with the test's threshold
+using evidently's drift rule. `score` is a p-value when `is_p_value` is true, and a
+distance otherwise. Numeric values are tested as numbers. VARCHAR values are categories.
+The default test (`'test': 'auto'`) is:
+
+| Reference rows | Column | Test |
+|---|---|---|
+| ≤ 1000 | numeric, > 5 distinct values | `ks` |
+| ≤ 1000 | numeric with 3–5 distinct values, or VARCHAR with > 2 categories | `chisquare` |
+| ≤ 1000 | ≤ 2 distinct values | `z` |
+| > 1000 | numeric, > 5 distinct values | `wasserstein` (normed) |
+| > 1000 | otherwise | `jensenshannon` |
+
+Tests (evidently's names): `ks`, `anderson`, `cramer_von_mises`, `es`, `mannw`, `t_test`,
+`ed`, `empirical_mmd`, `wasserstein`, `psi`, `kl_div`, `jensenshannon`, `hellinger`,
+`chisquare`, `g_test`, `z`, `fisher_exact`, `TVD`. On VARCHAR columns only the frequency
+tests and the divergences apply (`psi`, `kl_div`, `jensenshannon`, `hellinger`,
+`chisquare`, `g_test`, `z`, `fisher_exact`, `TVD`). The default threshold is 0.05 for
+`ks`, `es`, `mannw`, `t_test`, `chisquare` and `z`, and 0.1 for the others. The drift
+rules are:
+
+- `ks` and `cramer_von_mises`: score ≤ threshold;
+- the other p-values: score < threshold;
+- `ed`: score > threshold;
+- the other distances: score ≥ threshold.
+
+The scores follow the routines of the dedicated aggregates. Where scipy and R differ,
+R is followed: `anderson` is the uncapped kSamples p-value, and `mannw` is exact for
+n < 50 without ties. The permutation p-values of `TVD` and `empirical_mmd` are seeded.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group |
+| test | auto | evidently's test name (case-sensitive), or `auto` |
+| threshold | the test's default | Drift threshold |
+| binning, n_bins, epsilon | as `psi_agg` | Binning and zero fill of `psi`, `kl_div`, `jensenshannon`, `hellinger` (numeric columns) |
+| n_permutations | 1000 | Permutations of `TVD` / `empirical_mmd` |
+| seed (alias `random_state`) | 42 | Seed of the permutations |
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, ['a','b','c'][i % 3 + 1] AS s FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ['a','b','c'][((i*7) % 5) % 3 + 1] FROM range(40) r(i);
+
+SELECT column_drift_agg(v, grp)                   AS numeric_auto, -- ks, p = 0.0575, not drifted
+       column_drift_agg(s, grp)                   AS category_auto, -- chisquare, p = 0.266
+       column_drift_agg(v, grp, {'test': 'psi', 'threshold': 0.2}) AS psi
+FROM ev;
+```
+
+### dataset_drift_agg, dataset_drift_by
+
+```
+dataset_drift_agg(drifted BOOLEAN, [drift_share DOUBLE]) -> STRUCT(n_columns, n_drifted, share_drifted, drift_share, dataset_drift)
+dataset_drift_by(source, group_col, columns, options := NULL, drift_share := 0.5)
+```
+
+evidently's dataset drift: the dataset has drifted when the share of drifted columns is at
+least `drift_share` (default 0.5, in [0, 1]). `dataset_drift_agg` aggregates per-column
+flags, skipping NULL flags. No flags gives NULL.
+
+`dataset_drift_by` runs `column_drift_agg(column, group_col, options)` on every column
+named in `columns`. Numeric columns are tested as numbers, and all other types (VARCHAR,
+BOOLEAN, ...) as categories. It returns one row per column, in the order of `columns`:
+`column_name, test, score, is_p_value, threshold, drifted, n1, n2`, plus the dataset
+summary `n_columns, n_drifted, share_drifted, drift_share, dataset_drift`. `group_col`
+splits the reference rows from the current rows, as in the aggregates.
+
+```sql
+CREATE OR REPLACE TABLE ev AS
+SELECT 0 AS grp, 2*sin(0.37*i) AS v, (i % 4)::INTEGER AS c,
+       (i % 3 = 0)::INTEGER AS b, ['a','b','c'][i % 3 + 1] AS s
+FROM range(50) r(i)
+UNION ALL
+SELECT 1, 2*sin(0.53*i) + 0.5, ((i*3) % 5)::INTEGER,
+       (i % 2 = 0)::INTEGER, ['a','b','c'][((i*7) % 5) % 3 + 1]
+FROM range(40) r(i);
+
+-- v: ks, c: chisquare (drifted), b: z, s: chisquare -> share 0.25, no dataset drift
+SELECT column_name, test, score, drifted, share_drifted, dataset_drift
+FROM dataset_drift_by('ev', grp, ['v', 'c', 'b', 's']);
+
+-- Per segment, from per-column flags
+SELECT (dataset_drift_agg(d, 0.5)).dataset_drift
+FROM (VALUES (true), (false), (true)) t(d);
+```
+
+### embedding_drift_agg, energy_distance_test_agg, mmd_test_agg
+
+```
+embedding_drift_agg(embedding DOUBLE[], group | is_reference BOOLEAN, [options]) -> STRUCT(method, score, threshold, drifted, n1, n2, dim, bandwidth)
+energy_distance_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ...)
+mmd_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ..., bandwidth)
+```
+
+Drift and two-sample tests on vectors, such as text or image embeddings: one `DOUBLE[]`
+per row. Every vector in a call must have the same length (an error otherwise). Rows
+with a NULL vector, a NULL group, or a NULL or NaN element are skipped. One group, or an
+empty group, gives NULL. `group` is a BIGINT or VARCHAR label with two values. For
+`embedding_drift_agg` the reference is the smaller label unless the `reference` option
+names it, and `group` may instead be a BOOLEAN `is_reference` (TRUE rows are the
+reference). For the two tests, group 1 (`n1`) is the smaller label. The seeded results
+(bootstrap, permutations) do not depend on the row order.
+
+`embedding_drift_agg` is evidently's embedding drift
+(`legacy/metrics/data_drift/embedding_drift_methods.py`). `n1` is the reference size,
+`n2` the current size and `dim` the vector length; `bandwidth` is the kernel bandwidth of
+the `mmd` method (`sqrt(s² / 2)`, upstream `drift::embedding_mmd_bandwidth`; NULL for the
+other methods). The drift is `score > threshold`. The defaults are evidently's, taken
+from upstream (`drift::defaults`):
+
+| method | score | default threshold |
+|---|---|---|
+| `distance` (default) | `metric` between the mean vectors: `euclidean` (default), `cosine` (1 − cosine similarity), `cityblock`, `chebyshev` | 0.2 |
+| `ratio` | share of the dimensions that drift, each tested as a numeric column with `component_test` (as `column_drift_agg`) | 0.2 |
+| `mmd` | unbiased MMD² with the Gaussian kernel `exp(-‖a − b‖² / s²)`, `s` the median distance between reference and current rows (floored at 0) | 0.015 |
+
+With `'bootstrap': true` (`distance`, `mmd`) the threshold is the `quantile` of the scores
+between two with-replacement resamples of the reference, of sizes `m²/(m + n)` and
+`mn/(m + n)`, over `n_bootstrap` resamples. evidently's PCA reduction (`pca_components`)
+and its classifier method (`model`) are not part of this function.
+
+| Key | Default | Description |
+|---|---|---|
+| reference | smaller label | Reference group (not with a BOOLEAN `is_reference`) |
+| method | `distance` | `distance`, `ratio` or `mmd` |
+| metric (alias `dist`) | `euclidean` | `distance` only |
+| threshold | per method, see above | Fixed threshold (not with `bootstrap`) |
+| bootstrap | false | Bootstrapped threshold (`distance`, `mmd`) |
+| n_bootstrap (alias `n_boot`) | 100 | Bootstrap resamples |
+| quantile (alias `quantile_probability`) | 0.95 (`distance`), 0.05 (`mmd`) | Quantile of the bootstrap scores, in [0, 1] |
+| component_test (alias `drift_method`) | `wasserstein` | `ratio` only: evidently's test name, as in `column_drift_agg` |
+| component_threshold (alias `drift_threshold`) | the test's default | `ratio` only |
+| seed (alias `random_state`) | 42 | Seed of the bootstrap and of permutation component tests |
+
+`energy_distance_test_agg` is the multivariate energy distance test (Székely and Rizzo).
+The statistic is `2 E‖X − Y‖ − E‖X − X'‖ − E‖Y − Y'‖`, with the within-sample means taken
+over distinct pairs. `energy::eqdist.etest` reports `n1 n2 / (n1 + n2)` times the
+version with the means over all pairs, so its value differs by that scale and by the
+zero diagonal. `mmd_test_agg` is the unbiased MMD² (Gretton et al.); its `bandwidth`
+field is the bandwidth of the gaussian / laplacian kernel it used (NULL for the linear
+and polynomial kernels). Both p-values are
+seeded permutation p-values `(1 + #{permuted ≥ observed}) / (1 + n_permutations)`. Both
+also carry the unified test fields. The cost is O(n_permutations · N² · dim) for N rows.
+
+| Key | Default | Description |
+|---|---|---|
+| n_permutations (alias `permutations`) | 1000 | Permutations |
+| seed (alias `random_state`) | 42 | Seed of the permutations |
+| kernel | `gaussian` | `mmd_test_agg` only: `gaussian` `exp(-‖a − b‖² / (2 h²))`, `laplacian` `exp(-‖a − b‖₁ / h)`, `linear` `a·b`, `polynomial` `(scale a·b + offset)^degree` |
+| bandwidth (alias `sigma`) | `'median'` (gaussian), 1 (laplacian) | `h` of the gaussian / laplacian kernel: a number, or `'median'` (gaussian only) for the median heuristic `max(median ‖a − b‖ over all pooled pairs, 0.01)` (upstream `Kernel::GaussianMedianHeuristic`), the bandwidth `mmd_agg` uses and the convention of evidently's MMD. With 1-D vectors the default equals `mmd_agg` |
+| degree, scale, offset | 2, 1, 1 | Polynomial kernel |
+
+```sql
+CREATE OR REPLACE TABLE emb AS
+SELECT 0 AS grp, [sin(0.7*i), cos(1.3*i), 0.1*(i % 5)] AS e FROM range(30) r(i)
+UNION ALL
+SELECT 1, [sin(0.9*i) + 0.4, cos(1.1*i) - 0.2, 0.1*(i % 7) + 0.1] FROM range(25) r(i);
+
+SELECT embedding_drift_agg(e, grp)                                  AS distance, -- 0.497 > 0.2: drifted
+       embedding_drift_agg(e, grp = 0, {'metric': 'cosine'})        AS cosine,   -- is_reference
+       embedding_drift_agg(e, grp, {'method': 'ratio'})             AS ratio,    -- 3 of 3 dimensions
+       embedding_drift_agg(e, grp, {'method': 'mmd', 'bootstrap': true}) AS mmd
+FROM emb;
+
+SELECT (energy_distance_test_agg(e, grp, {'n_permutations': 999})).p_value AS energy_p,
+       (mmd_test_agg(e, grp, {'kernel': 'gaussian', 'bandwidth': 1.0})).p_value AS mmd_p,
+       (mmd_test_agg(e, grp)).bandwidth AS median_bandwidth  -- the default: 1.358
+FROM emb;
+```
 
 ## Forecast Evaluation
 
@@ -797,11 +1195,9 @@ worse) and `p_value_upper` (every model, White's Reality Check), so
 `p_value_lower <= p_value_consistent <= p_value_upper`. They match a base-R
 implementation of Hansen (2005) within Monte Carlo error.
 
-When no competitor has a lower average loss than the benchmark, `statistic` is 0
-and the test cannot reject; the lower and consistent p-values
-(`#{T* > T_SPA} / B`) are then degenerate (close to 0 when every model is clearly
-worse) and should not be read as a rejection. Check `statistic > 0` before
-reporting them; `p_value_upper` stays valid.
+The p-values are `P(T* >= T_SPA)` over the bootstrap replicates. When no
+competitor has a lower average loss than the benchmark, `statistic` is 0 and all
+three p-values are 1: the test does not reject.
 
 ```sql
 CREATE TABLE fc_losses AS

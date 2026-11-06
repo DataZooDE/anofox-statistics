@@ -1,0 +1,290 @@
+# name: test/sql/reduction/test_reduction.test
+# description: Data reduction and transforms (#320): spearman2_agg, hoeffding_d_agg, box_cox_agg, box_cox_transform / box_cox_inverse, varclus_agg, redun_agg — shapes, GROUP BY, NULL handling, edge cases and invalid options
+# group: [reduction]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i, i % 2 AS g, (i % 3)::VARCHAR AS lvl,
+    (i * 0.37 + sin(i))::DOUBLE AS a,
+    (i * 0.74 + cos(i * 1.3))::DOUBLE AS b,
+    ((i - 20) * (i - 20) * 0.01 + sin(i * 2.1))::DOUBLE AS c,
+    (exp(1 + i * 0.05 + sin(i) * 0.2))::DOUBLE AS pos
+FROM range(40) t(i);
+
+# --- result shapes ---------------------------------------------------------
+
+query T
+SELECT typeof(spearman2_agg(a, b)) FROM d
+----
+STRUCT(rho2 DOUBLE, adjusted_rho2 DOUBLE, statistic DOUBLE, df1 DOUBLE, df2 DOUBLE, p_value DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_size DOUBLE, effect_name VARCHAR)
+
+query T
+SELECT typeof(hoeffding_d_agg(a, b)) FROM d
+----
+STRUCT(d DOUBLE, p_value DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR, statistic DOUBLE, df1 DOUBLE, df2 DOUBLE, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_size DOUBLE, effect_name VARCHAR)
+
+query T
+SELECT typeof(box_cox_agg(pos, [a])) FROM d
+----
+STRUCT(lambda_hat DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, confidence_level DOUBLE, max_log_likelihood DOUBLE, lambdas DOUBLE[], log_likelihood DOUBLE[], n_observations BIGINT)
+
+query T
+SELECT typeof(varclus_agg([a, b, c])) FROM d
+----
+STRUCT(variables VARCHAR[], similarity_matrix DOUBLE[][], merges BIGINT[][], height DOUBLE[], dendrogram_order BIGINT[], clusters BIGINT[], n_observations BIGINT)
+
+query T
+SELECT typeof(redun_agg([a, b, c])) FROM d
+----
+STRUCT(variables VARCHAR[], kept VARCHAR[], removed VARCHAR[], r_squared DOUBLE[], r_squared_later DOUBLE[][], r_squared_first DOUBLE[], too_few VARCHAR[], n_observations BIGINT)
+
+# --- unified test fields -----------------------------------------------------
+
+query TTTIT
+SELECT s.method, s.estimate = s.rho2, s.statistic IS NOT NULL, s.n, s.effect_name FROM (SELECT spearman2_agg(b, a) AS s FROM d)
+----
+Spearman rho^2	true	true	40	rho2
+
+query TIII
+SELECT h.method, h.statistic = h.d, h.n, h.alternative IS NULL FROM (SELECT hoeffding_d_agg(a, b) AS h FROM d)
+----
+Hoeffding's D	true	40	true
+
+# --- spearman2: p = 1 is the squared Spearman correlation --------------------
+
+query I
+SELECT abs((spearman2_agg(c, a)).rho2 - pow((spearman_agg(a, c)).r, 2)) < 1e-12 FROM d
+----
+true
+
+# p = 2 catches the U shape of c in i that p = 1 misses
+query II
+SELECT (spearman2_agg(c, i::DOUBLE)).rho2 < 0.2, (spearman2_agg(c, i::DOUBLE, {'p': 2})).rho2 > 0.5 FROM d
+----
+true	true
+
+# x with fewer than three distinct values falls back to p = 1
+query R
+SELECT (spearman2_agg(a, g::DOUBLE, {'p': 2})).df1 FROM d
+----
+1.0
+
+query RR
+SELECT s.df1, s.df2 FROM (SELECT spearman2_agg(a, lvl) AS s FROM d)
+----
+2.0	37.0
+
+# GROUP BY: one result per group
+query II
+SELECT g, (spearman2_agg(b, a)).n FROM d GROUP BY g ORDER BY g
+----
+0	20
+1	20
+
+# --- NULL handling and degenerate data --------------------------------------
+
+statement ok
+CREATE TABLE dn AS SELECT * FROM d UNION ALL
+SELECT 100, 0, NULL, NULL, 1.0, 1.0, NULL UNION ALL
+SELECT 101, 1, 'x', 1.0, NULL, 'NaN'::DOUBLE, 'NaN'::DOUBLE UNION ALL
+SELECT 102, 0, '1', 'inf'::DOUBLE, 2.0, 2.0, 0.5;
+
+query IIII
+SELECT (spearman2_agg(b, a)).n, (spearman2_agg(a, lvl)).n, (hoeffding_d_agg(a, b)).n, (box_cox_agg(pos, [a])).n_observations FROM dn
+----
+40	41	40	40
+
+query II
+SELECT (varclus_agg([a, b, c])).n_observations, (redun_agg([a, b, c])).n_observations FROM dn
+----
+40	40
+
+# rows with a NULL element are skipped
+query I
+SELECT (varclus_agg([a, CASE WHEN i < 5 THEN NULL ELSE b END, c])).n_observations FROM d
+----
+35
+
+# empty input, too few rows, constant data: NULL
+query IIIIII
+SELECT spearman2_agg(a, b) IS NULL, hoeffding_d_agg(a, b) IS NULL, box_cox_agg(pos, [a]) IS NULL,
+       varclus_agg([a, b]) IS NULL, redun_agg([a, b]) IS NULL, spearman2_agg(a, lvl) IS NULL FROM d WHERE i < 0
+----
+true	true	true	true	true	true
+
+query II
+SELECT spearman2_agg(a, b) IS NULL, hoeffding_d_agg(a, b) IS NULL FROM d WHERE i < 2
+----
+true	true
+
+query III
+SELECT spearman2_agg(1.0::DOUBLE, a) IS NULL, spearman2_agg(a, 'one') IS NULL, varclus_agg([a, 1.0]) IS NULL FROM d
+----
+true	true	true
+
+# a constant feature is reported in too_few
+query II
+SELECT r.too_few, r.r_squared_first[3] IS NULL FROM (SELECT redun_agg([a, b, 1.0]) AS r FROM d)
+----
+[x3]	true
+
+# --- box_cox -----------------------------------------------------------------
+
+# log-normal data: lambda near 0, inside the interval
+query III
+SELECT abs(b.lambda_hat) < 0.5, b.ci_lower < b.lambda_hat, b.lambda_hat < b.ci_upper FROM (SELECT box_cox_agg(pos, [i::DOUBLE]) AS b FROM d)
+----
+true	true	true
+
+# a grid whose upper end stays above the cut: ci_upper is NULL
+query II
+SELECT b.ci_upper IS NULL, len(b.lambdas) FROM (SELECT box_cox_agg(pos, [i::DOUBLE], {'lambdas': [-0.2, -0.1, 0.0, 0.05]}) AS b FROM d)
+----
+true	4
+
+query R
+SELECT (box_cox_agg(pos, [i::DOUBLE], {'confidence_level': 0.9})).confidence_level FROM d
+----
+0.9
+
+statement ok
+SELECT box_cox_agg(pos, [i::DOUBLE], {'fit_intercept': false, 'eps': 0.01}) FROM d
+
+# a non-positive response is an input error
+statement error
+SELECT box_cox_agg(a - 100, [b]) FROM d
+----
+positive
+
+# transform and inverse
+query RRRR
+SELECT round(box_cox_transform(4.0, 0.5), 12), round(box_cox_transform(exp(2.0), 0), 12),
+       round(box_cox_inverse(2.0, 0.5), 12), round(box_cox_inverse(2.0, 0), 12)
+----
+2.0	2.0	4.0	7.389056098931
+
+query II
+SELECT box_cox_inverse(-3.0, 0.5) IS NULL, box_cox_transform(NULL, 0.5) IS NULL
+----
+true	true
+
+query I
+SELECT max(abs(box_cox_inverse(box_cox_transform(pos, -0.3), -0.3) - pos)) < 1e-10 FROM d
+----
+true
+
+statement error
+SELECT box_cox_transform(-1.0, 0.5)
+----
+y must be positive
+
+statement error
+SELECT box_cox_transform(1.0, 'inf'::DOUBLE)
+----
+lambda must be finite
+
+# --- varclus ------------------------------------------------------------------
+
+query IIIII
+SELECT v.variables, len(v.merges), len(v.height), list_sort(v.dendrogram_order), v.clusters IS NULL
+FROM (SELECT varclus_agg([a, b, c]) AS v FROM d)
+----
+[x1, x2, x3]	2	2	[1, 2, 3]	true
+
+# a and b are nearly collinear: merged first, one cluster at height 0.5
+query II
+SELECT v.merges[1], v.clusters FROM (SELECT varclus_agg([a, b, c], {'cut_height': 0.5, 'feature_names': ['a', 'b', 'c']}) AS v FROM d)
+----
+[-1, -2]	[1, 1, 2]
+
+query I
+SELECT (varclus_agg([a, b, c], {'similarity': 'hoeffding', 'trans': 'abs', 'method': 'ward.D2'})).similarity_matrix[1][1] FROM d
+----
+1.0
+
+# --- redun --------------------------------------------------------------------
+
+query III
+SELECT r.removed, r.kept, len(r.r_squared) FROM (SELECT redun_agg([a, b, c], {'feature_names': ['a', 'b', 'c']}) AS r FROM d)
+----
+[a]	[b, c]	1
+
+statement ok
+SELECT redun_agg([a, b, c, i % 3], {'types': ['spline', 'linear', 'spline', 'categorical'], 'allcat': true, 'qrank': true}) FROM d
+
+statement ok
+SELECT redun_agg([a, b, c], {'rank': true, 'tlinear': false, 'nk': 0}) FROM d
+
+# --- invalid options -------------------------------------------------------------
+
+statement error
+SELECT spearman2_agg(a, b, {'p': 3}) FROM d
+----
+option 'p' must be 1 or 2
+
+statement error
+SELECT spearman2_agg(a, b, {'q': 1}) FROM d
+----
+unknown option 'q'
+
+statement error
+SELECT box_cox_agg(pos, [a], {'confidence_level': 1.5}) FROM d
+----
+confidence_level
+
+statement error
+SELECT box_cox_agg(pos, [a], {'lambdas': []::DOUBLE[]}) FROM d
+----
+must not be empty
+
+statement error
+SELECT varclus_agg([a, b], {'similarity': 'kendall'}) FROM d
+----
+option 'similarity' must be one of
+
+statement error
+SELECT varclus_agg([a, b], {'method': 'ward'}) FROM d
+----
+option 'method' must be one of
+
+statement error
+SELECT varclus_agg([a, b], {'feature_names': ['a']}) FROM d
+----
+feature_names has 1 entries
+
+statement error
+SELECT redun_agg([a, b], {'r2': 1.5}) FROM d
+----
+option 'r2' must be in (0, 1)
+
+statement error
+SELECT redun_agg([a, b], {'types': ['spline', 'ordinal']}) FROM d
+----
+option 'types' must be one of
+
+statement error
+SELECT redun_agg([a, b], {'types': ['spline']}) FROM d
+----
+types has 1 entries
+
+statement error
+SELECT redun_agg([a, b], {'nk': 2}) FROM d
+----
+option 'nk'
+
+statement error
+SELECT redun_agg([a, b], {'type': 'raw'}) FROM d
+----
+option 'type' must be one of
+
+statement error
+SELECT varclus_agg(x) FROM (VALUES ([1.0, 2.0]), ([1.0, 2.0, 3.0])) t(x)
+----
+inconsistent feature count
+
+# options must be constant
+statement error
+SELECT varclus_agg([a, b], {'cut_height': a}) FROM d
+----
+constant

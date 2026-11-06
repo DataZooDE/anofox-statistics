@@ -91,7 +91,7 @@ Unknown GLMM family 'weird'
 statement error
 SELECT poisson_fit_agg(y, [x], {'vcov': 'xx'}) FROM d;
 ----
-Unknown vcov type 'xx'. Expected 'laplace', 'sandwich' or 'naive'.
+Unknown vcov type 'xx'. Expected 'laplace', 'sandwich', 'naive' or 'cluster'.
 
 statement error
 SELECT eb_shrink_agg(y, x, {'tau_method': 'zz'}) FROM d;

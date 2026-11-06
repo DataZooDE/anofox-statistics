@@ -1,0 +1,104 @@
+# name: test/sql/reference/drift_categorical_reference.test
+# description: drift aggregates on category labels (#301) vs R / scipy reference values
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_drift_categorical.R (base R,
+# the documented formulas of evidently's stattests on the category shares over the
+# sorted labels), cross-checked against scipy (stats.entropy,
+# spatial.distance.jensenshannon). Group 'cur' is the current sample, 'ref' the
+# reference ('cur' < 'ref', so the reference is named explicitly). 'amber' is only in
+# the reference, 'violet' only in the current sample, so the zero fill matters.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE cat AS
+SELECT 'ref' AS grp, ['red','green','blue','amber'][((i*7) % 11) % 4 + 1] AS s
+FROM range(60) r(i)
+UNION ALL
+SELECT 'cur', ['red','green','blue','violet'][((i*5) % 13) % 4 + 1]
+FROM range(45) r(i);
+
+# ---------------------------------------------------------------------------
+# category_proportions_agg. R: table(factor(x, lv)) / length(x), lv the sorted labels
+# ---------------------------------------------------------------------------
+query IIIIII
+SELECT r.categories, list_transform(r.p_reference, lambda x: round(x, 12)),
+       list_transform(r.p_current, lambda x: round(x, 12)), r.n_categories, r.n1, r.n2
+FROM (SELECT category_proportions_agg(s, grp, {'reference': 'ref'}) r FROM cat);
+----
+[amber, blue, green, red, violet]	[0.2, 0.283333333333, 0.25, 0.266666666667, 0.0]	[0.0, 0.244444444444, 0.222222222222, 0.311111111111, 0.222222222222]	5	60	45
+
+# ---------------------------------------------------------------------------
+# psi_agg. R: sum((P - Q) * log(P / Q)), evidently's zero fill (1e-4)
+# ---------------------------------------------------------------------------
+query IIIIII
+SELECT abs(r.psi - 3.24701695101238) < 1e-10, r.n_bins, r.n1, r.n2, r.drift, r.method
+FROM (SELECT psi_agg(s, grp, {'reference': 'ref'}) r FROM cat);
+----
+true	5	60	45	true	Population Stability Index
+
+query I
+SELECT abs(psi_agg(s, grp, {'reference': 'ref', 'epsilon': 1e-3}).psi - 2.26564307748739) < 1e-10 FROM cat;
+----
+true
+
+# ---------------------------------------------------------------------------
+# kl_divergence_agg. scipy.stats.entropy(P, Q) on the zero-filled shares
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(a.kl - 1.54942403382939) < 1e-10, abs(b.kl - 2.23534636983984) < 1e-10,
+       abs(e.kl - 1.08334556048879) < 1e-10, abs(rv.kl - 1.69726824795481) < 1e-10
+FROM (SELECT kl_divergence_agg(s, grp, {'reference': 'ref'}) a,
+             kl_divergence_agg(s, grp, {'reference': 'ref', 'base': 2}) b,
+             kl_divergence_agg(s, grp, {'reference': 'ref', 'epsilon': 1e-3}) e,
+             kl_divergence_agg(s, grp) rv FROM cat);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# jensen_shannon_agg. scipy.spatial.distance.jensenshannon(p, q [, base = 2])
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(a.distance - 0.385113455712377) < 1e-10, abs(a.divergence - 0.148312373770729) < 1e-10,
+       abs(b.distance - 0.462568401581324) < 1e-10, a.n_bins
+FROM (SELECT jensen_shannon_agg(s, grp, {'reference': 'ref'}) a,
+             jensen_shannon_agg(s, grp, {'reference': 'ref', 'base': 2}) b FROM cat);
+----
+true	true	true	5
+
+# ---------------------------------------------------------------------------
+# hellinger_agg. R: sqrt(1 - sum(sqrt(p * q)))
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.distance - 0.461620276924637) < 1e-10, r.n_bins, r.drift
+FROM (SELECT hellinger_agg(s, grp, {'reference': 'ref'}) r FROM cat);
+----
+true	5	true
+
+# ---------------------------------------------------------------------------
+# tvd_agg. Statistic: 0.5 * sum(abs(p - q)). The seeded permutation p-value (1000
+# permutations) is within Monte Carlo error of R's 0.04644 (B = 100000).
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT abs(r.statistic - 0.266666666666667) < 1e-12, abs(r.p_value - 0.04644) < 0.02, r.n_categories, r.n1, r.n2
+FROM (SELECT tvd_agg(s, grp, {'reference': 'ref'}) r FROM cat);
+----
+true	true	5	60	45
+
+# The symmetric statistics do not depend on which group is the reference.
+query III
+SELECT abs(psi_agg(s, grp).psi - 3.24701695101238) < 1e-10,
+       abs(hellinger_agg(s, grp).distance - 0.461620276924637) < 1e-10,
+       abs(tvd_agg(s, grp).statistic - 0.266666666666667) < 1e-12
+FROM cat;
+----
+true	true	true
+
+# Upstream's doc example: ['a', 'a', 'b'] vs ['a', 'b', 'b']. R: psi = (2/3) log 2.
+query III
+SELECT abs(psi_agg(s, g).psi - 0.462098120373297) < 1e-12, abs(tvd_agg(s, g).statistic - 1/3) < 1e-12,
+       category_proportions_agg(s, g).p_current
+FROM (VALUES ('a', 0), ('a', 0), ('b', 0), ('a', 1), ('b', 1), ('b', 1)) t(s, g);
+----
+true	true	[0.3333333333333333, 0.6666666666666666]

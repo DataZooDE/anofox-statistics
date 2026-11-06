@@ -1,0 +1,228 @@
+# name: test/sql/regression/test_model_validation.test
+# description: validate_agg / calibrate_agg / calibrate_cph_agg / bootcov_agg and their _by macros (#318): shapes, reproducibility, thread-count independence, options
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS SELECT i, (i % 3)::VARCHAR AS g, ((i * 37) % 23)::DOUBLE / 7 AS x1, ((i * 11) % 17)::DOUBLE / 5 AS x2,
+  1 + 0.8 * (((i * 37) % 23)::DOUBLE / 7) - 0.5 * (((i * 11) % 17)::DOUBLE / 5) + ((i * 7) % 13)::DOUBLE / 6 AS y,
+  (((i * 37) % 23)::DOUBLE / 7 - 0.5 * (((i * 11) % 17)::DOUBLE / 5) + ((i * 5) % 9)::DOUBLE / 3 > 1.5)::INTEGER AS yb,
+  i // 4 AS cl, 'c' || (i // 4)::VARCHAR AS cl_text, 1 + ((i * 13) % 29)::DOUBLE AS tm, (i % 4 <> 0)::DOUBLE AS ev
+FROM range(240) r(i);
+
+# ==== validate_agg ====
+# ols: the five rms indexes, defaults B = 40, method boot
+query IIIII
+SELECT list_transform(l, lambda r: r.index_name), list_bool_and(list_transform(l, lambda r: r.n = 40)),
+       list_bool_and(list_transform(l, lambda r: r.n_failed = 0)), l[1].model, l[1].method
+FROM (SELECT validate_agg(y, [x1, x2]) AS l FROM t);
+----
+[R-square, MSE, g, Intercept, Slope]	true	true	ols	boot
+
+# logistic: the eleven validate.lrm indexes
+query I
+SELECT list_transform(validate_agg(yb, [x1, x2], {'model': 'logistic', 'B': 10}), lambda r: r.index_name) FROM t;
+----
+[Dxy, R2, Intercept, Slope, Emax, D, U, Q, B, g, gp]
+
+# index_corrected = index_orig - optimism; optimism = training - test (boot, cv)
+query II
+SELECT bool_and(abs(r.index_corrected - (r.index_orig - r.optimism)) < 1e-12),
+       bool_and(abs(r.optimism - (r.training - r.test)) < 1e-12)
+FROM (SELECT unnest(validate_agg(y, [x1, x2], {'B': 25, 'seed': 3})) AS r FROM t);
+----
+true	true
+
+query II
+SELECT bool_and(abs(r.optimism - (r.training - r.test)) < 1e-12), any_value(r.method)
+FROM (SELECT unnest(validate_agg(yb, [x1, x2], {'model': 'lrm', 'method': 'cv', 'B': 8, 'seed': 3})) AS r FROM t);
+----
+true	crossvalidation
+
+# .632: optimism = 0.632 (index_orig - test)
+query II
+SELECT bool_and(abs(r.optimism - 0.632 * (r.index_orig - r.test)) < 1e-12), any_value(r.method)
+FROM (SELECT unnest(validate_agg(y, [x1, x2], {'method': '.632', 'B': 40, 'seed': 3})) AS r FROM t);
+----
+true	.632
+
+# The apparent indexes do not depend on the resamples; the optimism does depend on the seed
+query II
+SELECT list_transform(a, lambda r: r.index_orig) = list_transform(b, lambda r: r.index_orig),
+       list_transform(a, lambda r: r.optimism) = list_transform(b, lambda r: r.optimism)
+FROM (SELECT validate_agg(y, [x1, x2], {'seed': 1}) AS a, validate_agg(y, [x1, x2], {'seed': 2}) AS b FROM t);
+----
+true	false
+
+# Reproducible for a seed, whatever the thread count or the row order
+statement ok
+CREATE TABLE ref AS SELECT validate_agg(y, [x1, x2], {'seed': 9, 'B': 30}) AS v,
+    calibrate_agg(yb, [x1, x2], {'model': 'logistic', 'seed': 9, 'B': 20}) AS c,
+    calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 60, 'seed': 9, 'B': 10}) AS s,
+    bootcov_agg(y, [x1, x2], cl, {'seed': 9, 'B': 30}) AS b FROM t;
+
+statement ok
+SET threads = 4;
+
+statement ok
+CREATE TABLE shuffled AS SELECT * FROM t ORDER BY (i * 7919) % 241;
+
+query IIII
+SELECT validate_agg(y, [x1, x2], {'seed': 9, 'B': 30}) = (SELECT v FROM ref),
+       calibrate_agg(yb, [x1, x2], {'model': 'logistic', 'seed': 9, 'B': 20}) = (SELECT c FROM ref),
+       calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 60, 'seed': 9, 'B': 10}) = (SELECT s FROM ref),
+       bootcov_agg(y, [x1, x2], cl, {'seed': 9, 'B': 30}) = (SELECT b FROM ref)
+FROM shuffled;
+----
+true	true	true	true
+
+statement ok
+SET threads = 1;
+
+query IIII
+SELECT validate_agg(y, [x1, x2], {'seed': 9, 'B': 30}) = (SELECT v FROM ref),
+       calibrate_agg(yb, [x1, x2], {'model': 'logistic', 'seed': 9, 'B': 20}) = (SELECT c FROM ref),
+       calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 60, 'seed': 9, 'B': 10}) = (SELECT s FROM ref),
+       bootcov_agg(y, [x1, x2], cl, {'seed': 9, 'B': 30}) = (SELECT b FROM ref)
+FROM shuffled;
+----
+true	true	true	true
+
+statement ok
+RESET threads;
+
+# MAP options work as STRUCT options
+query I
+SELECT validate_agg(y, [x1, x2], MAP {'B': '30', 'seed': '9'}) = (SELECT v FROM ref) FROM t;
+----
+true
+
+# ==== calibrate_agg ====
+# default grid: 50 points between the 5th smallest and 5th largest prediction; a grid point
+# outside a resample's predictions has no lowess value there, so n can be below B
+query IIII
+SELECT count(*), max(r.n) = 40 AND min(r.n) > 0, min(r.predy) < max(r.predy), bool_and(abs(r.calibrated_corrected - (r.calibrated_orig - r.optimism)) < 1e-12)
+FROM (SELECT unnest(calibrate_agg(y, [x1, x2])) AS r FROM t);
+----
+50	true	true	true
+
+# user grid; summary errors repeat on every row
+query III
+SELECT list_transform(l, lambda r: r.predy), len(list_distinct(list_transform(l, lambda r: r.mean_abs_error))),
+       l[1].quantile90_abs_error >= 0
+FROM (SELECT calibrate_agg(yb, [x1, x2], {'model': 'logistic', 'B': 10, 'predy': [0.2, 0.5, 0.8]}) AS l FROM t);
+----
+[0.2, 0.5, 0.8]	1	true
+
+# ==== calibrate_cph_agg ====
+query IIII
+SELECT count(*), min(r.cut_low), max(r.cut_high), bool_and(abs(r.km_corrected - (r.km - r.optimism)) < 1e-12)
+FROM (SELECT unnest(calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 80, 'B': 10})) AS r FROM t);
+----
+3	0.0	1.0	true
+
+# explicit cuts
+query II
+SELECT list_transform(l, lambda r: r.cut_low), list_transform(l, lambda r: r.cut_high)
+FROM (SELECT calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'cuts': [0, 0.6, 1], 'B': 5, 'ties': 'breslow'}) AS l FROM t);
+----
+[0.0, 0.6]	[0.6, 1.0]
+
+# ==== bootcov_agg ====
+query IIIIII
+SELECT list_transform(l, lambda r: r.term), list_bool_and(list_transform(l, lambda r: r.n_boot = 200)),
+       list_bool_and(list_transform(l, lambda r: r.std_error > 0)),
+       list_bool_and(list_transform(l, lambda r: r.conf_low < r.conf_high)),
+       list_bool_and(list_transform(l, lambda r: len(r.vcov) = 3)), l[1].model
+FROM (SELECT bootcov_agg(y, [x1, x2]) AS l FROM t);
+----
+['(Intercept)', x1, x2]	true	true	true	true	ols
+
+# estimate = the fit on all rows (ols_fit_agg's coefficients)
+query I
+SELECT abs(bootcov_agg(y, [x1, x2], {'B': 5})[2].estimate - (ols_fit_agg(y, [x1, x2])).coefficients[1]) < 1e-10 FROM t;
+----
+true
+
+# vcov is symmetric and std_error^2 its diagonal
+query II
+SELECT abs(b[1].vcov[2] - b[2].vcov[1]) < 1e-14, abs(b[3].std_error ^ 2 - b[3].vcov[3]) < 1e-14
+FROM (SELECT bootcov_agg(yb, [x1, x2], {'model': 'logistic', 'B': 40, 'conf_level': 0.9, 'feature_names': ['a', 'b']}) AS b FROM t);
+----
+true	true
+
+query II
+SELECT list_transform(l, lambda r: r.term), l[1].conf_level
+FROM (SELECT bootcov_agg(yb, [x1, x2], {'model': 'logistic', 'B': 20, 'conf_level': 0.9, 'feature_names': ['a', 'b']}) AS l FROM t);
+----
+['(Intercept)', a, b]	0.9
+
+# cluster bootstrap: text clusters work; a cluster bootstrap differs from the ordinary one
+query II
+SELECT bootcov_agg(y, [x1, x2], cl_text, {'B': 30}) IS NOT NULL,
+       bootcov_agg(y, [x1, x2], cl, {'B': 30}) <> bootcov_agg(y, [x1, x2], {'B': 30})
+FROM t;
+----
+true	true
+
+# a NULL cluster argument is the ordinary bootstrap
+query I
+SELECT bootcov_agg(y, [x1, x2], NULL, {'B': 30}) = bootcov_agg(y, [x1, x2], {'B': 30}) FROM t;
+----
+true
+
+# ==== table macros ====
+query III
+SELECT g, count(*), bool_and(n = 20) FROM validate_by('t', g, y, [x1, x2], options := {'B': 20}) GROUP BY g ORDER BY g;
+----
+0	5	true
+1	5	true
+2	5	true
+
+# the macro equals the aggregate per group
+query II
+SELECT count(*), bool_and(m.index_corrected = a.index_corrected)
+FROM (SELECT * FROM validate_by('t', g, yb, [x1, x2], options := {'model': 'logistic', 'B': 15}) WHERE g = '1') m
+JOIN (SELECT unnest(validate_agg(yb, [x1, x2], {'model': 'logistic', 'B': 15}), recursive := true) FROM t WHERE g = '1') a
+USING (index_name);
+----
+11	true
+
+query IIII
+SELECT count(*), any_value(curve_type), any_value(model_name), bool_and(x = predy AND y = calibrated_corrected)
+FROM calibrate_by('t', g, yb, [x1, x2], options := {'model': 'logistic', 'B': 10});
+----
+150	calibrate	logistic	true
+
+query II
+SELECT count(DISTINCT g), bool_and(u = 10) FROM calibrate_cph_by('t', g, tm, [x1, x2], ev, options := {'u': 10, 'm': 30, 'B': 5});
+----
+3	true
+
+query III
+SELECT g, list(term ORDER BY row_order), any_value(model_id)
+FROM bootcov_by('t', g, yb, [x1, x2], options := {'model': 'logistic', 'B': 30}, cluster := cl, names := ['a', 'b'])
+GROUP BY g ORDER BY g;
+----
+0	['(Intercept)', a, b]	bootcov
+1	['(Intercept)', a, b]	bootcov
+2	['(Intercept)', a, b]	bootcov
+
+# contract shapes: calibrate_by is a `curve` producer, bootcov_by a `terms` producer
+query II
+SELECT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('calibrate_by', 'bootcov_by') AND tags['anofox.contract'] = '1' ORDER BY function_name;
+----
+bootcov_by	terms
+calibrate_by	curve
+
+query I
+SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM bootcov_by('t', g, y, [x1, x2], options := {'B': 5}));
+----
+g VARCHAR, id VARCHAR, model_id VARCHAR, model_name VARCHAR, term VARCHAR, estimate DOUBLE, std_error DOUBLE, statistic DOUBLE, p_value DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, index_name VARCHAR, index_value DOUBLE, boot_mean DOUBLE, vcov DOUBLE[], n_boot BIGINT, n_failed BIGINT, row_order BIGINT
+
+query I
+SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM calibrate_by('t', g, y, [x1, x2], options := {'B': 5}));
+----
+g VARCHAR, id VARCHAR, model_id VARCHAR, model_name VARCHAR, curve_type VARCHAR, series VARCHAR, x DOUBLE, y DOUBLE, y_low DOUBLE, y_high DOUBLE, threshold DOUBLE, weight DOUBLE, n_censor BIGINT, predy DOUBLE, calibrated_orig DOUBLE, calibrated_corrected DOUBLE, optimism DOUBLE, n BIGINT, mean_abs_error DOUBLE, mean_squared_error DOUBLE, quantile90_abs_error DOUBLE, method VARCHAR, row_order BIGINT

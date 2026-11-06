@@ -85,6 +85,14 @@ static_assert(sizeof(AnofoxIsotonicFitResultCore) ==
 static_assert(sizeof(AnofoxQuantileFitResultCore) ==
                   offsetof(AnofoxQuantileFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxQuantileFitResultCore must end with its summary, as QuantileFitResultCore does");
+// P-spline (#316): two uint32 then a double; four doubles before the pointers.
+static_assert(offsetof(AnofoxPSplineOptions, lambda) == sizeof(double) &&
+                  sizeof(AnofoxPSplineOptions) == 2 * sizeof(double),
+              "AnofoxPSplineOptions must match PSplineOptionsFFI");
+static_assert(offsetof(AnofoxPSplineResult, coefficients) == 4 * sizeof(double) &&
+                  offsetof(AnofoxPSplineResult, coefficients_len) == 4 * sizeof(double) + 7 * sizeof(double *) &&
+                  sizeof(AnofoxPSplineResult) == offsetof(AnofoxPSplineResult, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxPSplineResult must match PSplineResultFFI");
 
 // Twelve array pointers, len + n_params, the resid_type name (no padding).
 static_assert(offsetof(AnofoxAugmentResult, len) == 12 * sizeof(double *) &&
