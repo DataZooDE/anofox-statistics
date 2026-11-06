@@ -463,6 +463,8 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **No telemetry from CI**: detected CI environments send no events unless `DATAZOO_TELEMETRY_IN_CI=1`
+  (posthog-telemetry submodule bump). `DATAZOO_DISABLE_TELEMETRY` still disables telemetry everywhere.
 - **`ols_fit_agg` / `wls_fit_agg` with `hc_type`: `vcov` is the HC covariance** (**behaviour
   change**). It was the classical `σ²(X'X)⁻¹` even when the standard errors were robust; it is now
   `sandwich::vcovHC(lm(...[, weights = w]), type)` (upstream `FittedOls::hc_vcov` /
