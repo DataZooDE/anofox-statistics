@@ -328,6 +328,10 @@ static void TweedieAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
 		const bool weighted = !state.weights.empty();
+		// Before the fit: its FFI result arrays would leak if this threw afterwards.
+		if (state.profile_ci && weighted) {
+			throw InvalidInputException("tweedie_fit_agg: profile_ci cannot be combined with prior weights");
+		}
 		const bool clustered = !state.cluster.dims.empty();
 		if (weighted) {
 			CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
@@ -394,9 +398,6 @@ static void TweedieAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			throw InvalidInputException("tweedie_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 		if (state.profile_ci) {
-			if (weighted) {
-				throw InvalidInputException("tweedie_fit_agg: profile_ci cannot be combined with prior weights");
-			}
 			ApplyProfileConfint("tweedie_fit_agg", AnofoxLikelihoodFamily {5, 0, state.power}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
 			                    inference_result);

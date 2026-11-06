@@ -213,6 +213,11 @@ struct CoxState {
 	vector<vector<double>> x_rows; // empty for a NULL x list
 	idx_t n_features = 0;
 	bool initialized = false;
+	//! A data error found in Update / Combine, thrown at finalize: throwing in Update
+	//! would leak the states other threads already built.
+	//! (A vector, not a string: DuckDB relocates states with memcpy, and a short
+	//! std::string points into itself.) Holds zero or one message.
+	vector<string> error;
 };
 
 void CoxInitialize(data_ptr_t state_p) {
@@ -271,6 +276,9 @@ void CoxUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t, Vect
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
+		if (!state.error.empty()) {
+			continue;
+		}
 		vector<double> x_row;
 		auto x_idx = x_data.sel->get_index(i);
 		if (x_data.validity.RowIsValid(x_idx)) {
@@ -279,9 +287,10 @@ void CoxUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t, Vect
 				state.n_features = entry.length;
 				state.initialized = true;
 			} else if (entry.length != state.n_features) {
-				throw InvalidInputException("%s: inconsistent feature count: expected %llu, got %llu",
-				                            ModeName(bind.mode), (unsigned long long)state.n_features,
-				                            (unsigned long long)entry.length);
+				state.error = {StringUtil::Format("%s: inconsistent feature count: expected %llu, got %llu",
+				                                 ModeName(bind.mode), (unsigned long long)state.n_features,
+				                                 (unsigned long long)entry.length)};
+				continue;
 			}
 			x_row.resize(entry.length);
 			for (idx_t j = 0; j < entry.length; j++) {
@@ -310,8 +319,15 @@ void CoxCombine(Vector &source_vector, Vector &target_vector, AggregateInputData
 	for (idx_t i = 0; i < count; i++) {
 		auto &source = *sources[source_data.sel->get_index(i)];
 		auto &target = *targets[target_data.sel->get_index(i)];
-		if (source.initialized && target.initialized && source.n_features != target.n_features) {
-			throw InvalidInputException("Inconsistent feature count during combine");
+		if (!source.error.empty() && target.error.empty()) {
+			target.error = source.error;
+		}
+		if (source.initialized && target.initialized && source.n_features != target.n_features &&
+		    target.error.empty()) {
+			target.error = {"Inconsistent feature count during combine"};
+		}
+		if (!target.error.empty()) {
+			continue;
 		}
 		if (source.initialized && !target.initialized) {
 			target.n_features = source.n_features;
@@ -482,6 +498,9 @@ void CoxFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
+		if (!state.error.empty()) {
+			throw InvalidInputException(state.error[0]);
+		}
 		const idx_t row = i + offset;
 		if (!state.initialized || state.time.empty()) {
 			FlatVector::SetNull(result, row, true);
@@ -572,6 +591,9 @@ void CoxZphFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 	auto states = (CoxState **)sdata.data;
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
+		if (!state.error.empty()) {
+			throw InvalidInputException(state.error[0]);
+		}
 		const idx_t row = i + offset;
 		if (!state.initialized || state.time.empty()) {
 			FlatVector::SetNull(result, row, true);
@@ -632,6 +654,9 @@ void CoxAugmentFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 	auto states = (CoxState **)sdata.data;
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
+		if (!state.error.empty()) {
+			throw InvalidInputException(state.error[0]);
+		}
 		const idx_t row = i + offset;
 		if (!state.initialized || state.time.empty()) {
 			FlatVector::SetNull(result, row, true);

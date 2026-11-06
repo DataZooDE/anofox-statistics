@@ -49,6 +49,12 @@ struct EmbeddingAggregateState {
 	idx_t dim;
 	GroupCoder groups;
 	vector<vector<double>> values; // per group code, row-major
+	//! A data error found in Update / Combine, thrown in Finalize. Throwing in Update
+	//! would leak the states other threads already built (DuckDB does not destroy
+	//! them when the sink fails); in Finalize the guard frees them.
+	//! (A vector, not a string: DuckDB relocates states with memcpy, and a short
+	//! std::string points into itself.) Holds zero or one message.
+	vector<string> error;
 
 	EmbeddingAggregateState() : initialized(false), has_dim(false), dim(0) {
 	}
@@ -71,6 +77,7 @@ struct EmbeddingAggregateState {
 		dim = 0;
 		groups.labels.clear();
 		values.clear();
+		error.clear();
 	}
 };
 
@@ -143,24 +150,34 @@ static void EmbeddingDestroy(Vector &state_vector, AggregateInputData &, idx_t c
 	}
 }
 
-static void CheckDim(EmbeddingAggregateState &state, idx_t dim, const string &name) {
+//! False (and the error recorded) when dim differs from the state's.
+static bool CheckDim(EmbeddingAggregateState &state, idx_t dim, const string &name) {
 	if (!state.has_dim) {
 		state.has_dim = true;
 		state.dim = dim;
 	} else if (dim != state.dim) {
-		throw InvalidInputException("%s: every embedding must have the same length, got %llu and %llu", name,
-		                            static_cast<unsigned long long>(state.dim),
-		                            static_cast<unsigned long long>(dim));
+		if (state.error.empty()) {
+			state.error = {StringUtil::Format("%s: every embedding must have the same length, got %llu and %llu", name,
+			                                 static_cast<unsigned long long>(state.dim),
+			                                 static_cast<unsigned long long>(dim))};
+		}
+		return false;
 	}
+	return true;
 }
 
-static void ThirdLabel(const EmbeddingAggregateState &state, const GroupLabel &label, const string &name) {
+//! False (and the error recorded) when a third group label appeared.
+static bool ThirdLabel(EmbeddingAggregateState &state, const GroupLabel &label, const string &name) {
 	if (state.groups.labels.size() > 2) {
-		throw InvalidInputException("%s compares exactly two groups, but found a third group label %s (already saw "
-		                            "%s and %s)",
-		                            name, label.ToString(), state.groups.labels[0].ToString(),
-		                            state.groups.labels[1].ToString());
+		if (state.error.empty()) {
+			state.error = {StringUtil::Format("%s compares exactly two groups, but found a third group label %s "
+			                                 "(already saw %s and %s)",
+			                                 name, label.ToString(), state.groups.labels[0].ToString(),
+			                                 state.groups.labels[1].ToString())};
+		}
+		return false;
 	}
+	return true;
 }
 
 static void EmbeddingUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
@@ -187,8 +204,13 @@ static void EmbeddingUpdate(Vector inputs[], AggregateInputData &aggr_input_data
 		if (!list_data.validity.RowIsValid(list_idx) || !group_data.validity.RowIsValid(grp_idx)) {
 			continue;
 		}
+		if (!state.error.empty()) {
+			continue;
+		}
 		auto entry = entries[list_idx];
-		CheckDim(state, entry.length, bind.name);
+		if (!CheckDim(state, entry.length, bind.name)) {
+			continue;
+		}
 		if (ListHasNullElement(child_validity, entry)) {
 			continue;
 		}
@@ -207,7 +229,9 @@ static void EmbeddingUpdate(Vector inputs[], AggregateInputData &aggr_input_data
 			label = ReadGroupLabel(group_data, grp_idx, group_type == LogicalTypeId::VARCHAR);
 		}
 		auto &slot = state.Slot(label);
-		ThirdLabel(state, label, bind.name);
+		if (!ThirdLabel(state, label, bind.name)) {
+			continue;
+		}
 		slot.insert(slot.end(), child_data + entry.offset, child_data + entry.offset + entry.length);
 	}
 }
@@ -228,12 +252,17 @@ static void EmbeddingCombine(Vector &source_vector, Vector &target_vector, Aggre
 			continue;
 		}
 		target.initialized = true;
-		if (source.has_dim) {
-			CheckDim(target, source.dim, bind.name);
+		if (!source.error.empty() && target.error.empty()) {
+			target.error = source.error;
+		}
+		if (!target.error.empty() || (source.has_dim && !CheckDim(target, source.dim, bind.name))) {
+			continue;
 		}
 		for (idx_t g = 0; g < source.groups.labels.size(); g++) {
 			auto &target_values = target.Slot(source.groups.labels[g]);
-			ThirdLabel(target, source.groups.labels[g], bind.name);
+			if (!ThirdLabel(target, source.groups.labels[g], bind.name)) {
+				break;
+			}
 			if (g >= source.values.size()) {
 				continue;
 			}
@@ -346,6 +375,9 @@ static void EmbeddingFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
 		idx_t row = i + offset;
+		if (!state.error.empty()) {
+			throw InvalidInputException(state.error[0]);
+		}
 		if (!state.initialized || state.groups.labels.size() < 2 || state.Rows(0) == 0 || state.Rows(1) == 0) {
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
