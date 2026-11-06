@@ -721,6 +721,39 @@ static void RegisterCoxOutputMacros(ExtensionLoader &loader) {
 	loader.RegisterFunction(*augment);
 }
 
+// Penalized ML a la rms (#323): pentrace_by (the penalty trace per group, one row
+// per penalty) and penalized_ols_fit_by (the penalized OLS fit per group).
+const char *const PENTRACE_BY_SQL =
+    "SELECT group_col, (_r).simple AS simple, (_r).nonlinear AS nonlinear, (_r).interaction AS interaction, "
+    "(_r).nonlinear_interaction AS nonlinear_interaction, (_r).df AS df, (_r).lr_chisq AS lr_chisq, "
+    "(_r).aic AS aic, (_r).bic AS bic, (_r).aic_c AS aic_c, (_r).is_best AS is_best, "
+    "(_r).n_observations AS n_observations "
+    "FROM (SELECT group_col, unnest(range(len(_l))) AS _i, unnest(_l) AS _r "
+    "FROM (SELECT group_col, pentrace_agg(y_col, x_cols, options) AS _l FROM query_table(source::VARCHAR) "
+    "GROUP BY group_col)) ORDER BY group_col, _i";
+
+const char *const PENALIZED_OLS_FIT_BY_SQL =
+    "SELECT group_col, unnest(_m) FROM (SELECT group_col, penalized_ols_fit_agg(y_col, x_cols, options) AS _m "
+    "FROM query_table(source::VARCHAR) GROUP BY group_col) ORDER BY group_col";
+
+static void RegisterPentraceMacros(ExtensionLoader &loader) {
+	const vector<string> params = {"source", "group_col", "y_col", "x_cols"};
+	auto trace = CreateTableMacro(
+	    "pentrace_by", params, {{"options", "NULL"}}, PENTRACE_BY_SQL,
+	    "Table macro: rms::pentrace per group of source with pentrace_agg (same options, 'penalties' required) and "
+	    "returns one row per penalty: the group column, simple, nonlinear, interaction, nonlinear_interaction, df "
+	    "(effective d.f.), lr_chisq, aic, bic, aic_c, is_best, n_observations.",
+	    "pentrace_by('my_table', group_col, y, [x1, x2], options := {'penalties': [0, 1, 2, 4]})");
+	loader.RegisterFunction(*trace);
+	auto fit = CreateTableMacro(
+	    "penalized_ols_fit_by", params, {{"options", "NULL"}}, PENALIZED_OLS_FIT_BY_SQL,
+	    "Table macro: fits rms::ols(penalty = ) per group of source with penalized_ols_fit_agg (same options) and "
+	    "returns one row per group: the group column, then the fields of the fit STRUCT (coefficients, intercept, "
+	    "std_errors, vcov, r_squared, sigma, lr_chisq, effective_df, effective_df_by_term, ...).",
+	    "penalized_ols_fit_by('my_table', group_col, y, [x1, x2], options := {'penalty': 2.0})");
+	loader.RegisterFunction(*fit);
+}
+
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
@@ -811,6 +844,7 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	}
 	RegisterGlmmOutputMacros(loader);
 	RegisterCoxOutputMacros(loader);
+	RegisterPentraceMacros(loader);
 }
 
 void RegisterPathMacros(ExtensionLoader &loader) {

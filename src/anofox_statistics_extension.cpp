@@ -122,6 +122,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterGlmmAggregateFunction(loader);
     RegisterAftScalarFunctions(loader);
     RegisterCoxFunctions(loader);
+    RegisterPentraceAggregateFunctions(loader);
     RegisterBinomialAggregateFunction(loader);
     RegisterNegBinomAggregateFunction(loader);
     RegisterTweedieAggregateFunction(loader);

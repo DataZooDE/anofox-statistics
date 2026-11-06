@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// Penalized ML a la rms: pentrace and penalized OLS (#323).
+mod pentrace_ffi;
+pub use pentrace_ffi::*;

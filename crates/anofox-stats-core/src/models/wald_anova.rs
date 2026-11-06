@@ -94,12 +94,12 @@ impl ModelCovariance<'_> {
 
 /// The upstream term map of a specification and the model column of every
 /// term-map column, plus the caller's index of every term-map term.
-struct Mapped {
-    terms: TermMap,
+pub(crate) struct Mapped {
+    pub(crate) terms: TermMap,
     /// Term-map column -> model slope column.
-    columns: Vec<usize>,
+    pub(crate) columns: Vec<usize>,
     /// Term-map term -> caller's term index.
-    term_index: Vec<usize>,
+    pub(crate) term_index: Vec<usize>,
 }
 
 fn invalid(msg: String) -> StatsError {
@@ -126,7 +126,7 @@ fn columns_by_term(
     Ok(by_term)
 }
 
-fn build_term_map(
+pub(crate) fn build_term_map(
     term_of_column: &[Option<usize>],
     terms: &[TermSpec],
     nonlinear: &[bool],
