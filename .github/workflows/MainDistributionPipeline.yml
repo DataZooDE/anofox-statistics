@@ -101,6 +101,12 @@ jobs:
         with:
           node-version: 20
 
+      - name: Self-test the sqllogictest comparator
+        # No DuckDB needed: proves the comparator rejects known-wrong results
+        # (100000 vs 100001, BIGINT beyond 2^53, text "001" vs "1", a wrong
+        # column count) before the suite's verdict is trusted.
+        run: node test/wasm/sqllogic.mjs --self-test
+
       - name: Install harness dependencies
         run: npm --prefix test/wasm install
 

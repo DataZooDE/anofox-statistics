@@ -38,9 +38,14 @@ Options (`node test/wasm/run.mjs ...`):
 
 - `--ext <path>` — path to the built `*.duckdb_extension.wasm`.
 - `--all` — run every `test/sql/**/*.test` file (default: a curated WASM subset).
-- `--file <t.test>` — run specific file(s).
+- `--file <t.test>` — run specific file(s); a file that does not exist fails.
 
 Exit code is non-zero on any load or assertion failure.
+
+`node test/wasm/sqllogic.mjs --self-test` checks the comparator and parser
+without booting DuckDB (CI runs it before the suite): 100000 vs 100001, BIGINT
+beyond 2^53, text `001` vs `1` and a one-column result under `query II` must
+all be rejected.
 
 ## How it works (notes for maintainers)
 
@@ -57,17 +62,21 @@ Exit code is non-zero on any load or assertion failure.
   The server is **version-agnostic**: it serves the one built artifact for any
   `<duckdb_version>/<wasm_platform>/` path DuckDB requests, so the harness does
   not need to reconstruct the exact version/platform directory.
-- `test/wasm/sqllogic.mjs` is a minimal sqllogictest-subset parser/runner
-  (`require`, `statement ok|error`, `query <types>` + `----`, `mode skip`). It is
-  intentionally tolerant on numeric comparisons (float tolerance) — not a full
-  sqllogictest implementation.
+- `test/wasm/sqllogic.mjs` is a sqllogictest-subset parser/runner with the
+  semantics of DuckDB's own runner (see *Parser notes* below), so a pass here
+  means what a native pass means.
 
 ## Coverage
 
 The CI gate runs the **full suite** (`--all`, all `test/sql/**/*.test`) against
-the built `.wasm` and is green: **2090 assertions passing** across 99 files
-(`test/sql/quack.test` is skipped — extension-template boilerplate calling
-`quack` / `quack_openssl_version`, functions this extension doesn't define).
+the built `.wasm`: 326 files, 8000 records (2026-11-06, v1.5.6 wasm_eh). 32
+records are `SET threads` statements DuckDB-Wasm cannot run (reported as
+skipped), and 7 `EXECUTE` queries run unwrapped (compared by type letter).
+`test/sql/quack.test` is skipped — extension-template boilerplate calling
+`quack` / `quack_openssl_version`, functions this extension doesn't define.
+Two records fail under the strict comparator, natively as well as in
+DuckDB-Wasm: their expected values are only within the native runner's 1%
+(`anofox_stats.test:44`, `api/test_stable_model_struct_glm.test:74`).
 
 Notes on how results are compared (learned the hard way):
 
@@ -81,8 +90,7 @@ Notes on how results are compared (learned the hard way):
   per file) so `CREATE TABLE` / temp state can't leak across files.
 - Multi-column `.test` rows are TAB-separated on one line; booleans render per
   the column type (`query I` → 1/0, `query T` → true/false) — both handled.
-- Float comparison uses a loose tolerance (abs 1e-6 / rel 1e-4) to absorb benign
-  native-vs-WASM floating-point differences.
+- See *Parser notes* below for how values are compared.
 
 ## Version matching (important)
 
@@ -109,3 +117,41 @@ strings -n4 /tmp/dw/package/dist/duckdb-eh.wasm | grep -oE 'v1\.[0-9]+\.[0-9]+' 
 
 or at runtime `await db.getVersion()`. The harness prints the engine version at
 startup so a mismatch is obvious.
+
+## Parser notes (`sqllogic.mjs`)
+
+Ported from anofox-optimize's harness (DataZooDE/anofox-optimize#21), keeping
+this repo's `loop`/`foreach` support.
+
+- **Records:** `require` (handled by the harness), `statement ok`,
+  `statement error` with the expected message after `----` (a substring,
+  `<REGEX>:` matched against the whole message, or `<!REGEX>:`),
+  `statement maybe` (success, or an error matching the message),
+  `query <types> [nosort|rowsort|valuesort] [label]`, `loop`/`foreach` …
+  `endloop` (expanded up front, `${var}` substituted, nesting supported; a
+  failure inside a loop names the line it is written on), `mode skip`/`unskip`,
+  `halt`. Any other keyword (`onlyif`, `skipif`, …) **fails** with its file and
+  line rather than being skipped and leaving its body unguarded. As natively, an
+  error containing `INTERNAL` never satisfies `statement error`/`maybe`.
+- **Shape first:** the result's column count must equal the length of the type
+  string, and the row count must match. Expected rows are either one per line
+  (tab-separated) or one value per line, as in DuckDB. `N values hashing to
+  <md5>` is supported.
+- **Values:** DuckDB renders them and reports each column's real type in the
+  same statement (`COLUMNS(*)::VARCHAR, typeof(COLUMNS(*))`; `NULL`, `(empty)`
+  for the empty string). Identical text is equal. Otherwise integers compare
+  exactly as BigInt, BOOLEAN as true/false/1/0, DOUBLE/FLOAT/DECIMAL within
+  1e-9 relative (DuckDB's runner allows 1%: `|a - e| <= 0.01*|a| + 1e-8`), and
+  everything else — VARCHAR, LIST, STRUCT, a STRUCT of doubles included — only
+  as identical text, as natively. The run prints how many queries ran
+  unwrapped, and so without types.
+- **Raw retry:** a query is run without the `::VARCHAR` wrap only when the wrap
+  raises a Binder or Parser error, so a runtime error is reported once and
+  never hidden by a second run.
+- **Timeout:** every statement and query has 60 s
+  (`ANOFOX_WASM_RECORD_TIMEOUT_MS` overrides it). A timeout names the file and
+  line and aborts the run, since the hung query still occupies the worker.
+
+The previous comparator compared any two values that parsed as numbers within
+1e-4 relative (so 100000 matched 100001, text `001` matched `1`, and BIGINT lost
+precision beyond 2^53), and flattened results before checking their shape.
