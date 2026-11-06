@@ -182,6 +182,8 @@ coefficient anywhere in the model gives NULL).
 | `coefficients` | `DOUBLE[]` | Approximate coefficients of the reduced model, in the order of `x`; 0 for deleted ones |
 | `intercept` | `DOUBLE` | Approximate intercept (NULL without one) |
 | `rule`, `type` | `VARCHAR` | The rule and type used |
+| `vcov` | `DOUBLE[]` | Approximate covariance of the reduced model's coefficients, `V_ii - V_io V_oo^-1 V_oi` (rms `fastbw()$var`), row-major in the layout of the model's `vcov` (intercept first, then the columns of `x`), with zero rows and columns for the deleted coefficients |
+| `kept_parameters` | `BIGINT[]` | 1-based positions of the kept parameters in that layout, the intercept included (rms `fastbw()$parms.kept`) |
 
 **Examples:**
 
@@ -197,6 +199,14 @@ FROM (SELECT fastbw(logistic_fit_agg(event, [age1, age2, age3, bp, noise], {'com
 SELECT d.term, round(d.chi_square, 3) AS chi2, round(d.residual_p_value, 4) AS residual_p
 FROM (SELECT unnest((fastbw(ols_fit_agg(outcome, [age1, age2, age3, bp, treated, noise], {'compute_inference': true}),
                             ['age', 'age', 'age', 'bp', NULL, 'noise'], {'rule': 'p', 'sls': 0.2})).deleted) AS d
+      FROM patients);
+
+-- Standard errors of the reduced model's approximate coefficients (sqrt of the kept diagonal of vcov)
+SELECT b.kept_parameters,
+       list_transform(b.kept_parameters,
+                      lambda k: round(sqrt(b.vcov[(k - 1) * (len(b.coefficients) + 1) + k]), 4)) AS approx_se
+FROM (SELECT fastbw(logistic_fit_agg(event, [age1, age2, age3, bp, noise], {'compute_inference': true}),
+                    ['age', 'age', 'age', 'bp', 'noise']) AS b
       FROM patients);
 ```
 

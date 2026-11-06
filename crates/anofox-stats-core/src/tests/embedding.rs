@@ -14,9 +14,11 @@
 use super::{convert_error, UnifiedTestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::drift::{
-    embedding_distance_drift, embedding_mmd_drift, embedding_ratio_drift, EmbeddingThreshold,
+    defaults, embedding_distance_drift, embedding_mmd_bandwidth, embedding_mmd_drift,
+    embedding_ratio_drift, EmbeddingThreshold,
 };
 pub use anofox_tests::drift::{DriftTest, EmbeddingDistance};
+use anofox_tests::modern::median_heuristic_bandwidth;
 pub use anofox_tests::Kernel;
 use anofox_tests::{energy_distance_test, mmd_test, Alternative};
 
@@ -62,9 +64,9 @@ impl Default for EmbeddingDriftOptions {
             metric: EmbeddingDistance::Euclidean,
             threshold: None,
             bootstrap: false,
-            n_bootstrap: 100,
+            n_bootstrap: defaults::EMBEDDING_BOOTSTRAP_RESAMPLES,
             quantile: None,
-            component_test: DriftTest::Wasserstein,
+            component_test: defaults::EMBEDDING_RATIO_COMPONENT_TEST,
             component_threshold: None,
             seed: None,
         }
@@ -84,6 +86,10 @@ pub struct EmbeddingDrift {
     pub n1: usize,
     pub n2: usize,
     pub dim: usize,
+    /// Kernel bandwidth of the `mmd` method (upstream
+    /// `drift::embedding_mmd_bandwidth`, evidently's median convention);
+    /// `None` for the other methods.
+    pub bandwidth: Option<f64>,
 }
 
 /// Embedding drift of `current` against `reference` (rows of equal length).
@@ -92,11 +98,14 @@ pub fn embedding_drift(
     current: &[Vec<f64>],
     options: &EmbeddingDriftOptions,
 ) -> StatsResult<EmbeddingDrift> {
-    let threshold = |fixed: f64, quantile: f64| -> StatsResult<EmbeddingThreshold> {
+    // evidently's defaults (upstream `drift::defaults`): the fixed threshold
+    // and the bootstrap of each method; options override single parts.
+    let threshold = |fixed: EmbeddingThreshold, quantile: f64| -> StatsResult<EmbeddingThreshold> {
         if !options.bootstrap {
-            return Ok(EmbeddingThreshold::Fixed(
-                options.threshold.unwrap_or(fixed),
-            ));
+            return Ok(match options.threshold {
+                Some(t) => EmbeddingThreshold::Fixed(t),
+                None => fixed,
+            });
         }
         if options.threshold.is_some() {
             return Err(StatsError::InvalidInput(
@@ -110,10 +119,23 @@ pub fn embedding_drift(
         })
     };
     let r = match options.method {
-        EmbeddingMethod::Distance => {
-            embedding_distance_drift(reference, current, options.metric, threshold(0.2, 0.95)?)
-        }
-        EmbeddingMethod::Mmd => embedding_mmd_drift(reference, current, threshold(0.015, 0.05)?),
+        EmbeddingMethod::Distance => embedding_distance_drift(
+            reference,
+            current,
+            options.metric,
+            threshold(
+                EmbeddingThreshold::EVIDENTLY_DISTANCE,
+                defaults::EMBEDDING_DISTANCE_QUANTILE,
+            )?,
+        ),
+        EmbeddingMethod::Mmd => embedding_mmd_drift(
+            reference,
+            current,
+            threshold(
+                EmbeddingThreshold::EVIDENTLY_MMD,
+                defaults::EMBEDDING_MMD_QUANTILE,
+            )?,
+        ),
         EmbeddingMethod::Ratio => {
             if options.bootstrap {
                 return Err(StatsError::InvalidInput(
@@ -125,13 +147,22 @@ pub fn embedding_drift(
                 current,
                 options.component_test,
                 options.component_threshold,
-                options.threshold.unwrap_or(0.2),
+                options
+                    .threshold
+                    .unwrap_or(defaults::EMBEDDING_RATIO_THRESHOLD),
                 options.seed,
             )
         }
     }
     .map_err(convert_error)?;
+    let bandwidth = match options.method {
+        EmbeddingMethod::Mmd => {
+            Some(embedding_mmd_bandwidth(reference, current).map_err(convert_error)?)
+        }
+        _ => None,
+    };
     Ok(EmbeddingDrift {
+        bandwidth,
         method: r.method,
         score: r.score,
         threshold: r.threshold,
@@ -162,6 +193,10 @@ pub struct MultivariateTestResult {
     pub n2: usize,
     pub dim: usize,
     pub n_permutations: usize,
+    /// Bandwidth of the gaussian / laplacian MMD kernel (with
+    /// `Kernel::GaussianMedianHeuristic` the median heuristic's,
+    /// `modern::median_heuristic_bandwidth`); `None` otherwise.
+    pub bandwidth: Option<f64>,
     pub unified: UnifiedTestResult,
 }
 
@@ -174,6 +209,14 @@ pub fn multivariate_two_sample(
     seed: Option<u64>,
 ) -> StatsResult<MultivariateTestResult> {
     let n = x.len() + y.len();
+    let bandwidth = match test {
+        MultivariateTest::Mmd(Kernel::GaussianMedianHeuristic) => {
+            Some(median_heuristic_bandwidth(x, y).map_err(convert_error)?)
+        }
+        MultivariateTest::Mmd(Kernel::Gaussian { bandwidth })
+        | MultivariateTest::Mmd(Kernel::Laplacian { bandwidth }) => Some(bandwidth),
+        _ => None,
+    };
     let (statistic, p_value, unified) = match test {
         MultivariateTest::Energy => {
             let r = energy_distance_test(x, y, n_permutations, seed).map_err(convert_error)?;
@@ -191,6 +234,7 @@ pub fn multivariate_two_sample(
         n2: y.len(),
         dim: x.first().map_or(0, Vec::len),
         n_permutations,
+        bandwidth,
         unified: unified.with_alternative(Alternative::TwoSided).with_n(n),
     })
 }

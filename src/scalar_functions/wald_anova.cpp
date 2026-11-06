@@ -547,6 +547,11 @@ LogicalType FastbwResultType() {
 	c.push_back(make_pair("intercept", LogicalType::DOUBLE));
 	c.push_back(make_pair("rule", LogicalType::VARCHAR));
 	c.push_back(make_pair("type", LogicalType::VARCHAR));
+	// Approximate covariance of the reduced model (rms::fastbw's var) in the model's vcov layout
+	// (row-major, intercept first; zero rows / columns for deleted parameters), and the kept
+	// parameters (fastbw's parms.kept) as 1-based positions in that layout.
+	c.push_back(make_pair("vcov", LogicalType::LIST(LogicalType::DOUBLE)));
+	c.push_back(make_pair("kept_parameters", LogicalType::LIST(LogicalType::BIGINT)));
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -659,6 +664,16 @@ void FastbwImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 		v.push_back(NullableDouble(res.intercept));
 		v.push_back(Value(bind.rule == 0 ? "aic" : "p"));
 		v.push_back(Value(bind.individual ? "individual" : "residual"));
+		vector<Value> vcov;
+		for (idx_t i = 0; i < res.vcov_dim * res.vcov_dim; i++) {
+			vcov.push_back(Value::DOUBLE(res.vcov[i]));
+		}
+		v.push_back(Value::LIST(LogicalType::DOUBLE, std::move(vcov)));
+		vector<Value> kept_parameters;
+		for (idx_t i = 0; i < res.n_kept_parameters; i++) {
+			kept_parameters.push_back(Value::BIGINT(static_cast<int64_t>(res.kept_parameters[i]) + 1));
+		}
+		v.push_back(Value::LIST(LogicalType::BIGINT, std::move(kept_parameters)));
 		anofox_free_fastbw(&res);
 		result.SetValue(row, Value::STRUCT(result_type, std::move(v)));
 	}
@@ -708,8 +723,9 @@ void RegisterWaldAnovaFunctions(ExtensionLoader &loader) {
 	RegisterSet(loader, kFastbw, FastbwResultType(),
 	            DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, ConstantAware<FastbwImpl>), ANOFOX_SCALAR_BIND(FastbwBind),
 	            "Fast backward step-down (rms::fastbw, Lawless & Singhal) from a fitted model's coefficients and "
-	            "covariance: the deletion order with the Wald and residual chi-square tests, the kept terms and the "
-	            "approximate reduced-model coefficients. Coefficients with a NULL term label are never deleted. "
+	            "covariance: the deletion order with the Wald and residual chi-square tests, the kept terms, the "
+	            "approximate reduced-model coefficients and their covariance (vcov, fastbw's var; kept_parameters: "
+	            "1-based positions in the vcov layout, fastbw's parms.kept). Coefficients with a NULL term label are never deleted. "
 	            "options: rule ('aic' | 'p'), type ('residual' | 'individual'), sls, aics, k_aic.",
 	            {"fastbw(logistic_fit_agg(y, [x1, x2, x3], {'compute_inference': true}))"});
 }

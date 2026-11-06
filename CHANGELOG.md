@@ -42,11 +42,48 @@ Breaking changes are called out explicitly.
   - `rcs_knots_agg` of a constant column and `box_cox_inverse` outside the range of the transform
     rely on upstream (`TooFewUniqueKnots` -> NULL, `NaN` -> NULL); the results are unchanged.
 
+- **anofox-regression 0.12.1.** Typed upstream errors replace message-text matching: the data
+  reduction wrappers and `areg` map `RegressionError::Degenerate(..)` (a constant response, a
+  single level, an incomputable similarity -> NULL; a constant column to scale, a non-positive
+  Box–Cox response, too few observed values -> error, as before) and
+  `RegressionError::Spline(SplineError::TooFewObservations)` (`areg` with fewer than 6 rows ->
+  NULL). `effects_design` leaves the check of a categorical value that is not a level to
+  upstream's `ModelSpec::design` (`DesignError::UnknownLevel`, same error). `aft_cdf`,
+  `aft_quantile`, `aft_survival` evaluate the stored model through `AftResult::from_parts`
+  (**behaviour change**: pieces that are not a model, e.g. `exponential` with a scale other than
+  1, give NaN instead of a value).
 - **anofox-statistics 0.9.1.** Seeded bootstrap and permutation results are now the same on
   wasm32 as on 64-bit builds (they differed before 0.8.3), and large samples no longer overflow
   on 32-bit targets. No change on 64-bit.
 
 ### Added
+
+- **Cluster-robust covariance of the GLM and AFT fits.** `poisson_fit_agg`, `binomial_fit_agg`,
+  `logistic_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg` and `tweedie_fit_agg(y, x, cluster,
+  {'vcov': 'cluster', ...})` and `aft_fit_agg(time, x, event, cluster, options)` cluster the
+  standard errors, z tests, intervals and `vcov` (upstream `GlmResult::cluster_vcov` /
+  `AftResult::cluster_vcov`), as the OLS / WLS form of #309, and append `vcov_type` and
+  `n_clusters` (`aft_fit_agg` also `vcov` of intercept, coefficients and log scale). `cluster` is
+  one id per row of any type or a LIST / STRUCT of ids (multiway); options `hc_type` (`'hc0'`
+  default, `'hc1'`; HC2 / HC3 are an error) and `cadjust` (default true for the GLMs as
+  `vcovCL`, false for AFT as `survreg(cluster =)`). The GLM form needs `'vcov': 'cluster'`
+  because its 4-argument position is also the prior weights of poisson / gamma / tweedie; the
+  OLS / WLS / AFT cluster forms accept it. With priors or `glm_lambda` the bread is the
+  penalized information; a coefficient at an L1 prior's kink is an error. Validated against
+  `sandwich::vcovCL(glm)` (poisson, binomial, `glm.nb`, Gamma, `statmod::tweedie`, offset,
+  multiway), a penalized logistic sandwich computed in base R, and `survreg(cluster =)`
+  (`test/sql/reference/glm_cluster_vcov.test`).
+- **`fastbw` reports the reduced model's covariance.** New fields `vcov` (rms `fastbw()$var`, in
+  the model's vcov layout with zero rows for deleted parameters, upstream `StepDown::vcov`) and
+  `kept_parameters` (1-based `parms.kept`), validated against `rms::fastbw`.
+- **`pca_agg(x, {'scale': true})`** is `prcomp(scale. = TRUE)` (upstream `pca_with_options`): the
+  model STRUCT stores the column sds in a new `scale` field (NULL when unscaled) and
+  `pca_transform` applies them (`predict.prcomp`). Validated against `prcomp` / `predict.prcomp`.
+- **`mmd_test_agg` median-heuristic bandwidth.** `'bandwidth': 'median'` uses
+  `max(median pairwise distance, 0.01)` (upstream `Kernel::GaussianMedianHeuristic`), and the
+  result has a `bandwidth` field (the bandwidth used; NULL for the linear / polynomial kernels).
+  `embedding_drift_agg` reports the `bandwidth` of its `mmd` method
+  (`drift::embedding_mmd_bandwidth`; NULL for the other methods).
 
 - **`pspline_fit_agg(y, x [, options])`, `pspline_fit_predict_agg(y, x [, split] [, options])`,
   `pspline_fit_predict_by` and `pspline_prediction_by` (#316).** P-spline smoothing of `y` on a
@@ -425,6 +462,22 @@ Breaking changes are called out explicitly.
   anofox-regression's `inference::likelihood`.
 
 ### Changed
+
+- **`ols_fit_agg` / `wls_fit_agg` with `hc_type`: `vcov` is the HC covariance** (**behaviour
+  change**). It was the classical `σ²(X'X)⁻¹` even when the standard errors were robust; it is now
+  `sandwich::vcovHC(lm(...[, weights = w]), type)` (upstream `FittedOls::hc_vcov` /
+  `FittedWls::hc_vcov`), the covariance the standard errors use, so `predict(model, x,
+  {'se_fit': true})` and its confidence interval are heteroskedasticity-consistent too. Without
+  `hc_type` nothing changes. Validated against `vcovHC` (weighted and unweighted).
+- **`mmd_test_agg`'s gaussian kernel defaults to the median-heuristic bandwidth** (**behaviour
+  change**; was `bandwidth = 1`). It is the bandwidth `mmd_agg` (upstream `mmd_test_1d`) uses and
+  evidently's MMD convention, so the multivariate and 1-D tests agree on 1-D data; pass
+  `{'bandwidth': 1.0}` for the previous statistic. The laplacian kernel keeps `bandwidth = 1`.
+- **evidently defaults from upstream.** `column_drift_agg`, `dataset_drift_agg`,
+  `embedding_drift_agg` and the drift tests take evidently's defaults (permutations, drift
+  share, embedding thresholds, quantiles, bootstrap resamples, the ratio method's component test
+  and threshold) from `drift::defaults` / `EmbeddingThreshold::EVIDENTLY_*` instead of copies.
+  No change in results.
 
 - **One-sided t-test intervals (behaviour change).** For `'alternative': 'less'` /
   `'greater'`, `t_test_agg` (Welch and Student), `t_test_one_sample_agg` and

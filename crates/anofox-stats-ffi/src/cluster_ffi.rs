@@ -6,7 +6,7 @@
 
 use super::*;
 use anofox_stats_core::models::{
-    fit_ols_cluster, fit_wls_cluster, ClusterFit, ClusterSpec, StateFit,
+    fit_ols_cluster, fit_ols_hc, fit_wls_cluster, fit_wls_hc, ClusterFit, ClusterSpec, StateFit,
 };
 use anofox_stats_core::StatsResult;
 
@@ -18,7 +18,7 @@ unsafe fn fail(out_error: *mut AnofoxError, code: ErrorCode, msg: &str) -> bool 
 }
 
 /// Read `n_dims` code arrays of `n` entries each.
-unsafe fn read_clusters(
+pub(crate) unsafe fn read_clusters(
     clusters: *const *const i32,
     n_dims: usize,
     n: usize,
@@ -200,6 +200,122 @@ pub unsafe extern "C" fn anofox_wls_cluster_fit(
             out_vcov,
             out_dim,
             out_n_clusters,
+            out_error,
+        )
+    })
+}
+
+/// OLS whose covariance is the one its inference uses (#hc-vcov): with
+/// `options.hc_type` the HC covariance `sandwich::vcovHC(lm, type)` (upstream
+/// `FittedOls::hc_vcov`) in `out_vcov` (row-major, intercept first, zero rows
+/// for columns not estimated), otherwise NULL (the classical covariance is
+/// `anofox_coefficient_vcov`'s). Other outputs as `anofox_ols_fit`.
+///
+/// # Safety
+/// `x` must point to `x_count` DataArrays; `out_core` must be valid, the
+/// other outputs may be NULL.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_ols_hc_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: OlsOptionsFFI,
+    out_core: *mut FitResultCore,
+    out_inference: *mut FitResultInference,
+    out_vcov: *mut *mut f64,
+    out_dim: *mut usize,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
+        if out_core.is_null() || x.is_null() || x_count == 0 {
+            return fail(out_error, ErrorCode::InvalidInput, "NULL input pointer");
+        }
+        let y_vec = y.to_vec();
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|a| a.to_vec())
+            .collect();
+        let opts = OlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: convert_hc_type_ffi(options.hc_type),
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: options.compute_loo,
+        };
+        write_cluster_fit(
+            fit_ols_hc(&y_vec, &x_vecs, &opts),
+            0,
+            out_core,
+            out_inference,
+            out_vcov,
+            out_dim,
+            std::ptr::null_mut(),
+            out_error,
+        )
+    })
+}
+
+/// WLS as `anofox_ols_hc_fit`: with `options.hc_type` the HC covariance of
+/// the weighted fit (`sandwich::vcovHC(lm(..., weights = w), type)`, upstream
+/// `FittedWls::hc_vcov`). NULL `out_vcov` when the HC covariance is not
+/// available (the inference then is the classical one).
+///
+/// # Safety
+/// As `anofox_ols_hc_fit`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_wls_hc_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    weights: DataArray,
+    options: WlsOptionsFFI,
+    out_core: *mut FitResultCore,
+    out_inference: *mut FitResultInference,
+    out_vcov: *mut *mut f64,
+    out_dim: *mut usize,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
+        if out_core.is_null() || x.is_null() || x_count == 0 {
+            return fail(out_error, ErrorCode::InvalidInput, "NULL input pointer");
+        }
+        let y_vec = y.to_vec();
+        let w_vec = weights.to_vec();
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|a| a.to_vec())
+            .collect();
+        let opts = WlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: convert_hc_type_ffi(options.hc_type),
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
+            compute_loo: options.compute_loo,
+        };
+        write_cluster_fit(
+            fit_wls_hc(&y_vec, &x_vecs, &w_vec, &opts),
+            0,
+            out_core,
+            out_inference,
+            out_vcov,
+            out_dim,
+            std::ptr::null_mut(),
             out_error,
         )
     })

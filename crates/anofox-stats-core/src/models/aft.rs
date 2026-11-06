@@ -29,10 +29,10 @@ pub fn fit_aft(
 /// `psurvreg(t, eta, sigma, dist, lower.tail = FALSE)` with `eta = intercept + x'beta`
 /// (NaN coefficients, i.e. aliased columns, are skipped).
 ///
-/// `AftResult` is `#[non_exhaustive]` upstream and can't be rebuilt from stored
-/// pieces, so this mirrors `AftResult::survival_curve` on the public
-/// [`AftDistribution::log_survival`]: `S = 1` for `t <= 0`, `0` at `+Inf`, `NaN` for a
-/// `NaN` time, a row of the wrong length or an invalid scale.
+/// The stored model is rebuilt with upstream's `AftResult::from_parts` and
+/// predicts with `AftResult::survival_curve`: `S = 1` for `t <= 0`, `0` at
+/// `+Inf`, `NaN` for a `NaN` time, a row of the wrong length or pieces that
+/// are not a model (an invalid scale, an infinite coefficient).
 pub fn aft_survival_curve(
     coefficients: &[f64],
     intercept: Option<f64>,
@@ -41,32 +41,31 @@ pub fn aft_survival_curve(
     x_row: &[f64],
     times: &[f64],
 ) -> Vec<f64> {
-    let eta = if x_row.len() == coefficients.len() {
-        intercept.unwrap_or(0.0)
-            + coefficients
-                .iter()
-                .zip(x_row)
-                .filter(|(b, _)| !b.is_nan())
-                .map(|(b, x)| b * x)
-                .sum::<f64>()
-    } else {
-        f64::NAN
-    };
-    let valid = eta.is_finite() && scale.is_finite() && scale > 0.0;
-    times
-        .iter()
-        .map(|&t| {
-            if t.is_nan() || !valid {
-                f64::NAN
-            } else if t <= 0.0 {
-                1.0
-            } else if t == f64::INFINITY {
-                0.0
-            } else {
-                dist.log_survival((t.ln() - eta) / scale).exp()
-            }
-        })
-        .collect()
+    match AftResult::from_parts(dist, intercept, coefficients.to_vec(), scale, None) {
+        Ok(model) => model.survival_curve(x_row, times),
+        Err(_) => vec![f64::NAN; times.len()],
+    }
+}
+
+/// `P(T <= t)` at the linear predictor `eta` of an AFT model with `scale`
+/// (R's `psurvreg(t, eta, scale, dist)`): the model is upstream's
+/// `AftResult::from_parts` with intercept `eta` and no features. `NaN` for a
+/// `NaN` time or pieces that are not a model.
+pub fn aft_cdf(t: f64, eta: f64, scale: f64, dist: AftDistribution) -> f64 {
+    match AftResult::from_parts(dist, Some(eta), Vec::new(), scale, None) {
+        Ok(model) => 1.0 - model.survival_curve(&[], &[t])[0],
+        Err(_) => f64::NAN,
+    }
+}
+
+/// The `p`-quantile of `T` at the linear predictor `eta` (R's
+/// `qsurvreg(p, eta, scale, dist)`), through `AftResult::from_parts` and
+/// `AftResult::quantiles`; `NaN` for pieces that are not a model.
+pub fn aft_quantile(p: f64, eta: f64, scale: f64, dist: AftDistribution) -> f64 {
+    match AftResult::from_parts(dist, Some(eta), Vec::new(), scale, None) {
+        Ok(model) => model.quantiles(&[], &[p])[0],
+        Err(_) => f64::NAN,
+    }
 }
 
 /// Per-row results of an AFT fit (`residuals.survreg`, RMS §18.3), one entry per

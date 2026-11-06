@@ -381,12 +381,22 @@ static int32_t BinningCode(const DriftBindData &bind, bool categorical_values) {
 	return binning == "sturges" ? 1 : binning == "quantile" ? 3 : 0;
 }
 
+//! evidently's defaults, from upstream (drift::defaults) rather than copied here.
+static const AnofoxDriftDefaults &EvidentlyDefaults() {
+	static const AnofoxDriftDefaults defaults = [] {
+		AnofoxDriftDefaults d {};
+		anofox_drift_defaults(&d);
+		return d;
+	}();
+	return defaults;
+}
+
 static AnofoxColumnDriftOptions ColumnDriftOptions(const DriftBindData &bind, bool categorical) {
 	AnofoxColumnDriftOptions o;
 	o.test = bind.options.test ? bind.options.test->c_str() : nullptr;
 	o.threshold = bind.options.threshold.value_or(std::nan(""));
 	o.epsilon = bind.options.epsilon.value_or(std::nan(""));
-	o.n_permutations = bind.options.n_permutations.value_or(1000);
+	o.n_permutations = bind.options.n_permutations.value_or(EvidentlyDefaults().n_permutations);
 	o.seed = bind.options.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
 	o.has_seed = true;
 	o.n_bins = bind.options.n_bins.value_or(10);
@@ -560,7 +570,7 @@ static void DriftFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			o.p = bind.options.p.value_or(1.0);
 			o.base = bind.options.base.value_or(std::nan(""));
 			o.epsilon = bind.options.epsilon.value_or(std::nan(""));
-			o.n_permutations = bind.options.n_permutations.value_or(bind.kind == ANOFOX_DRIFT_TVD ? 1000 : 0);
+			o.n_permutations = bind.options.n_permutations.value_or(bind.kind == ANOFOX_DRIFT_TVD ? EvidentlyDefaults().n_permutations : 0);
 			o.seed = bind.options.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
 			o.has_seed = true;
 			o.n_bins = bind.options.n_bins.value_or(10);
@@ -811,7 +821,7 @@ struct DatasetDriftState {
 };
 
 struct DatasetDriftBindData : public FunctionData {
-	double drift_share = 0.5;
+	double drift_share = EvidentlyDefaults().dataset_drift_share;
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<DatasetDriftBindData>(*this);
 	}

@@ -153,7 +153,20 @@ fastbw_checks <- function(comment, from, fb, model_labels, tol) {
   for (j in setdiff(seq_along(model_labels), kept_cols)) {
     exprs <- c(exprs, sprintf("b.coefficients[%d]", j)); refs <- c(refs, 0)
   }
-  c(out, checks(paste0(comment, ": approximate coefficients after deletion"), from, exprs, refs, tol))
+  out <- c(out, checks(paste0(comment, ": approximate coefficients after deletion"), from, exprs, refs, tol))
+  # Approximate covariance of the reduced model (fastbw's var) in the model's vcov layout
+  # (intercept first), zero for the deleted parameters, and parms.kept (1-based).
+  kept <- as.integer(fb$parms.kept)
+  dim <- length(model_labels) + 1L
+  full <- matrix(0, dim, dim)
+  full[kept, kept] <- fb$var
+  vv <- as.vector(t(full))
+  out <- c(out, checks(paste0(comment, ": vcov = fastbw()$var (zero rows for deleted parameters)"), from,
+                       sprintf("b.vcov[%d]", seq_along(vv)), vv, tol))
+  c(out, paste0("# ", comment, ": kept_parameters = fastbw()$parms.kept"),
+    "query I",
+    sprintf("SELECT b.kept_parameters = [%s]::BIGINT[] FROM %s;", paste(kept, collapse = ", "), from),
+    "----", "true", "")
 }
 
 # ------------------------------------------------------------------- fits ---

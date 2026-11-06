@@ -344,8 +344,16 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_wls_fit(y_array, x_arrays.data(), x_arrays.size(), weights_array, options, &core_result,
-                                      state.compute_inference ? &inference_result : nullptr, &error);
+        // With hc_type the model's vcov is the HC covariance of the weighted fit its standard
+        // errors use (sandwich::vcovHC, upstream FittedWls::hc_vcov), so predict(se_fit) agrees.
+        const bool hc_vcov = state.compute_inference && state.hc_type != HcType::NONE;
+        double *hc_matrix = nullptr;
+        size_t hc_dim = 0;
+        bool success = hc_vcov ? anofox_wls_hc_fit(y_array, x_arrays.data(), x_arrays.size(), weights_array, options,
+                                                   &core_result, &inference_result, &hc_matrix, &hc_dim, &error)
+                               : anofox_wls_fit(y_array, x_arrays.data(), x_arrays.size(), weights_array, options,
+                                                &core_result, state.compute_inference ? &inference_result : nullptr,
+                                                &error);
 
         if (!success) {
             ThrowUnlessDegenerate("wls_fit_agg", error);
@@ -371,7 +379,16 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
-        writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result, state.fit_intercept, &weights_array);
+        if (hc_matrix) {
+            writer.WriteCovariance(result_idx, hc_matrix, hc_dim,
+                                   ResidualDf(core_result.n_observations, core_result.coefficients,
+                                              core_result.coefficients_len, state.fit_intercept));
+            anofox_free_interval_matrix(hc_matrix);
+        } else {
+            // Classical, also when the HC covariance is not available (the inference falls back too).
+            writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result,
+                                         state.fit_intercept, &weights_array);
+        }
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);
         }

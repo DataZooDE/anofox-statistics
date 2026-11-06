@@ -1,0 +1,163 @@
+# name: test/sql/regression/test_glm_cluster_vcov.test
+# description: cluster forms of the GLM fits and aft_fit_agg: shape, NULL handling, options and errors (reference values: test/sql/reference/glm_cluster_vcov.test)
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, (i % 6) AS g, ['a', 'b', 'c', 'd', 'e', 'f'][(i % 6) + 1] AS gs, (i % 4)::BIGINT AS h,
+       sin(i * 0.37) AS x,
+       round(exp(1 + 0.6 * sin(i * 0.37)) + (i % 3)) AS y,
+       (i % 3 = 0)::INTEGER::DOUBLE AS yb,
+       exp(0.5 + 0.3 * sin(i * 0.37)) * (0.7 + (i % 5) / 10) AS pos,
+       exp(1 + 0.4 * sin(i * 0.37)) * (0.5 + (i % 7) / 7) AS t,
+       (i % 4 <> 0)::INTEGER::DOUBLE AS ev,
+       (1 + i % 3)::INTEGER AS w
+FROM range(60) r(i);
+
+# The cluster form returns the sibling's STRUCT plus vcov_type and n_clusters.
+query IIII
+SELECT r.vcov_type, r.n_clusters, len(r.vcov), r.std_errors[1] > 0
+FROM (SELECT poisson_fit_agg(y, [x], g, {'vcov': 'cluster'}) AS r FROM d);
+----
+cluster_HC0	[6]	4	true
+
+# Cluster ids of any type; a STRUCT of ids is multiway clustering.
+query II
+SELECT (poisson_fit_agg(y, [x], gs, {'vcov': 'cluster'})).std_errors = (poisson_fit_agg(y, [x], g, {'vcov': 'cluster'})).std_errors,
+       (poisson_fit_agg(y, [x], {'f': gs, 'q': h}, {'vcov': 'cluster', 'hc_type': 'hc1'})).n_clusters
+FROM d;
+----
+true	[6, 4]
+
+# Every family has the form.
+query IIIIII
+SELECT (binomial_fit_agg(yb, [x], g, {'vcov': 'cluster'})).vcov_type,
+       (logistic_fit_agg(yb, [x], g, {'vcov': 'cluster'})).vcov_type,
+       (negbinom_fit_agg(y, [x], g, {'vcov': 'cluster'})).vcov_type,
+       (gamma_fit_agg(pos, [x], g, {'vcov': 'cluster'})).vcov_type,
+       (tweedie_fit_agg(pos, [x], g, {'vcov': 'cluster', 'hc_type': 'hc1'})).vcov_type,
+       (aft_fit_agg(t, [x], ev, g, MAP {})).vcov_type
+FROM d;
+----
+cluster_HC0	cluster_HC0	cluster_HC0	cluster_HC0	cluster_HC1	cluster_HC0
+
+# The coefficients are the plain fit's; only the inference changes.
+query II
+SELECT (poisson_fit_agg(y, [x], g, {'vcov': 'cluster'})).coefficients = (poisson_fit_agg(y, [x])).coefficients,
+       (aft_fit_agg(t, [x], ev, g, MAP {})).coefficients = (aft_fit_agg(t, [x], ev)).coefficients
+FROM d;
+----
+true	true
+
+# AFT: vcov covers (intercept, x, log(scale)); log_scale_std_error is its last diagonal entry.
+query II
+SELECT len(r.vcov), abs(r.log_scale_std_error - sqrt(r.vcov[9])) < 1e-12
+FROM (SELECT aft_fit_agg(t, [x], ev, g, MAP {}) AS r FROM d);
+----
+9	true
+
+# A NULL cluster id leaves the row out.
+query II
+SELECT (poisson_fit_agg(y, [x], CASE WHEN i < 6 THEN NULL ELSE g END, {'vcov': 'cluster'})).n_observations,
+       (aft_fit_agg(t, [x], ev, CASE WHEN i < 6 THEN NULL ELSE g END, MAP {})).n_observations
+FROM d;
+----
+54	54
+
+# One cluster: the fit stands, the clustered inference is undefined (NULL).
+query III
+SELECT r.coefficients IS NOT NULL, r.std_errors IS NULL OR isnan(r.std_errors[1]), r.vcov IS NULL
+FROM (SELECT poisson_fit_agg(y, [x], 1, {'vcov': 'cluster'}) AS r FROM d);
+----
+true	true	true
+
+# compute_inference = false: no covariance, NULL vcov_type / n_clusters.
+query III
+SELECT r.std_errors IS NULL, r.vcov_type IS NULL, r.n_clusters IS NULL
+FROM (SELECT gamma_fit_agg(pos, [x], g, {'vcov': 'cluster', 'compute_inference': false}) AS r FROM d);
+----
+true	true	true
+
+# Per group, deterministic (canonical row order).
+query I
+SELECT count(DISTINCT se) FROM (
+    SELECT (poisson_fit_agg(y, [x], g, {'vcov': 'cluster'})).std_errors[1] AS se FROM d
+    UNION ALL
+    SELECT (poisson_fit_agg(y, [x], g, {'vcov': 'cluster'})).std_errors[1] FROM (SELECT * FROM d ORDER BY i DESC)
+);
+----
+1
+
+# Integer prior weights in the 4-argument form are still weights (no 'vcov': 'cluster').
+query I
+SELECT (poisson_fit_agg(y, [x], w, {'compute_inference': true})).std_errors
+     = (poisson_fit_agg(y, [x], w::DOUBLE, {'compute_inference': true})).std_errors
+FROM d;
+----
+true
+
+# Errors
+statement error
+SELECT poisson_fit_agg(y, [x], {'vcov': 'cluster'}) FROM d;
+----
+needs the cluster ids
+
+statement error
+SELECT poisson_fit_agg(y, [x], gs, {'compute_inference': true}) FROM d;
+----
+must be numeric
+
+statement error
+SELECT binomial_fit_agg(yb, [x], g, {'compute_inference': true}) FROM d;
+----
+needs 'vcov': 'cluster'
+
+statement error
+SELECT logistic_fit_agg(yb, [x], g, {'vcov': 'cluster', 'hc_type': 'hc3'}) FROM d;
+----
+linear models only
+
+statement error
+SELECT gamma_fit_agg(pos, [x], {'hc_type': 'hc1'}) FROM d;
+----
+apply to the cluster-robust covariance
+
+statement error
+SELECT poisson_fit_agg(y, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT aft_fit_agg(t, [x], ev, {'vcov': 'cluster'}) FROM d;
+----
+needs the cluster ids
+
+statement error
+SELECT aft_fit_agg(t, [x], ev, g, {'vcov': 'sandwich'}) FROM d;
+----
+'vcov' must be
+
+statement error
+SELECT negbinom_fit_agg(y, [x], CASE WHEN i < 3 THEN [g] ELSE [g, h] END, {'vcov': 'cluster'}) FROM d;
+----
+inconsistent number of cluster dimensions
+
+# A coefficient at an L1 prior's kink has no sandwich: an error, not a silent NULL.
+statement error
+SELECT poisson_fit_agg(y, [x], g, {'vcov': 'cluster', 'feature_names': ['x'],
+                                   'prior': MAP {'x': {'dist': 'laplace', 'loc': 0.0, 'scale': 0.0001}}}) FROM d;
+----
+kink
+
+# The OLS / WLS cluster forms accept 'vcov': 'cluster' too.
+query I
+SELECT (ols_fit_agg(y, [x], g, {'vcov': 'cluster'})).std_errors = (ols_fit_agg(y, [x], g, MAP {})).std_errors FROM d;
+----
+true
+
+statement error
+SELECT ols_fit_agg(y, [x], g, {'vcov': 'naive'}) FROM d;
+----
+'vcov' must be

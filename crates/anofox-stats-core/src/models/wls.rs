@@ -1,7 +1,9 @@
 //! Weighted Least Squares (WLS) regression using native WlsRegressor
 
 use crate::errors::{StatsError, StatsResult};
-use crate::models::cluster::{lm_cluster_inference, ClusterFit, ClusterSpec, LmClusterInput};
+use crate::models::cluster::{
+    inference_from_vcov, lm_cluster_inference, ClusterFit, ClusterSpec, LmClusterInput,
+};
 use crate::types::{
     FitResult, FitResultCore, FitResultInference, HcType, ModelSummary, SolverType, WlsOptions,
 };
@@ -195,21 +197,17 @@ pub(crate) fn fit_wls_impl(
         clustered = Some((vcov, n_clusters));
         Some(inf)
     } else if let Some(hc_type) = options.hc_type {
-        // Heteroskedasticity-consistent SEs of the *weighted* fit
-        // (sandwich::vcovHC(lm(..., weights = w), type = hc_type)), from
-        // upstream's weighted sandwich `FittedWls::cluster_vcov` with every
-        // fitted row its own cluster: with G = n singleton clusters vcovCL
-        // equals vcovHC for HC0 without `cadjust` and for HC1 - HC3 with it
-        // (G/(G-1) cancels the (n-1)/(n-k) of HC1 and the (G-1)/G of HC2 /
-        // HC3). `compute_hc_inference` takes no weights, so it gave the HC
-        // SEs of the unweighted residuals. The F test stays the classical one,
-        // as with `ols_fit_agg(hc_type)`.
-        let rows = ClusterSpec {
-            codes: vec![(0..y.len()).collect()],
-            cadjust: hc_type != HcType::HC0,
+        // Heteroskedasticity-consistent covariance of the *weighted* fit
+        // (sandwich::vcovHC(lm(..., weights = w), type = hc_type), upstream
+        // `FittedWls::hc_vcov`); the standard errors and tests come from it
+        // and it is the model's vcov (so predict(se_fit) uses it). The F
+        // test stays the classical one, as with `ols_fit_agg(hc_type)`.
+        let no_clusters = ClusterSpec {
+            codes: Vec::new(),
+            cadjust: false,
         };
         let input = LmClusterInput {
-            spec: &rows,
+            spec: &no_clusters,
             valid_indices: &valid_indices,
             kept: &kept,
             n_features,
@@ -217,23 +215,31 @@ pub(crate) fn fit_wls_impl(
             hc_type: Some(hc_type),
             confidence_level: options.confidence_level,
         };
-        let mut hc_summary = summary;
-        let (inf, vcov, _) = lm_cluster_inference(&input, &mut hc_summary, |codes, opts| {
-            fitted.cluster_vcov(&x_mat, codes, opts)
-        });
-        if vcov.is_some() {
-            summary = hc_summary;
-            Some(FitResultInference {
-                f_statistic: Some(result.f_statistic),
-                f_pvalue: Some(result.f_pvalue),
-                ..inf
-            })
-        } else {
-            // Fall back to classical inference if HC fails (e.g. a row with
-            // leverage 1 for HC2 / HC3); the intercept inference then is the
-            // classical one too.
-            summary = ModelSummary::from_result(fitted.model_info(), result, true);
-            Some(classical())
+        let upstream_hc = match hc_type {
+            HcType::HC0 => anofox_regression::HcType::HC0,
+            HcType::HC1 => anofox_regression::HcType::HC1,
+            HcType::HC2 => anofox_regression::HcType::HC2,
+            HcType::HC3 => anofox_regression::HcType::HC3,
+        };
+        match fitted.hc_vcov(&x_mat, upstream_hc) {
+            Ok(v) => {
+                let mut hc_summary = summary;
+                let (inf, full) = inference_from_vcov(&input, &mut hc_summary, &v);
+                summary = hc_summary;
+                clustered = Some((Some(full), Vec::new()));
+                Some(FitResultInference {
+                    f_statistic: Some(result.f_statistic),
+                    f_pvalue: Some(result.f_pvalue),
+                    ..inf
+                })
+            }
+            Err(_) => {
+                // Fall back to classical inference if HC fails (e.g. a row
+                // with leverage 1 for HC2 / HC3); the intercept inference and
+                // the covariance then are the classical ones too.
+                summary = ModelSummary::from_result(fitted.model_info(), result, true);
+                Some(classical())
+            }
         }
     } else {
         Some(classical())

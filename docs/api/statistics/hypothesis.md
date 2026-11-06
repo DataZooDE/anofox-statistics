@@ -1056,9 +1056,9 @@ FROM (VALUES (true), (false), (true)) t(d);
 ### embedding_drift_agg, energy_distance_test_agg, mmd_test_agg
 
 ```
-embedding_drift_agg(embedding DOUBLE[], group | is_reference BOOLEAN, [options]) -> STRUCT(method, score, threshold, drifted, n1, n2, dim)
+embedding_drift_agg(embedding DOUBLE[], group | is_reference BOOLEAN, [options]) -> STRUCT(method, score, threshold, drifted, n1, n2, dim, bandwidth)
 energy_distance_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ...)
-mmd_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ...)
+mmd_test_agg(x DOUBLE[], group, [options]) -> STRUCT(statistic, p_value, n1, n2, dim, n_permutations, ..., bandwidth)
 ```
 
 Drift and two-sample tests on vectors, such as text or image embeddings: one `DOUBLE[]`
@@ -1072,7 +1072,10 @@ reference). For the two tests, group 1 (`n1`) is the smaller label. The seeded r
 
 `embedding_drift_agg` is evidently's embedding drift
 (`legacy/metrics/data_drift/embedding_drift_methods.py`). `n1` is the reference size,
-`n2` the current size and `dim` the vector length. The drift is `score > threshold`:
+`n2` the current size and `dim` the vector length; `bandwidth` is the kernel bandwidth of
+the `mmd` method (`sqrt(s² / 2)`, upstream `drift::embedding_mmd_bandwidth`; NULL for the
+other methods). The drift is `score > threshold`. The defaults are evidently's, taken
+from upstream (`drift::defaults`):
 
 | method | score | default threshold |
 |---|---|---|
@@ -1102,7 +1105,9 @@ and its classifier method (`model`) are not part of this function.
 The statistic is `2 E‖X − Y‖ − E‖X − X'‖ − E‖Y − Y'‖`, with the within-sample means taken
 over distinct pairs. `energy::eqdist.etest` reports `n1 n2 / (n1 + n2)` times the
 version with the means over all pairs, so its value differs by that scale and by the
-zero diagonal. `mmd_test_agg` is the unbiased MMD² (Gretton et al.). Both p-values are
+zero diagonal. `mmd_test_agg` is the unbiased MMD² (Gretton et al.); its `bandwidth`
+field is the bandwidth of the gaussian / laplacian kernel it used (NULL for the linear
+and polynomial kernels). Both p-values are
 seeded permutation p-values `(1 + #{permuted ≥ observed}) / (1 + n_permutations)`. Both
 also carry the unified test fields. The cost is O(n_permutations · N² · dim) for N rows.
 
@@ -1111,7 +1116,7 @@ also carry the unified test fields. The cost is O(n_permutations · N² · dim) 
 | n_permutations (alias `permutations`) | 1000 | Permutations |
 | seed (alias `random_state`) | 42 | Seed of the permutations |
 | kernel | `gaussian` | `mmd_test_agg` only: `gaussian` `exp(-‖a − b‖² / (2 h²))`, `laplacian` `exp(-‖a − b‖₁ / h)`, `linear` `a·b`, `polynomial` `(scale a·b + offset)^degree` |
-| bandwidth (alias `sigma`) | 1 | `h` of the gaussian / laplacian kernel. It is not chosen from the data, so set it to the scale of the distances |
+| bandwidth (alias `sigma`) | `'median'` (gaussian), 1 (laplacian) | `h` of the gaussian / laplacian kernel: a number, or `'median'` (gaussian only) for the median heuristic `max(median ‖a − b‖ over all pooled pairs, 0.01)` (upstream `Kernel::GaussianMedianHeuristic`), the bandwidth `mmd_agg` uses and the convention of evidently's MMD. With 1-D vectors the default equals `mmd_agg` |
 | degree, scale, offset | 2, 1, 1 | Polynomial kernel |
 
 ```sql
@@ -1127,7 +1132,8 @@ SELECT embedding_drift_agg(e, grp)                                  AS distance,
 FROM emb;
 
 SELECT (energy_distance_test_agg(e, grp, {'n_permutations': 999})).p_value AS energy_p,
-       (mmd_test_agg(e, grp, {'kernel': 'gaussian', 'bandwidth': 1.0})).p_value AS mmd_p
+       (mmd_test_agg(e, grp, {'kernel': 'gaussian', 'bandwidth': 1.0})).p_value AS mmd_p,
+       (mmd_test_agg(e, grp)).bandwidth AS median_bandwidth  -- the default: 1.358
 FROM emb;
 ```
 

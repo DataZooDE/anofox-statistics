@@ -87,6 +87,37 @@ SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered, {
 FROM po_lines;
 ```
 
+### Cluster-robust covariance
+
+```text
+aft_fit_agg(time DOUBLE, x DOUBLE[], event DOUBLE, cluster ANY, options) -> STRUCT
+```
+
+Standard errors clustered by `cluster` (e.g. repeated orders of one supplier,
+several events of one patient), as R's `survreg(..., cluster = id)` /
+`rms::robcov(psm(...))`, through upstream's `AftResult::cluster_vcov`. `cluster`
+is one id per row of any type; a `LIST` or `STRUCT` of ids gives multiway
+clustering; rows with a NULL id are skipped. `options` is required (`MAP {}`
+for the defaults; `'vcov': 'cluster'` is accepted) and `compute_inference`
+defaults to true. `'hc_type'`: `'hc0'` (default) or `'hc1'`; `'cadjust'`
+defaults to **false**, survreg's convention (`true` multiplies the meat by
+`G/(G − 1)`, as `vcovCL`). With Gaussian priors the bread is the penalized
+information (the sandwich of the penalized estimating equation).
+
+`std_errors`, `z_values`, `p_values`, the intervals, `intercept_std_error` and
+`log_scale_std_error` are the clustered ones; three fields are appended:
+`vcov` (the clustered covariance of the intercept, the coefficients and
+`log(scale)`, row-major), `vcov_type` (`'cluster_HC0'` / `'cluster_HC1'`) and
+`n_clusters`. With fewer than two clusters the inference and `vcov` are NULL.
+Validated against `survreg(cluster =)` (`test/sql/reference/glm_cluster_vcov.test`).
+
+```sql
+-- Lead-time model with standard errors clustered by supplier rating band
+SELECT (fit).std_errors, (fit).log_scale_std_error, (fit).n_clusters
+FROM (SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered, supplier_rating, MAP {}) AS fit
+      FROM po_lines);
+```
+
 ## The model
 
 ```
@@ -135,7 +166,10 @@ aft_quantile(p DOUBLE, eta DOUBLE, scale DOUBLE, dist VARCHAR) -> DOUBLE
 | `dist` | Distribution used for the fit: `weibull`, `lognormal`, `loglogistic`, `exponential` |
 
 A NULL in any argument returns NULL; an unknown distribution name raises an
-error.
+error. The model is rebuilt from these pieces with upstream's
+`AftResult::from_parts`, so pieces that are not a model give NaN: a scale that
+is not positive and finite, or a scale other than 1 for `exponential` (its
+scale is fixed).
 
 ```sql
 -- P(delivery within 10 days) and the median predicted duration per order

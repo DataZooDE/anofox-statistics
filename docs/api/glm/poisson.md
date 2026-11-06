@@ -139,6 +139,55 @@ SELECT (fit).coefficients, (fit).std_errors
 FROM (SELECT poisson_fit_agg(qty, [promo], shelf_facings, {'compute_inference': true}) AS fit FROM demand);
 ```
 
+### Cluster-robust covariance
+
+```text
+poisson_fit_agg(y DOUBLE, x DOUBLE[], cluster ANY, options) -> STRUCT
+```
+
+Standard errors clustered by `cluster`, as R's `sandwich::vcovCL(glm(...),
+cluster = ~id)` (upstream `GlmResult::cluster_vcov`). The same form exists for
+`binomial_fit_agg`, `logistic_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg`
+and `tweedie_fit_agg`, and as the 5-argument
+[`aft_fit_agg(time, x, event, cluster, options)`](../survival/aft.md#cluster-robust-covariance);
+the OLS / WLS form is described in [OLS](../regression/ols.md).
+
+- **`cluster`** is one id per row of any type; a `LIST` or `STRUCT` of ids
+  gives multiway clustering (`vcovCL(cluster = ~firm + year)`). Rows with a
+  NULL id are skipped.
+- **`options`** must contain `'vcov': 'cluster'`: the 4-argument position is
+  also the prior weights of `poisson` / `gamma` / `tweedie_fit_agg(y, x, w,
+  options)`, and a cluster id is as often an integer as a weight. Without it a
+  numeric third argument stays a weight. `compute_inference` defaults to true.
+- **`hc_type`**: `'hc0'` (the default, `vcovCL`'s for GLMs) or `'hc1'`
+  (`(n − 1)/(n − k)`); HC2 / HC3 are for linear models only (error).
+  **`cadjust`** (default true) multiplies each dimension's meat by `G/(G − 1)`.
+- With **priors or `glm_lambda`** the bread is the penalized information
+  `(XᵀWX + P)⁻¹`, the sandwich of the penalized estimating equation
+  (`rms::robcov` of a penalized fit), whatever `vcov` type the plain fit would
+  report. A coefficient held at an L1 (Laplace) prior's kink has no sandwich:
+  that is an error. A negative binomial `theta` is held at its estimate, as
+  `vcovCL(glm.nb)`. `profile_ci` cannot be combined with it.
+
+`std_errors`, `z_values`, `p_values`, `conf_low` / `conf_high` (normal, as
+`lmtest::coeftest(glm, vcov = V)`), the `intercept_*` inference and `vcov`
+(so [`predict`](../regression/model_tools.md#standard-errors-and-intervals)'s
+`se_fit` is clustered) change; coefficients and fit statistics are the plain
+fit's. Two fields are appended: `vcov_type` (`'cluster_HC0'` / `'cluster_HC1'`)
+and `n_clusters` (clusters per dimension among the fitted rows), NULL without
+`compute_inference`. With fewer than two clusters in a dimension the inference
+and `vcov` are NULL. Validated against `vcovCL` (`test/sql/reference/glm_cluster_vcov.test`).
+
+```sql
+-- Standard errors clustered by SKU, and two-way by SKU and promo
+SELECT (fit).std_errors, (fit).vcov_type, (fit).n_clusters
+FROM (SELECT poisson_fit_agg(qty, [promo, shelf_facings], sku, {'vcov': 'cluster'}) AS fit FROM demand);
+
+SELECT (fit).n_clusters
+FROM (SELECT poisson_fit_agg(qty, [shelf_facings], [sku, promo::VARCHAR], {'vcov': 'cluster', 'hc_type': 'hc1'}) AS fit
+      FROM demand);
+```
+
 ## poisson_fit_predict_agg
 
 Fits on the training rows and returns one prediction per input row, in input

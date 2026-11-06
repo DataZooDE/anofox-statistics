@@ -13,28 +13,33 @@ use crate::{StatsError, StatsResult};
 use anofox_regression::reduction::{
     self, Linkage, Node, RedunOptions, RedunVariable, Similarity, SimilarityTransform,
 };
-use anofox_regression::solvers::RegressionError;
+use anofox_regression::solvers::{DegenerateData, RegressionError};
+use anofox_regression::splines::SplineError;
 pub use anofox_regression::transform::AregType;
 use anofox_regression::transform::{self, Areg, AregBasis, AregOptions, BoxCoxOptions};
 use faer::{Col, Mat};
 
-/// Upstream input errors that describe degenerate data rather than invalid
-/// arguments: reported as [`StatsError::InsufficientDataMsg`] (SQL NULL).
-const DEGENERATE_MESSAGES: [&str; 5] = [
-    "y is constant",
-    "two or more levels",
-    "could not be computed",
-    "dissimilarities must be finite",
-    // areg: a spline basis of a variable with fewer than 6 rows (upstream
-    // wraps rcspline.eval's TooFewObservations in an InvalidInput string)
-    "non-missing observations",
-];
-
+/// Upstream's typed errors for data that cannot support a result (a constant
+/// response, a single level, an incomputable similarity, too few rows for a
+/// spline basis) are reported as [`StatsError::InsufficientDataMsg`] (SQL
+/// NULL); the other degenerate-data variants (a constant column to scale, a
+/// non-positive Box–Cox response, a variable with too few observed values)
+/// stay input errors, as they were.
 fn convert(e: RegressionError) -> StatsError {
     match e {
-        RegressionError::InvalidInput(msg)
-            if DEGENERATE_MESSAGES.iter().any(|m| msg.contains(m)) =>
-        {
+        RegressionError::Degenerate(
+            d @ (DegenerateData::ConstantResponse
+            | DegenerateData::TooFewLevels
+            | DegenerateData::SimilarityNotComputable),
+        ) => StatsError::InsufficientDataMsg(d.to_string()),
+        RegressionError::Spline(s @ SplineError::TooFewObservations) => {
+            StatsError::InsufficientDataMsg(s.to_string())
+        }
+        RegressionError::Degenerate(d) => StatsError::InvalidInput(d.to_string()),
+        RegressionError::Spline(s) => StatsError::InvalidInput(s.to_string()),
+        // areg's single-level categorical predictor is still an untyped input
+        // error upstream (0.12.1); it is degenerate data like TooFewLevels.
+        RegressionError::InvalidInput(msg) if msg.contains("needs two or more levels") => {
             StatsError::InsufficientDataMsg(msg)
         }
         other => StatsError::from(other),

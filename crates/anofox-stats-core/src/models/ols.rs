@@ -1,7 +1,9 @@
 //! Ordinary Least Squares (OLS) regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::models::cluster::{lm_cluster_inference, ClusterFit, ClusterSpec, LmClusterInput};
+use crate::models::cluster::{
+    expand_vcov, lm_cluster_inference, ClusterFit, ClusterSpec, LmClusterInput,
+};
 use crate::types::{
     FitResult, FitResultCore, FitResultInference, HcType, ModelSummary, OlsOptions, SolverType,
 };
@@ -192,6 +194,14 @@ pub(crate) fn fit_ols_impl(
             options.confidence_level,
         ) {
             Ok(hc) => {
+                // The covariance the HC inference uses (sandwich::vcovHC), so
+                // vcov and predict(se_fit) agree with std_errors.
+                if let Ok(v) = fitted.hc_vcov(&x_mat, convert_hc_type(hc_type)) {
+                    clustered = Some((
+                        Some(expand_vcov(&v, &kept, n_features, options.fit_intercept)),
+                        Vec::new(),
+                    ));
+                }
                 if let Some(i) = &hc.intercept {
                     summary.set_intercept_inference(
                         Some(i.std_error),

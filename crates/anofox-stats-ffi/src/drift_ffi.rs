@@ -541,3 +541,34 @@ pub unsafe extern "C" fn anofox_dataset_drift(
         }
     })
 }
+
+/// evidently's default parameters the SQL layer needs before it calls a drift
+/// function (upstream `drift::defaults`), so they are not copied into the
+/// extension.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct DriftDefaultsFFI {
+    /// Permutations of the TVD / column drift p-values (`N_PERMUTATIONS`).
+    pub n_permutations: usize,
+    /// Bootstrap resamples of the embedding thresholds
+    /// (`EMBEDDING_BOOTSTRAP_RESAMPLES`).
+    pub embedding_bootstrap_resamples: usize,
+    /// Share of drifted columns for dataset drift (`DATASET_DRIFT_SHARE`).
+    pub dataset_drift_share: f64,
+}
+
+/// Fill `out` with upstream's evidently defaults (`drift::defaults`).
+///
+/// # Safety
+/// `out` must be NULL or a valid pointer.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_drift_defaults(out: *mut DriftDefaultsFFI) {
+    use anofox_tests::drift::defaults as d;
+    if let Some(o) = out.as_mut() {
+        *o = DriftDefaultsFFI {
+            n_permutations: d::N_PERMUTATIONS,
+            embedding_bootstrap_resamples: d::EMBEDDING_BOOTSTRAP_RESAMPLES,
+            dataset_drift_share: d::DATASET_DRIFT_SHARE,
+        };
+    }
+}
