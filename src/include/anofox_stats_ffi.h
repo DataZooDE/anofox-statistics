@@ -5046,6 +5046,46 @@ bool anofox_gls_augment(const AnofoxGlsData *data, AnofoxGlsOptions options, Ano
                         AnofoxError *out_error);
 void anofox_free_gls_augment_result(AnofoxGlsAugmentResult *result);
 
+/* ============================================================================
+ * P-spline smoother (#316)
+ * ============================================================================ */
+
+/** Options of anofox_pspline_fit_predict. Must match PSplineOptionsFFI.
+ *  n_basis 0 lets upstream choose; a NaN lambda selects it by GCV. */
+typedef struct {
+	uint32_t n_basis;
+	uint32_t penalty_order;
+	double lambda;
+} AnofoxPSplineOptions;
+
+/** A fitted P-spline and its predictions at n_points points. Must match PSplineResultFFI. */
+typedef struct {
+	double lambda;
+	double edf;
+	double sigma2;
+	double r_squared;
+	double *coefficients;
+	double *fitted;
+	double *se_fit;
+	double *lower;
+	double *upper;
+	size_t coefficients_len;
+	size_t n_points;
+	size_t n_observations;
+	size_t penalty_order;
+	AnofoxModelSummaryFFI summary;
+} AnofoxPSplineResult;
+
+/**
+ * Fit upstream's PSplineRegressor (mgcv s(x, bs = "ps")) on the complete rows of (x, y) and
+ * predict at the n_points values of x_new. interval: -1 none, 0 prediction, 1 confidence, at level.
+ * Release out with anofox_free_pspline_result.
+ */
+bool anofox_pspline_fit_predict(AnofoxDataArray x, AnofoxDataArray y, const double *x_new, size_t n_points,
+                                AnofoxPSplineOptions options, int32_t interval, double level,
+                                AnofoxPSplineResult *out, AnofoxError *out_error);
+void anofox_free_pspline_result(AnofoxPSplineResult *result);
+
 #ifdef __cplusplus
 }
 #endif

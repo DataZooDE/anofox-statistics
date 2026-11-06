@@ -94,6 +94,7 @@ static const struct {
     {"pls_prediction_by", "prediction"}, {"quantile_prediction_by", "prediction"}, {"alm_prediction_by", "prediction"},
     {"poisson_prediction_by", "prediction"}, {"binomial_prediction_by", "prediction"}, {"logistic_prediction_by", "prediction"},
     {"negbinom_prediction_by", "prediction"}, {"gamma_prediction_by", "prediction"}, {"tweedie_prediction_by", "prediction"}, {"isotonic_prediction_by", "prediction"},
+    {"pspline_prediction_by", "prediction"},
     {"bayesian_ridge_prediction_by", "prediction"}, {"ard_prediction_by", "prediction"},
     {"passive_aggressive_prediction_by", "prediction"}, {"lm_dynamic_prediction_by", "prediction"},
     {"ols_effects_by", "prediction"}, {"wls_effects_by", "prediction"}, {"ridge_effects_by", "prediction"},

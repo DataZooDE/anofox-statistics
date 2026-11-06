@@ -31,6 +31,7 @@ mod path;
 mod pls;
 mod predict;
 mod predict_se;
+mod pspline;
 mod quantile;
 mod ransac;
 mod ridge;
@@ -112,6 +113,7 @@ pub use predict::predict;
 pub use predict_se::{
     coefficient_vcov, glm_vcov, predict_se_glm, predict_se_linear, PredictInterval, PredictSe,
 };
+pub use pspline::{fit_predict_pspline, PSplineFit, PSplineOptions, PSplinePredictions};
 pub use quantile::{fit_quantile, quantile_process, QuantileProcessRow, QuantileSeType};
 pub use ransac::{fit_ransac, RansacResult};
 pub use ridge::{fit_ridge, ridge_selected_lambda, DEFAULT_COND_THRESHOLD, DEFAULT_LAMBDA_SMALL};

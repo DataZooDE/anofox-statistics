@@ -64,6 +64,8 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader);
 void RegisterLsStateFunctions(ExtensionLoader &loader);
 void RegisterLmDynamicFunctions(ExtensionLoader &loader);
 void RegisterLowessFunction(ExtensionLoader &loader);
+// P-spline smoother: pspline_fit_agg, pspline_fit_predict_agg (#316)
+void RegisterPSplineAggregateFunctions(ExtensionLoader &loader);
 void RegisterPathAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions

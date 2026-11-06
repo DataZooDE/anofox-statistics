@@ -10852,3 +10852,7 @@ pub use ordinal_ffi::*;
 // Generalized least squares, nlme::gls (#315)
 mod gls_ffi;
 pub use gls_ffi::*;
+
+// P-spline smoother (#316)
+mod pspline_ffi;
+pub use pspline_ffi::*;

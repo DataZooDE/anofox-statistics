@@ -944,6 +944,26 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // pspline_fit_predict_by: P-spline smoother fit and predict per group (long format, #316)
+    // Takes a single x column. Options: n_basis (alias k), penalty_order, lambda, confidence_level,
+    // interval ('prediction' (default) | 'confidence' | 'none')
+    {"pspline_fit_predict_by", {"source", "group_col", "y_col", "x_col", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_pred, _rn, _anofox_rid),
+    (_pred[_rn]).yhat AS yhat,
+    (_pred[_rn]).yhat_lower AS yhat_lower,
+    (_pred[_rn]).yhat_upper AS yhat_upper,
+    (_pred[_rn]).is_training AS is_training
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        pspline_fit_predict_agg(y_col, x_col, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col
+)"},
+
     // bayesian_ridge_fit_predict_by: Bayesian Ridge fit and predict per group (long format, #61)
     // Options: fit_intercept, max_iterations, tolerance, alpha_1, alpha_2, lambda_1, lambda_2,
     //          confidence_level (posterior predictive interval)
@@ -1209,6 +1229,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"tweedie_fit_predict_by", "Table macro: fits a Tweedie GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "tweedie_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
     {"pls_fit_predict_by", "Table macro: fits a partial least squares (PLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "pls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"isotonic_fit_predict_by", "Table macro: fits an isotonic regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "isotonic_fit_predict_by('my_table', group_col, y, x)", "regression"},
+    {"pspline_fit_predict_by", "Table macro: fits a P-spline smoother (mgcv s(x, bs = 'ps')) of y_col on the single column x_col per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (prediction interval at confidence_level, default 0.95; options interval 'confidence' or 'none') and is_training appended. Options as pspline_fit_predict_agg.", "pspline_fit_predict_by('my_table', group_col, y, x)", "regression"},
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},

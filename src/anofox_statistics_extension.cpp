@@ -243,6 +243,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLsStateFunctions(loader);
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
+    // P-spline smoother: pspline_fit_agg, pspline_fit_predict_agg (#316)
+    RegisterPSplineAggregateFunctions(loader);
     RegisterPathAggregateFunctions(loader);
     // Ordinal regression: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict (#313)
     RegisterOrdinalFunctions(loader);
