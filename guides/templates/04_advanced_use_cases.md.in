@@ -359,6 +359,29 @@ JOIN territory_summary t ON s.territory = t.territory
 ORDER BY s.traffic_coef DESC;
 ```
 
+### Pattern: Fits and Tests at Every Level in One Query
+
+`GROUP BY ROLLUP`, `CUBE` or `GROUPING SETS` fit one model per region and product, per
+region, and overall in a single query. `GROUPING()` tells the levels apart. Each level's
+result is identical to a separate `GROUP BY` at that level (bitwise, on DuckDB v1.5.6 and 2.0).
+
+```sql
+SELECT
+    CASE GROUPING(region, product) WHEN 0 THEN 'region x product' WHEN 1 THEN 'region' ELSE 'overall' END AS level,
+    region, product,
+    round((ols_fit_agg(sales, [price])).coefficients[1], 3) AS price_effect,
+    round((t_test_agg(sales, promo)).p_value, 4) AS promo_p
+FROM (SELECT i % 3 AS region, i % 2 AS product, (i % 4 < 2)::INT AS promo, 10 + (i % 7) * 0.5 AS price,
+             100 - 2.0 * (10 + (i % 7) * 0.5) + (i % 4 < 2)::INT * 3 + sin(i) * 4 AS sales
+      FROM range(3000) r(i))
+GROUP BY ROLLUP (region, product)
+ORDER BY GROUPING(region, product), region, product;
+```
+
+Each level is still computed from the rows. DuckDB 2.0 builds coarser levels from finer
+levels' states only for aggregates with compact, fixed-size states, which the fit and test
+aggregates do not have yet (#266).
+
 ---
 
 ## Cohort Analysis
@@ -651,6 +674,75 @@ FROM current_performance c
 JOIN baseline_performance b ON c.category = b.category;
 ```
 
+### Pattern: Drift Alerts with a Trigger (DuckDB 2.0)
+
+DuckDB 2.0 has triggers, so the database can check for drift itself whenever data arrives.
+This trigger compares the latest 200 events with a reference sample after every `INSERT`
+statement and records an alert when the PSI exceeds 0.25:
+
+```sql skip
+-- DuckDB 2.0 only (triggers do not exist on v1.5.6)
+CREATE TABLE events(ts TIMESTAMP, v DOUBLE);
+CREATE TABLE alerts(alert_ts TIMESTAMP, psi DOUBLE, n BIGINT);
+CREATE TABLE ref AS SELECT sin(i * 0.37) AS v FROM range(500) t(i);
+
+CREATE TRIGGER drift_check AFTER INSERT ON events FOR EACH STATEMENT
+    INSERT INTO alerts
+    SELECT max_ts, psi, n FROM (
+        SELECT (psi_agg(v, src)).psi AS psi, count(*) FILTER (WHERE src = 1) AS n, max(ts) AS max_ts
+        FROM (SELECT v, 0 AS src, NULL::TIMESTAMP AS ts FROM ref
+              UNION ALL
+              SELECT v, 1, ts FROM (SELECT v, ts FROM events ORDER BY ts DESC LIMIT 200)))
+    WHERE n >= 200 AND psi > 0.25;
+
+INSERT INTO events SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) SECOND, sin(i * 0.37) FROM range(300) t(i);
+-- no alert
+INSERT INTO events SELECT TIMESTAMP '2026-01-02' + INTERVAL (i) SECOND, sin(i * 0.37) + 1.5 FROM range(300) t(i);
+SELECT * FROM alerts;  -- one row, psi ≈ 8.8
+```
+
+Use `FOR EACH STATEMENT`. A `FOR EACH ROW` trigger fires once per inserted row, and each firing
+sees the table after the whole statement. A 300-row `INSERT` would then write 300 identical
+alerts and run the aggregate 300 times. Any drift aggregate (`ks_test_agg`, `wasserstein_agg`,
+`jensen_shannon_agg`, ...) works the same way.
+
+On DuckDB v1.5.6, run the same `INSERT INTO alerts SELECT ...` as a scheduled query (cron or
+an orchestrator) instead of a trigger.
+
+### Pattern: A Model That Stays Current (DuckDB 2.0)
+
+A [least-squares state](../docs/api/regression/ls_state.md) summarizes rows in a few hundred
+bytes, and states merge. A statement-level trigger with a transition table (`REFERENCING NEW
+TABLE`) folds each insert's rows into a one-row model table, so the fit is always up to date
+without rescanning the history:
+
+```sql skip
+-- DuckDB 2.0 only (triggers do not exist on v1.5.6)
+CREATE TABLE sales(ts TIMESTAMP, price DOUBLE, units DOUBLE);
+CREATE TABLE model_state(state BLOB);
+INSERT INTO model_state VALUES (NULL);
+
+CREATE TRIGGER refit AFTER INSERT ON sales REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT
+    UPDATE model_state SET state = (
+        SELECT ls_state_combine_agg(s) FROM (SELECT state AS s FROM model_state
+                                             UNION ALL SELECT ls_state_agg(units, [price]) FROM new_rows));
+
+INSERT INTO sales SELECT TIMESTAMP '2026-01-01' + INTERVAL (i) MINUTE, 10 + sin(i),
+                         100 - 3 * (10 + sin(i)) + cos(i * 7) FROM range(1000) t(i);
+INSERT INTO sales VALUES (TIMESTAMP '2026-01-02', 11.0, 67.2);
+
+-- The current model; equals ols_fit_agg(units, [price]) over all of sales.
+SELECT ols_fit_from_state(state, {'compute_inference': true}) AS model FROM model_state;
+```
+
+The trigger reads only the inserted rows (`new_rows`) and the stored state. Use
+`ridge_fit_from_state` or `wls_fit_from_state` (with `ls_state_agg(y, x, weight)`) the same way.
+Deletes and updates are not reflected: a state can only grow. Rebuild it from the table
+after them.
+
+On DuckDB v1.5.6, run the `UPDATE model_state ...` from a scheduler, with `new_rows`
+replaced by a query for the rows since the last run.
+
 ### Pattern: Large-Scale Parallel Processing
 
 Partition data for parallel regression.
@@ -711,7 +803,8 @@ WHERE category = 'A';
 ```sql
 -- Cross-validation pattern (using training_data from above)
 WITH folds AS (
-    SELECT *, NTILE(5) OVER (ORDER BY random()) as fold FROM training_data
+    -- hash() gives a reproducible pseudo-random fold (DuckDB 2.0 rejects random() in a window ORDER BY)
+    SELECT *, hash(x1, x2, y) % 5 as fold FROM training_data
 ),
 -- For each held-out fold, fit on all other folds
 cv_results AS (
