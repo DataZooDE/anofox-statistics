@@ -1329,7 +1329,7 @@ void RegisterScalar(ExtensionLoader &loader, const char *name, vector<ScalarFunc
 	for (idx_t i = 0; i < overloads.size(); i++) {
 		FunctionDescription desc;
 		desc.description = description;
-		desc.examples = {examples[std::min(i, examples.size() - 1)]};
+		desc.examples = {examples[std::min<idx_t>(i, examples.size() - 1)]};
 		desc.categories = {"regression", "effects"};
 		desc.parameter_names = parameter_names[i];
 		desc.parameter_types = ArgumentTypesOf(overloads[i]);

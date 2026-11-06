@@ -630,8 +630,8 @@ static void RegisterSplineScalar(ExtensionLoader &loader, const char *name, vect
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	for (idx_t i = 0; i < overloads.size(); i++) {
 		FunctionDescription desc;
-		desc.description = descriptions[std::min(i, descriptions.size() - 1)];
-		desc.examples = {examples[std::min(i, examples.size() - 1)]};
+		desc.description = descriptions[std::min<idx_t>(i, descriptions.size() - 1)];
+		desc.examples = {examples[std::min<idx_t>(i, examples.size() - 1)]};
 		desc.categories = {"regression", "splines"};
 		desc.parameter_names = parameter_names[i];
 		desc.parameter_types = ArgumentTypesOf(overloads[i]);

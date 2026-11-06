@@ -217,7 +217,7 @@ static void RegisterKnotsAggregate(ExtensionLoader &loader, const char *name, bo
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	for (idx_t i = 0; i < signatures.size(); i++) {
 		FunctionDescription d;
-		d.description = descriptions[std::min(i, descriptions.size() - 1)];
+		d.description = descriptions[std::min<idx_t>(i, descriptions.size() - 1)];
 		d.examples = {examples[i]};
 		d.categories = {"regression", "splines"};
 		d.parameter_names = names[i];
