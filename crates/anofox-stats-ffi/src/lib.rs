@@ -10880,3 +10880,7 @@ pub use reduction_ffi::*;
 // Multiple imputation (aregImpute) and Rubin pooling (#321).
 mod imputation_ffi;
 pub use imputation_ffi::*;
+
+// AFT residuals, extended survfit / survdiff (#322)
+mod survival_extras_ffi;
+pub use survival_extras_ffi::*;

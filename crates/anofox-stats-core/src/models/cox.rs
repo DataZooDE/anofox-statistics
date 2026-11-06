@@ -19,7 +19,7 @@ pub use anofox_regression::survival::cox::{Ties as CoxTies, ZphTransform};
 /// Map upstream survival errors: no events, a singular information matrix or
 /// no rows are data that cannot support a fit (NULL in SQL); the rest are
 /// invalid arguments.
-fn map_err(e: SurvivalError) -> StatsError {
+pub(crate) fn map_err(e: SurvivalError) -> StatsError {
     match e {
         SurvivalError::Empty => StatsError::NoValidData,
         SurvivalError::Invalid("no events") => {
@@ -95,7 +95,7 @@ pub struct CoxModel {
 }
 
 /// Dense codes of `values` (sorted distinct values -> 0, 1, ...).
-fn codes(values: &[f64]) -> (Vec<usize>, Vec<f64>) {
+pub(crate) fn codes(values: &[f64]) -> (Vec<usize>, Vec<f64>) {
     let mut levels: Vec<f64> = values.to_vec();
     levels.sort_by(|a, b| a.total_cmp(b));
     levels.dedup();

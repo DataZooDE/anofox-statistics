@@ -266,6 +266,7 @@ SELECT DISTINCT function_name, tags['anofox.output'], tags['anofox.contract'] FR
 WHERE function_name LIKE '%\_augment\_by' ESCAPE '\'
 ORDER BY function_name
 ----
+aft_augment_by	obs	1
 binomial_augment_by	obs	1
 cox_augment_by	obs	1
 gamma_augment_by	obs	1

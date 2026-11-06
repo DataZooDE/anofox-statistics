@@ -1,0 +1,119 @@
+# name: test/sql/survival/test_aft_augment.test
+# description: #322 aft_augment_agg / aft_augment_by: consistency with aft_fit_agg, NULL rows, degenerate input, options
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE po AS SELECT i, (1 + i % 5)::DOUBLE AS rating, (10 + (i % 7) * 5)::DOUBLE AS qty,
+    least(exp(1.5 + 0.2 * (1 + i % 5) + 0.01 * (10 + (i % 7) * 5)) * (0.4 + ((i * 37) % 100) / 80.0), 15.0) AS days,
+    (i % 2)::VARCHAR AS supplier, i % 9 = 0 AS dummy
+FROM range(120) t(i);
+
+statement ok
+ALTER TABLE po ADD COLUMN delivered DOUBLE;
+
+statement ok
+UPDATE po SET delivered = CASE WHEN days >= 15.0 THEN 0.0 ELSE 1.0 END;
+
+# The linear predictor is the fit's intercept + x'beta; the Cox-Snell residual is -log S(t | x)
+# of aft_survival; the standardized residual is (log t - eta) / scale.
+query III
+WITH fit AS (SELECT aft_fit_agg(days, [rating, qty], delivered, {'distribution': 'lognormal'}) AS m FROM po),
+     aug AS (SELECT * FROM aft_augment_by('po', 1, days, [rating, qty], delivered, options := {'distribution': 'lognormal'}))
+SELECT max(abs(fitted - (m.intercept + m.coefficients[1] * rating + m.coefficients[2] * qty))) < 1e-9,
+       max(abs(residual + ln(aft_survival(m, [rating, qty], [days])[1].surv))) < 1e-9,
+       max(abs(std_residual - (ln(days) - fitted) / m.scale)) < 1e-9
+FROM aug, fit
+----
+true	true	true
+
+# The score contributions sum to zero at the estimate (intercept, 2 coefficients, log scale).
+query IIIII
+SELECT len(any_value(score_contributions)), abs(sum(score_contributions[1])) < 1e-4, abs(sum(score_contributions[2])) < 1e-4,
+       abs(sum(score_contributions[3])) < 1e-4, abs(sum(score_contributions[4])) < 1e-4
+FROM aft_augment_by('po', 1, days, [rating, qty], delivered)
+----
+4	true	true	true	true
+
+# Exponential: no log-scale parameter.
+query I
+SELECT DISTINCT len(score_contributions) FROM aft_augment_by('po', 1, days, [rating, qty], delivered, options := {'distribution': 'exponential'})
+----
+3
+
+# Without an intercept: one score per coefficient plus log scale.
+query I
+SELECT DISTINCT len(score_contributions) FROM aft_augment_by('po', 1, days, [rating, qty], delivered, options := {'fit_intercept': false})
+----
+3
+
+# Every source row comes back once; rows the fit cannot use get NULLs and is_training = false.
+statement ok
+CREATE TABLE po2 AS SELECT * REPLACE (CASE WHEN i = 4 THEN NULL ELSE days END AS days,
+    CASE WHEN i = 5 THEN NULL ELSE rating END AS rating) FROM po;
+
+query IIIII
+SELECT count(*), count(*) FILTER (WHERE NOT is_training), count(fitted), count(residual), count(score_contributions)
+FROM aft_augment_by('po2', supplier, days, [rating, qty], delivered)
+----
+120	2	118	118	118
+
+query II
+SELECT i, is_training FROM aft_augment_by('po2', supplier, days, [rating, qty], delivered) WHERE fitted IS NULL ORDER BY i
+----
+4	false
+5	false
+
+# A NULL x list and a NULL element in x are left out the same way.
+query I
+SELECT count(*) FILTER (WHERE NOT is_training) FROM (
+    SELECT * FROM aft_augment_by('po', supplier, days, CASE WHEN i = 1 THEN NULL WHEN i = 2 THEN [rating, NULL] ELSE [rating, qty] END, delivered))
+----
+2
+
+# The augment fit is the aft_fit_agg fit on the same rows (per group).
+query I
+WITH fits AS (SELECT supplier, aft_fit_agg(days, [rating, qty], delivered) AS m FROM po GROUP BY supplier)
+SELECT max(abs(a.fitted - (m.intercept + m.coefficients[1] * a.rating + m.coefficients[2] * a.qty))) < 1e-9
+FROM aft_augment_by('po', supplier, days, [rating, qty], delivered) a JOIN fits USING (supplier)
+----
+true
+
+# Window form: one STRUCT per frame row.
+query II
+SELECT count(*), bool_and(len(a) = 120) FROM (SELECT aft_augment_agg(days, [rating, qty], delivered) OVER () AS a FROM po)
+----
+120	true
+
+# Every row censored: no fit, NULL per partition (as aft_fit_agg).
+query I
+SELECT count(*) FROM (SELECT aft_augment_agg(days, [rating], 0.0) OVER () AS a FROM po) WHERE a IS NULL
+----
+120
+
+# Empty input
+query I
+SELECT aft_augment_agg(days, [rating], delivered) FROM po WHERE i < 0
+----
+NULL
+
+statement error
+SELECT aft_augment_agg(days, [rating], delivered, {'distribution': 'gaussian'}) OVER () FROM po
+----
+gaussian
+
+statement error
+SELECT aft_augment_agg(days, CASE WHEN i = 0 THEN [rating] ELSE [rating, qty] END, delivered) OVER () FROM po
+----
+inconsistent feature count
+
+statement error
+SELECT aft_augment_agg(days - 20, [rating], delivered) OVER () FROM po
+----
+strictly positive times
+
+statement error
+SELECT aft_augment_agg(days, [rating], delivered + 1) OVER () FROM po
+----
+event indicator must be 0

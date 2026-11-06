@@ -342,3 +342,17 @@ upstream's validation data (weighted and closest matching, `I(x)`, `tlinear = FA
 `pool_rubin_agg` over OLS and logistic fits to the imputed data sets against
 `mice::pool` / `summary(conf.int = TRUE)` (Barnard-Rubin and Rubin d.f., `dfcom`)
 and `mice::D1` (Reiter's d.f.).
+
+## `make_reference_survival_extras.R`
+
+```bash
+Rscript validation/generators/make_reference_survival_extras.R
+```
+
+Requires `survival`. It (re)writes `test/sql/reference/survival_extras.test` (#322):
+`aft_augment_by` (linear predictor, standardized and Cox-Snell residuals, score
+contributions for the four AFT distributions) against `survreg`, `psurvreg` and
+`residuals(fit, type = "matrix")`; `kaplan_meier_agg` with options (weights, entry
+times, `cluster`, `robust`, `ctype`, `conf.type`) against `survfit`; and
+`log_rank_test_agg` with `rho` / `strata` against `survdiff`, on `survival::lung`
+and `survival::heart`.

@@ -7,7 +7,7 @@ mod augment;
 mod bayesian;
 mod bls;
 mod cluster;
-mod cox;
+pub(crate) mod cox;
 mod eb_shrink;
 mod elasticnet;
 mod glm;
@@ -42,7 +42,8 @@ mod wald_anova;
 mod wls;
 
 pub use aft::{
-    aft_survival_curve, fit_aft, AftDistribution, AftFitResult, AftInference, AftOptions, AftResult,
+    aft_augment, aft_survival_curve, fit_aft, AftAugment, AftDistribution, AftFitResult,
+    AftInference, AftOptions, AftResult,
 };
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
