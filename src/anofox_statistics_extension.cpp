@@ -259,6 +259,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
     RegisterNullDistributionFunctions(loader);
+    RegisterSplineFunctions(loader);              // #317
+    RegisterSplineKnotsAggregateFunctions(loader); // #317
+    RegisterEffectsFunctions(loader);              // #319
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);

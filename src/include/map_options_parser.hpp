@@ -847,4 +847,21 @@ struct MultivariateTestMapOptions {
 	                                                 bool mmd);
 };
 
+/**
+ * Options of the spline functions (#317). `kind` selects the supported keys:
+ * 0 rcs (norm), 1 lsp (none), 2 bspline (extrapolation, include_bias),
+ * 3 rcs_knots_agg (fractied), 4 bspline_knots_agg (knots), 5 spline_spec
+ * (norm, degree, extrapolation, include_bias; checked against the kind there).
+ */
+struct SplineMapOptions {
+	std::optional<int32_t> norm;          // 0 | 1 | 2 (rcspline.eval norm), default 2
+	std::optional<uint32_t> degree;       // bspline degree, default 3
+	std::optional<string> extrapolation;  // constant | linear | continue | periodic | error
+	std::optional<bool> include_bias;     // default true
+	std::optional<double> fractied;       // default 0.05
+	std::optional<string> knots;          // uniform | quantile
+
+	static SplineMapOptions ParseFromValue(const Value &map_value, const string &function_name, int kind);
+};
+
 } // namespace duckdb

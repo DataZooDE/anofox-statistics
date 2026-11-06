@@ -4,11 +4,13 @@
 //! designed for use via FFI in a DuckDB extension.
 
 pub mod diagnostics;
+pub mod effects;
 pub mod errors;
 pub mod models;
 pub mod multinomial;
 pub mod multivariate;
 pub mod ordinal;
+pub mod splines;
 pub mod tests;
 pub mod types;
 mod validation;

@@ -2336,4 +2336,60 @@ MultivariateTestMapOptions MultivariateTestMapOptions::ParseFromValue(const Valu
 	return result;
 }
 
+SplineMapOptions SplineMapOptions::ParseFromValue(const Value &map_value, const string &function_name, int kind) {
+	static const OptionKeyDef KEY_NORM = {"norm", {}};
+	static const OptionKeyDef KEY_DEGREE = {"degree", {}};
+	static const OptionKeyDef KEY_EXTRAPOLATION = {"extrapolation", {}};
+	static const OptionKeyDef KEY_BIAS = {"include_bias", {}};
+	vector<OptionKeyDef> keys;
+	switch (kind) {
+	case 0:
+		keys = {KEY_NORM};
+		break;
+	case 1:
+		break;
+	case 2:
+		keys = {KEY_EXTRAPOLATION, KEY_BIAS};
+		break;
+	case 3:
+		keys = {{"fractied", {}}};
+		break;
+	case 4:
+		keys = {{"knots", {"placement"}}};
+		break;
+	default:
+		keys = {KEY_NORM, KEY_DEGREE, KEY_EXTRAPOLATION, KEY_BIAS};
+		break;
+	}
+	return ParseTestOptions<SplineMapOptions>(
+	    map_value, function_name, keys, [&](SplineMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "norm") {
+			    auto v = ExtractDouble(val);
+			    if (!v || (*v != 0 && *v != 1 && *v != 2)) {
+				    throw InvalidInputException("%s: norm must be 0, 1 or 2, got %s", function_name, val.ToString());
+			    }
+			    result.norm = static_cast<int32_t>(*v);
+		    } else if (key == "degree") {
+			    result.degree = ExtractUInt32(val);
+		    } else if (key == "extrapolation") {
+			    result.extrapolation =
+			        ExtractChoice(val, "extrapolation", {"constant", "linear", "continue", "periodic", "error"});
+		    } else if (key == "include_bias") {
+			    result.include_bias = ExtractBool(val);
+		    } else if (key == "fractied") {
+			    auto v = ExtractDouble(val);
+			    if (!v || !std::isfinite(*v)) {
+				    throw InvalidInputException("%s: fractied must be a finite number, got %s", function_name,
+				                                val.ToString());
+			    }
+			    result.fractied = v;
+		    } else if (key == "knots") {
+			    result.knots = ExtractChoice(val, "knots", {"uniform", "quantile"});
+		    }
+	    });
+}
+
 } // namespace duckdb

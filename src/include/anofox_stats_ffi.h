@@ -5086,6 +5086,155 @@ bool anofox_pspline_fit_predict(AnofoxDataArray x, AnofoxDataArray y, const doub
                                 AnofoxPSplineResult *out, AnofoxError *out_error);
 void anofox_free_pspline_result(AnofoxPSplineResult *result);
 
+/* ============================================================================
+ * Regression-spline bases (#317)
+ * ============================================================================
+ * Variable-length results go to caller buffers: *out_len is always set to the
+ * length of the result, and the values are written only when it fits into
+ * `capacity`, so the caller can grow the buffer and call again. */
+
+/** Spline specification. Must match SplineSpecFFI in crates/anofox-stats-ffi/src/splines_ffi.rs. */
+typedef struct AnofoxSplineSpec {
+	int32_t kind;          /* 0 rcs, 1 lsp, 2 bspline */
+	int32_t norm;          /* rcs: norm of Hmisc::rcspline.eval (0, 1, 2) */
+	int32_t extrapolation; /* bspline: 0 constant, 1 linear, 2 continue, 3 periodic, 4 error */
+	bool include_bias;     /* bspline: keep the last spline */
+	size_t degree;         /* bspline */
+	const double *knots;   /* knots (rcs, lsp) or base knots (bspline); NaN for NULL */
+	size_t n_knots;
+} AnofoxSplineSpec;
+
+/** Basis row of `spec` at x (a NaN row for non-finite x). */
+bool anofox_spline_basis(const AnofoxSplineSpec *spec, double x, double *out_values, size_t capacity,
+                         size_t *out_len, AnofoxError *out_error);
+
+/** Validate `spec`; the knots as kept upstream and the nonlinearity flag of every column. */
+bool anofox_spline_info(const AnofoxSplineSpec *spec, double *out_knots, size_t knots_capacity, size_t *out_n_knots,
+                        bool *out_nonlinear, size_t columns_capacity, size_t *out_n_columns, AnofoxError *out_error);
+
+/** Default rcs knots: Hmisc::rcspline.eval(x, nk, knots.only = TRUE, fractied). */
+bool anofox_rcs_default_knots(AnofoxDataArray x, size_t nk, double fractied, double *out_knots, size_t capacity,
+                              size_t *out_len, AnofoxError *out_error);
+
+/** B-spline base knots from data; placement 0 uniform, 1 quantile (sklearn SplineTransformer). */
+bool anofox_bspline_data_knots(AnofoxDataArray x, size_t n_knots, int32_t placement, double *out_knots,
+                               size_t capacity, size_t *out_len, AnofoxError *out_error);
+
+/** Knot quantiles of RMS Table 2.3 for nk knots. */
+bool anofox_default_knot_quantiles(size_t nk, double *out_values, size_t capacity, size_t *out_len,
+                                   AnofoxError *out_error);
+
+/** Restricted interaction (rms %ia%) of two basis rows with their nonlinearity flags. */
+bool anofox_restricted_interaction(const double *a, const bool *a_nonlinear, size_t n_a, const double *b,
+                                   const bool *b_nonlinear, size_t n_b, double *out_values, size_t capacity,
+                                   size_t *out_len, AnofoxError *out_error);
+
+/* ============================================================================
+ * Effects, contrasts, effect grids and nomograms (issue #319). The structs must
+ * match crates/anofox-stats-ffi/src/effects_ffi.rs. Variable-length results go
+ * to caller buffers (*out_len is the full length; values are written when it
+ * fits capacity); the nomogram is allocated and freed by anofox_free_nomogram.
+ * ============================================================================ */
+
+#define ANOFOX_TERM_LINEAR 0
+#define ANOFOX_TERM_RCS 1
+#define ANOFOX_TERM_LSP 2
+#define ANOFOX_TERM_CATEGORICAL 3
+#define ANOFOX_TERM_INTERACTION 4
+#define ANOFOX_TERM_RESTRICTED_INTERACTION 5
+
+typedef struct AnofoxEffectsTerm {
+	int32_t kind;
+	int32_t norm;         /* rcs */
+	const double *values; /* rcs / lsp knots; categorical levels (n_values 0: from the data) */
+	size_t n_values;
+	size_t a; /* interactions: predictor indices among the non-interaction terms */
+	size_t b;
+} AnofoxEffectsTerm;
+
+typedef struct AnofoxEffectsInput {
+	const AnofoxEffectsTerm *terms;
+	size_t n_terms;
+	const double *data; /* column-major: predictor k of row i at data[k * n_rows + i] */
+	size_t n_rows;
+	const double *beta; /* intercept first when intercept */
+	size_t n_beta;
+	const double *vcov; /* row-major n_beta x n_beta; may be NULL for the design and the nomogram */
+	bool intercept;
+	double df; /* t reference with df; NaN: standard normal */
+	double level;
+} AnofoxEffectsInput;
+
+typedef struct AnofoxEffectsSetting {
+	const size_t *predictors;
+	const double *values;
+	size_t n;
+} AnofoxEffectsSetting;
+
+typedef struct AnofoxContrastEstimate {
+	double estimate;
+	double se;
+	double lower;
+	double upper;
+	double statistic;
+	double p_value;
+} AnofoxContrastEstimate;
+
+typedef struct AnofoxEffectRow {
+	size_t predictor;
+	double low;
+	double high;
+	AnofoxContrastEstimate effect;
+} AnofoxEffectRow;
+
+typedef struct AnofoxNomogramResult {
+	size_t *axis_offsets; /* n_axes + 1 */
+	size_t n_axes;
+	double *axis_values;
+	double *axis_xbeta;
+	double *axis_points;
+	double scale;
+	double intercept;
+	double *total_points;
+	size_t n_total_points;
+	double *lp_at;
+	double *lp_points;
+	size_t n_lp;
+	double *fun_at;
+	double *fun_points;
+	size_t n_fun;
+} AnofoxNomogramResult;
+
+/** Design rows (row-major n_rows x n_columns) of the predictor data; categorical terms need levels. */
+bool anofox_effects_design(const AnofoxEffectsInput *input, double *out_values, size_t capacity, size_t *out_len,
+                           size_t *out_n_columns, AnofoxError *out_error);
+
+/** summary.rms rows. */
+bool anofox_effects_summary(const AnofoxEffectsInput *input, AnofoxEffectRow *out_rows, size_t capacity,
+                            size_t *out_len, AnofoxError *out_error);
+
+/** datadist adjust-to value (median / mode) of every predictor. */
+bool anofox_effects_adjust_to(const AnofoxEffectsInput *input, double *out_values, size_t capacity, size_t *out_len,
+                              AnofoxError *out_error);
+
+/** contrast.rms(fit, a, b); with non-NULL a2 / b2 the double difference. */
+bool anofox_effects_contrast(const AnofoxEffectsInput *input, const AnofoxEffectsSetting *a,
+                             const AnofoxEffectsSetting *b, const AnofoxEffectsSetting *a2,
+                             const AnofoxEffectsSetting *b2, AnofoxContrastEstimate *out, AnofoxError *out_error);
+
+/** Predict(fit, x_k) over values (n_values 0: default grid), pointwise or simultaneous band. */
+bool anofox_effects_predict_grid(const AnofoxEffectsInput *input, size_t predictor, const double *values,
+                                 size_t n_values, bool simultaneous, double *out_values,
+                                 AnofoxContrastEstimate *out_estimates, size_t capacity, size_t *out_len,
+                                 double *out_critical, AnofoxError *out_error);
+
+/** rms::nomogram of a main-effects model; fun 0 none, 1 plogis, 2 exp. */
+bool anofox_effects_nomogram(const AnofoxEffectsInput *input, const double *lp, size_t n_lp, double maxscale,
+                             size_t nint, int32_t fun, AnofoxNomogramResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays of a nomogram. */
+void anofox_free_nomogram(AnofoxNomogramResult *result);
+
 #ifdef __cplusplus
 }
 #endif

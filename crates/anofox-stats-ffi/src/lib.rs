@@ -10856,3 +10856,11 @@ pub use gls_ffi::*;
 // P-spline smoother (#316)
 mod pspline_ffi;
 pub use pspline_ffi::*;
+
+// Regression-spline bases (#317).
+mod splines_ffi;
+pub use splines_ffi::*;
+
+// Effects, contrasts, effect grids and nomograms (#319).
+mod effects_ffi;
+pub use effects_ffi::*;
