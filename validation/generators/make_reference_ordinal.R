@@ -12,7 +12,8 @@
 # no packaged R implementation; as upstream anofox-regression's own validation,
 # it is U' I^-1 U of the partial proportional-odds log-likelihood at the orm
 # estimate, with the score U and the information I by numDeriv. The Wald z and
-# p-values are coef / sqrt(diag(vcov)) and 2 * pnorm(-|z|).
+# p-values are coef / sqrt(diag(vcov)) and 2 * pnorm(-|z|). Predicted quantiles
+# with confidence limits are rms::Quantile.orm(q, X =, conf.int = 0.95, method =).
 
 suppressPackageStartupMessages({
   library(rms)
@@ -258,6 +259,42 @@ for (cs in cr_cases) {
   }
   check(sprintf("ordinal_predict continuation ratio %s vs predict.lrm on cr.setup cohorts", cs$title), from, conds)
 }
+
+# 6. predicted quantiles with pointwise confidence limits (type 'quantile') vs rms::Quantile.orm(conf.int = ):
+#    the model is rebuilt from the stored intercepts, slopes and information.
+quant_checks <- function(title, sql, f, newdata, x_sql, data_ids, fam) {
+  from <- sprintf("FROM (SELECT %s AS m FROM %s) t;", sql, if (is.null(data_ids)) "d" else "dc")
+  qu <- Quantile(f)
+  conds <- character()
+  for (q in c(0.5, 0.9)) for (meth in c("interpolated", "discrete")) {
+    z <- qu(q, X = newdata, conf.int = 0.95, method = meth)
+    lim <- attr(z, "limits")
+    for (r in seq_len(nrow(newdata))) {
+      e <- sprintf("ordinal_predict(t.m, %s, {'type': 'quantile', 'q': %s, 'method': '%s'})",
+                   x_sql[r], num(q), meth)
+      conds <- c(conds, close(sprintf("(%s).yhat", e), z[r], "1e-6"),
+                 close(sprintf("(%s).yhat_lower", e), lim$lower[r], "1e-5"),
+                 close(sprintf("(%s).yhat_upper", e), lim$upper[r], "1e-5"))
+    }
+  }
+  check(sprintf("ordinal_predict type 'quantile' %s vs rms::Quantile.orm(conf.int = 0.95)", title), from, conds)
+}
+nd <- as.matrix(d[ids[1:3], c("x1", "x2")])
+nd_sql <- sprintf("[%s, %s]", num(nd[, 1]), num(nd[, 2]))
+for (fam in c("logistic", "probit")) {
+  f <- orm_fit(y ~ x1 + x2, family = fam)
+  sql <- sprintf("ordinal_fit_agg(y, [x1, x2], {'link': '%s'})", fam)
+  quant_checks(fam, sql, f, nd, nd_sql, NULL, fam)
+}
+# a continuous response (one intercept per distinct value, 140 levels): the compact information
+yc <- round(2 + 1.1 * x1 - 0.6 * x2 + rnorm(n), 3)
+w("statement ok")
+w("CREATE TABLE dc AS SELECT d.*, v.yc FROM d JOIN (VALUES ",
+  paste(sprintf("(%d, %s)", d$id, num(yc)), collapse = ", "), ") v(id, yc) USING (id);")
+w("")
+dc <- data.frame(yc = yc, x1 = x1, x2 = x2)
+fc <- orm(yc ~ x1 + x2, data = dc, x = TRUE, y = TRUE, eps = 1e-10, maxit = 200)
+quant_checks("continuous response", "ordinal_fit_agg(yc, [x1, x2])", fc, nd, nd_sql, TRUE, "logistic")
 
 writeLines(L, out)
 cat("wrote", out, "\n")

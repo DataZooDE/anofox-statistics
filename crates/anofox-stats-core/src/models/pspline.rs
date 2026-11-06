@@ -7,9 +7,10 @@
 //! chosen by GCV, Bayesian standard errors of the mean and a linear extension
 //! outside the data range.
 //!
-//! Upstream keeps the fitted basis (knots, coefficients, Cholesky factor)
-//! private, so a fitted smoother cannot be rebuilt from stored parts. The
-//! extension therefore fits and predicts in one call ([`fit_predict_pspline`]).
+//! The fit returns the parts of the fitted smoother (knots, coefficients,
+//! Bayesian covariance, residual variance, edf); [`pspline_predict`] rebuilds
+//! upstream's `FittedPSpline::from_parts` from them, so a stored model
+//! predicts at new x as the fit.
 
 use super::interval::IntervalType;
 use crate::errors::{StatsError, StatsResult};
@@ -45,6 +46,11 @@ impl Default for PSplineOptions {
 pub struct PSplineFit {
     /// B-spline coefficients (`n_basis` values).
     pub coefficients: Vec<f64>,
+    /// The `n_basis + 4` knots of the cubic B-spline basis.
+    pub knots: Vec<f64>,
+    /// Bayesian posterior covariance of the coefficients, `σ² (BᵀB + λDᵀD)⁻¹`
+    /// (mgcv's `Vp`), row-major `n_basis × n_basis`.
+    pub covariance: Vec<f64>,
     /// Smoothing parameter of the difference penalty (mgcv: `sp / S.scale`).
     pub lambda: f64,
     /// Effective degrees of freedom, intercept included (`sum(gam$edf)`).
@@ -126,19 +132,85 @@ pub fn fit_predict_pspline(
     let fitted = model.fit(&x_mat, &y_col).map_err(StatsError::from)?;
     let result = fitted.result();
 
-    // The fit has no likelihood upstream (its RegressionResult leaves
-    // log_likelihood / AIC / BIC at 0), so the summary only names the model.
+    // Gaussian log-likelihood at σ̂² = RSS / n with edf + 1 d.f., AIC and BIC
+    // as mgcv's logLik.gam / AIC / BIC.
+    let mut summary = ModelSummary::new(fitted.model_info());
+    summary.log_likelihood = result.log_likelihood;
+    summary.aic = result.aic;
+    summary.bic = result.bic;
+    let cov = &fitted.covariance();
     let fit = PSplineFit {
         coefficients: result.coefficients.iter().copied().collect(),
+        knots: fitted.knots().to_vec(),
+        covariance: (0..cov.nrows())
+            .flat_map(|i| (0..cov.ncols()).map(move |j| cov[(i, j)]))
+            .collect(),
         lambda: fitted.lambda(),
         edf: fitted.edf(),
         sigma2: fitted.sigma2(),
         r_squared: result.r_squared,
         n_observations: n,
         penalty_order: options.penalty_order,
-        summary: ModelSummary::new(fitted.model_info()),
+        summary,
     };
 
+    let pred = predict_points(&fitted, x_new, interval, level);
+    Ok((fit, pred))
+}
+
+/// The stored parts of a fitted smoother (as [`PSplineFit`]).
+#[derive(Debug, Clone, Copy)]
+pub struct StoredPSpline<'a> {
+    pub knots: &'a [f64],
+    pub coefficients: &'a [f64],
+    /// Row-major `p × p`.
+    pub covariance: &'a [f64],
+    pub sigma2: f64,
+    pub edf: f64,
+    pub n_observations: usize,
+}
+
+/// Predict at `x_new` from a stored smoother rebuilt upstream
+/// (`FittedPSpline::from_parts`); as the predictions of
+/// [`fit_predict_pspline`].
+pub fn pspline_predict(
+    model: &StoredPSpline<'_>,
+    x_new: &[f64],
+    interval: Option<IntervalType>,
+    level: f64,
+) -> StatsResult<PSplinePredictions> {
+    let p = model.coefficients.len();
+    if model.covariance.len() != p * p {
+        return Err(StatsError::DimensionMismatchMsg(format!(
+            "the model's covariance has {} values, {p} coefficients need {}",
+            model.covariance.len(),
+            p * p
+        )));
+    }
+    if interval.is_some() && !(level > 0.0 && level < 1.0) {
+        return Err(StatsError::InvalidValue {
+            field: "level",
+            message: format!("level must be in (0, 1), got {level}"),
+        });
+    }
+    let cov = Mat::from_fn(p, p, |i, j| model.covariance[i * p + j]);
+    let fitted = FittedPSpline::from_parts(
+        model.knots.to_vec(),
+        model.coefficients.to_vec(),
+        &cov,
+        model.sigma2,
+        model.edf,
+        model.n_observations,
+    )?;
+    Ok(predict_points(&fitted, x_new, interval, level))
+}
+
+fn predict_points(
+    fitted: &FittedPSpline,
+    x_new: &[f64],
+    interval: Option<IntervalType>,
+    level: f64,
+) -> PSplinePredictions {
     let points: Vec<usize> = (0..x_new.len()).filter(|&i| x_new[i].is_finite()).collect();
     let mut pred = PSplinePredictions {
         fit: vec![f64::NAN; x_new.len()],
@@ -162,7 +234,7 @@ pub fn fit_predict_pspline(
             }
         }
     }
-    Ok((fit, pred))
+    pred
 }
 
 #[cfg(test)]
@@ -199,7 +271,9 @@ mod tests {
         assert!(fit.edf > 2.0 && fit.edf < 12.0);
         assert!(fit.lambda > 0.0 && fit.sigma2 > 0.0);
         assert_eq!(fit.summary.model_type, "pspline");
-        assert!(fit.summary.aic.is_nan());
+        assert!(fit.summary.log_likelihood.is_finite());
+        assert_eq!(fit.knots.len(), 16);
+        assert_eq!(fit.covariance.len(), 144);
         for (i, xi) in x.iter().enumerate() {
             assert!((pred.fit[i] - xi.sin()).abs() < 0.3);
             assert!(pred.lower[i] < pred.fit[i] && pred.fit[i] < pred.upper[i]);
@@ -252,5 +326,45 @@ mod tests {
         // Constant x.
         let c = vec![1.0; 10];
         assert!(fit_predict_pspline(&c, &y[..10], &[], &opts, None, 0.95).is_err());
+    }
+
+    #[test]
+    fn test_pspline_stored_model_predicts_as_the_fit() {
+        let (x, y) = data();
+        let new = [-1.0, 0.3, 4.2, 12.0, f64::NAN];
+        for kind in [
+            Some(IntervalType::Prediction),
+            Some(IntervalType::Confidence),
+        ] {
+            let (fit, pred) =
+                fit_predict_pspline(&x, &y, &new, &PSplineOptions::default(), kind, 0.9).unwrap();
+            let model = StoredPSpline {
+                knots: &fit.knots,
+                coefficients: &fit.coefficients,
+                covariance: &fit.covariance,
+                sigma2: fit.sigma2,
+                edf: fit.edf,
+                n_observations: fit.n_observations,
+            };
+            let again = pspline_predict(&model, &new, kind, 0.9).unwrap();
+            for i in 0..4 {
+                assert_eq!(again.fit[i], pred.fit[i]);
+                assert!((again.se_fit[i] - pred.se_fit[i]).abs() < 1e-10);
+                assert!((again.lower[i] - pred.lower[i]).abs() < 1e-9);
+                assert!((again.upper[i] - pred.upper[i]).abs() < 1e-9);
+            }
+            assert!(again.fit[4].is_nan());
+        }
+        let (fit, _) =
+            fit_predict_pspline(&x, &y, &[], &PSplineOptions::default(), None, 0.95).unwrap();
+        let model = StoredPSpline {
+            knots: &fit.knots,
+            coefficients: &fit.coefficients,
+            covariance: &fit.covariance[1..],
+            sigma2: fit.sigma2,
+            edf: fit.edf,
+            n_observations: fit.n_observations,
+        };
+        assert!(pspline_predict(&model, &[1.0], None, 0.95).is_err());
     }
 }

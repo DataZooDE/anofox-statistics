@@ -229,18 +229,11 @@ pub fn pool_rubin(
             let est = Col::from_fn(1, |_| pooled.coefficients[j]);
             let sej = Col::from_fn(1, |_| se[j]);
             let t = CoefficientInference::t_statistics(&est, &sej);
-            // A d.f. that is not finite (the imputations agree exactly, B = 0)
-            // leaves the p-value and interval undefined (NaN): upstream's
-            // t quantile does not terminate for an infinite d.f.
-            let nan = Col::from_fn(1, |_| f64::NAN);
-            let (p, lo, hi) = if df[j].is_finite() {
-                let p = CoefficientInference::p_values(&t, df[j]);
-                let (lo, hi) =
-                    CoefficientInference::confidence_intervals(&est, &sej, df[j], confidence_level);
-                (p, lo, hi)
-            } else {
-                (nan.clone(), nan.clone(), nan)
-            };
+            // An infinite d.f. (the imputations agree exactly, B = 0, without
+            // a complete-data d.f.) is the standard normal upstream.
+            let p = CoefficientInference::p_values(&t, df[j]);
+            let (lo, hi) =
+                CoefficientInference::confidence_intervals(&est, &sej, df[j], confidence_level);
             PooledTerm {
                 estimate: pooled.coefficients[j],
                 std_error: se[j],
@@ -357,12 +350,18 @@ mod tests {
 
     #[test]
     fn pool_identical_imputations_terminates() {
-        // B = 0: Rubin's d.f. is infinite; p-value and interval are left undefined
+        // B = 0: Rubin's d.f. is infinite, the reference the standard normal
         let est = vec![vec![1.0, 2.0]; 3];
         let v = vec![vec![0.04, 0.0, 0.0, 0.09]; 3];
         let r = pool_rubin(&est, &v, None, 0.95, 1).unwrap();
         assert!(r.terms[1].df.is_infinite());
-        assert!(r.terms[1].p_value.is_nan() && r.terms[1].conf_low.is_nan());
         assert!((r.terms[1].std_error - 0.3).abs() < 1e-12);
+        let z = 1.959_963_984_540_054;
+        assert!((r.terms[1].conf_low - (2.0 - z * 0.3)).abs() < 1e-9);
+        assert!(r.terms[1].p_value < 1e-10);
+        // With a complete-data d.f. the Barnard-Rubin d.f. is finite at B = 0
+        // (mice's finite form).
+        let r = pool_rubin(&est, &v, Some(20.0), 0.95, 1).unwrap();
+        assert!(r.terms[1].df.is_finite() && r.terms[1].fmi.is_finite());
     }
 }

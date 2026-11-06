@@ -4844,8 +4844,12 @@ typedef struct {
  * P(Y >= y_{j+1}) = F(alpha_j + x'beta)). Must match OrdinalFitResultFFI.
  * levels / counts: n_levels values; intercepts / intercept_std_errors:
  * n_levels - 1 (intercept_std_errors NULL when not computed); coefficients,
- * std_errors, z_values, p_values: n_features. po_*: NaN when the
- * proportional-odds score test was not computed. Release with
+ * std_errors, z_values, p_values: n_features. info_*: the observed
+ * information in upstream's compact block form (FittedOrdinal::information):
+ * intercept block diagonal (n_levels - 1) and first off-diagonal
+ * (n_levels - 2), intercepts x slopes block (row-major (n_levels - 1) x
+ * n_features), slopes block (row-major n_features x n_features). po_*: NaN
+ * when the proportional-odds score test was not computed. Release with
  * anofox_free_ordinal_result.
  */
 typedef struct {
@@ -4857,6 +4861,10 @@ typedef struct {
 	double *std_errors;
 	double *z_values;
 	double *p_values;
+	double *info_intercept_diagonal;
+	double *info_intercept_off_diagonal;
+	double *info_cross;
+	double *info_slopes;
 	size_t n_levels;
 	size_t n_features;
 	size_t n_observations;
@@ -4927,15 +4935,24 @@ void anofox_free_continuation_ratio_result(AnofoxContinuationRatioFitResult *res
 
 /**
  * One row x (the columns of the fit, including an offset column) under a
- * stored cumulative link model: n_levels category probabilities to out_proba,
- * n_levels - 1 exceedance probabilities P(Y >= y_{j+1}) to out_exceedance,
- * the mean to out_mean and the most probable level's index to out_class.
+ * stored cumulative link model, rebuilt upstream from its levels, intercepts,
+ * coefficients and information blocks (as AnofoxOrdinalFitResult, each with
+ * its length): n_levels category probabilities to out_proba, n_levels - 1
+ * exceedance probabilities P(Y >= y_{j+1}) to out_exceedance, the mean to
+ * out_mean and the most probable level's index to out_class. With a
+ * quantile_q in (0, 1) (NaN: none) also the predicted quantile and its level
+ * confidence limits (rms Quantile.orm; quantile_method 0 interpolated,
+ * 1 discrete) to out_quantile[0..3] (estimate, lower, upper).
  * offset_column: 1-based (0: none).
  */
 bool anofox_ordinal_predict(uint32_t link, const double *levels, size_t n_levels, const double *intercepts,
-                            const double *coefficients, size_t n_coefficients, uint64_t offset_column,
-                            const double *x, size_t x_len, double *out_proba, double *out_exceedance,
-                            double *out_mean, size_t *out_class, AnofoxError *out_error);
+                            const double *coefficients, size_t n_coefficients, const double *info_intercept_diagonal,
+                            size_t n_info_intercept_diagonal, const double *info_intercept_off_diagonal,
+                            size_t n_info_intercept_off_diagonal, const double *info_cross, size_t n_info_cross,
+                            const double *info_slopes, size_t n_info_slopes, uint64_t offset_column, const double *x,
+                            size_t x_len, double quantile_q, uint32_t quantile_method, double level, double *out_proba,
+                            double *out_exceedance, double *out_mean, size_t *out_class, double *out_quantile,
+                            AnofoxError *out_error);
 
 /** As anofox_ordinal_predict for a stored continuation-ratio model. */
 bool anofox_continuation_ratio_predict(const double *levels, size_t n_levels, const double *coefficients,
@@ -5069,6 +5086,8 @@ typedef struct {
 	double *se_fit;
 	double *lower;
 	double *upper;
+	double *knots;      /* coefficients_len + 4 */
+	double *covariance; /* row-major coefficients_len^2, mgcv's Vp */
 	size_t coefficients_len;
 	size_t n_points;
 	size_t n_observations;
@@ -5085,6 +5104,17 @@ bool anofox_pspline_fit_predict(AnofoxDataArray x, AnofoxDataArray y, const doub
                                 AnofoxPSplineOptions options, int32_t interval, double level,
                                 AnofoxPSplineResult *out, AnofoxError *out_error);
 void anofox_free_pspline_result(AnofoxPSplineResult *result);
+
+/**
+ * Predict at the n_points values of x_new from a stored P-spline (knots, coefficients, row-major
+ * covariance, sigma2, edf, n_observations of a fit), rebuilt upstream (FittedPSpline::from_parts).
+ * interval / level as anofox_pspline_fit_predict; each out_* receives n_points values.
+ */
+bool anofox_pspline_predict(const double *knots, size_t n_knots, const double *coefficients, size_t n_coefficients,
+                            const double *covariance, size_t n_covariance, double sigma2, double edf,
+                            size_t n_observations, const double *x_new, size_t n_points, int32_t interval, double level,
+                            double *out_fit, double *out_se, double *out_lower, double *out_upper,
+                            AnofoxError *out_error);
 
 /* ============================================================================
  * Regression-spline bases (#317)
@@ -5498,6 +5528,50 @@ void anofox_free_box_cox_result(AnofoxBoxCoxResult *result);
 double anofox_box_cox_transform(double y, double lambda);
 /** (lambda z + 1)^(1 / lambda), exp z at lambda = 0. */
 double anofox_box_cox_inverse(double z, double lambda);
+
+/**
+ * A fitted Hmisc::areg model (must match AregResultFFI in crates/anofox-stats-ffi/src/areg_ffi.rs);
+ * release with anofox_free_areg_result. x_coefficients / y_coefficients: intercept first. Per
+ * predictor: x_df basis columns, x_kinds (0 linear, 1 spline, 2 categorical) and x_values_len
+ * parameters (knots or levels), concatenated in x_values; the response's in y_values (y_kind).
+ * mad / med: NaN when the response transformation is not monotone.
+ */
+typedef struct {
+	double *x_coefficients;
+	double *y_coefficients;
+	int64_t *x_df;
+	int64_t *x_kinds;
+	double *x_values;
+	int64_t *x_values_len;
+	double *y_values;
+	size_t n_x_coefficients;
+	size_t n_y_coefficients;
+	size_t n_predictors;
+	size_t n_y_values;
+	size_t y_df;
+	size_t y_kind;
+	size_t n_observations;
+	double r_squared;
+	double mad;
+	double med;
+	double y_min;
+	double y_max;
+} AnofoxAregResult;
+
+/** Hmisc::areg(x, y, xtype, ytype, nk). Type codes: 0 spline, 1 linear, 2 categorical; x_types NULL: all splines. */
+bool anofox_areg_fit(const double *y, size_t n, const AnofoxDataArray *x, size_t n_features, uint32_t nk,
+                     const int32_t *x_types, int32_t y_type, AnofoxAregResult *out_result, AnofoxError *out_error);
+void anofox_free_areg_result(AnofoxAregResult *result);
+/**
+ * Apply a stored areg model (parts laid out as AnofoxAregResult), rebuilt upstream (Areg::from_parts):
+ * what 0 the linear predictor of the predictor row input (n_input = n_predictors), 1 the response
+ * transformation of input[0], 2 its back-transformation (NaN when not monotone / categorical).
+ */
+bool anofox_areg_apply(uint32_t what, const int64_t *x_kinds, const double *x_values, const int64_t *x_values_len,
+                       size_t n_predictors, const double *x_coefficients, size_t n_x_coefficients, int64_t y_kind,
+                       const double *y_values, size_t n_y_values, const double *y_coefficients, size_t n_y_coefficients,
+                       double y_min, double y_max, const double *input, size_t n_input, double *out_value,
+                       AnofoxError *out_error);
 
 /** A variable clustering (Hmisc::varclus); release with anofox_free_varclus_result. */
 typedef struct {

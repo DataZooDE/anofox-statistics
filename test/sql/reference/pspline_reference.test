@@ -78,7 +78,7 @@ statement ok
 CREATE TABLE p AS SELECT * FROM d UNION ALL SELECT * FROM (VALUES (61, -1, NULL::DOUBLE), (62, 0.5, NULL::DOUBLE), (63, 5, NULL::DOUBLE), (64, 11, NULL::DOUBLE)) v(t, x, y);
 
 # GCV: s(x, bs = 'ps', k = 10, m = c(2, 2)), method = 'GCV.Cp'
-query IIIIIIIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIII
 SELECT
     len(m.x) = 60,
     m.n_basis = 10,
@@ -87,6 +87,9 @@ SELECT
     abs((m.edf) - (6.6011637368602676)) <= 1e-5 * (1 + abs(6.6011637368602676)),
     abs((m.sigma2) - (0.094679702961558893)) <= 1e-5 * (1 + abs(0.094679702961558893)),
     abs((m.r_squared) - (0.93181079163073877)) <= 1e-5 * (1 + abs(0.93181079163073877)),
+    abs((m.log_likelihood) - (-10.921974763842229)) <= 1e-5 * (1 + abs(-10.921974763842229)),
+    abs((m.aic) - (37.046277001404995)) <= 1e-5 * (1 + abs(37.046277001404995)),
+    abs((m.bic) - (52.965732940258114)) <= 1e-5 * (1 + abs(52.965732940258114)),
     abs((m.x[1]) - (0.42899999999999999)) <= 1e-12 * (1 + abs(0.42899999999999999)),
     abs((m.fitted[1]) - (0.80516040052246551)) <= 1e-5 * (1 + abs(0.80516040052246551)),
     abs((m.se_fit[1]) - (0.16448163401637106)) <= 1e-5 * (1 + abs(0.16448163401637106)),
@@ -101,10 +104,10 @@ SELECT
     abs((m.se_fit[60]) - (0.20148292704266629)) <= 1e-5 * (1 + abs(0.20148292704266629))
 FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 10}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # GCV: s(x, bs = 'ps', k = 20, m = c(2, 2)), method = 'GCV.Cp'
-query IIIIIIIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIII
 SELECT
     len(m.x) = 60,
     m.n_basis = 20,
@@ -113,6 +116,9 @@ SELECT
     abs((m.edf) - (7.1436847031294786)) <= 1e-5 * (1 + abs(7.1436847031294786)),
     abs((m.sigma2) - (0.096067010364327715)) <= 1e-5 * (1 + abs(0.096067010364327715)),
     abs((m.r_squared) - (0.93151457906687984)) <= 1e-5 * (1 + abs(0.93151457906687984)),
+    abs((m.log_likelihood) - (-11.052011931304934)) <= 1e-5 * (1 + abs(-11.052011931304934)),
+    abs((m.aic) - (38.391393268868825)) <= 1e-5 * (1 + abs(38.391393268868825)),
+    abs((m.bic) - (55.447075043319344)) <= 1e-5 * (1 + abs(55.447075043319344)),
     abs((m.x[1]) - (0.42899999999999999)) <= 1e-12 * (1 + abs(0.42899999999999999)),
     abs((m.fitted[1]) - (0.82943843739380618)) <= 1e-5 * (1 + abs(0.82943843739380618)),
     abs((m.se_fit[1]) - (0.16570952247255696)) <= 1e-5 * (1 + abs(0.16570952247255696)),
@@ -127,10 +133,10 @@ SELECT
     abs((m.se_fit[60]) - (0.2026220011643515)) <= 1e-5 * (1 + abs(0.2026220011643515))
 FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 20}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # GCV: s(x, bs = 'ps', k = 12, m = c(2, 3)), method = 'GCV.Cp'
-query IIIIIIIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIII
 SELECT
     len(m.x) = 60,
     m.n_basis = 12,
@@ -139,6 +145,9 @@ SELECT
     abs((m.edf) - (6.7921409479585204)) <= 1e-5 * (1 + abs(6.7921409479585204)),
     abs((m.sigma2) - (0.095181681615524927)) <= 1e-5 * (1 + abs(0.095181681615524927)),
     abs((m.r_squared) - (0.9316944288356509)) <= 1e-5 * (1 + abs(0.9316944288356509)),
+    abs((m.log_likelihood) - (-10.973125213848471)) <= 1e-5 * (1 + abs(-10.973125213848471)),
+    abs((m.aic) - (37.530532323613983)) <= 1e-5 * (1 + abs(37.530532323613983)),
+    abs((m.bic) - (53.849960346039069)) <= 1e-5 * (1 + abs(53.849960346039069)),
     abs((m.x[1]) - (0.42899999999999999)) <= 1e-12 * (1 + abs(0.42899999999999999)),
     abs((m.fitted[1]) - (0.72022847608818763)) <= 1e-5 * (1 + abs(0.72022847608818763)),
     abs((m.se_fit[1]) - (0.1800371666106918)) <= 1e-5 * (1 + abs(0.1800371666106918)),
@@ -153,10 +162,10 @@ SELECT
     abs((m.se_fit[60]) - (0.22097214139831059)) <= 1e-5 * (1 + abs(0.22097214139831059))
 FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 12, 'penalty_order': 3}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # GCV: s(x, bs = 'ps', k = 15, m = c(2, 1)), method = 'GCV.Cp'
-query IIIIIIIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIII
 SELECT
     len(m.x) = 60,
     m.n_basis = 15,
@@ -165,6 +174,9 @@ SELECT
     abs((m.edf) - (7.8741936510074479)) <= 1e-5 * (1 + abs(7.8741936510074479)),
     abs((m.sigma2) - (0.09875316183285078)) <= 1e-5 * (1 + abs(0.09875316183285078)),
     abs((m.r_squared) - (0.93057262179349953)) <= 1e-5 * (1 + abs(0.93057262179349953)),
+    abs((m.log_likelihood) - (-11.461823896760027)) <= 1e-5 * (1 + abs(-11.461823896760027)),
+    abs((m.aic) - (40.672035095534952)) <= 1e-5 * (1 + abs(40.672035095534952)),
+    abs((m.bic) - (59.25765431262829)) <= 1e-5 * (1 + abs(59.25765431262829)),
     abs((m.x[1]) - (0.42899999999999999)) <= 1e-12 * (1 + abs(0.42899999999999999)),
     abs((m.fitted[1]) - (0.86513149053103167)) <= 1e-5 * (1 + abs(0.86513149053103167)),
     abs((m.se_fit[1]) - (0.1567034715671122)) <= 1e-5 * (1 + abs(0.1567034715671122)),
@@ -179,10 +191,10 @@ SELECT
     abs((m.se_fit[60]) - (0.19026651870074004)) <= 1e-5 * (1 + abs(0.19026651870074004))
 FROM (SELECT pspline_fit_agg(y, x, {'k': 15, 'penalty_order': 1}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # fixed lambda 0.25: s(x, bs = 'ps', k = 10, sp = 0.25 * S.scale)
-query IIIIIIIIIIIIIIIIIII
+query IIIIIIIIIIIIIIIIIIIIII
 SELECT
     len(m.x) = 60,
     m.n_basis = 10,
@@ -191,6 +203,9 @@ SELECT
     abs((m.edf) - (5.7596488322914778)) <= 1e-8 * (1 + abs(5.7596488322914778)),
     abs((m.sigma2) - (0.10004003001140137)) <= 1e-8 * (1 + abs(0.10004003001140137)),
     abs((m.r_squared) - (0.92681479808030343)) <= 1e-8 * (1 + abs(0.92681479808030343)),
+    abs((m.log_likelihood) - (-13.043182474517341)) <= 1e-8 * (1 + abs(-13.043182474517341)),
+    abs((m.aic) - (39.605662613617639)) <= 1e-8 * (1 + abs(39.605662613617639)),
+    abs((m.bic) - (53.762696388058266)) <= 1e-8 * (1 + abs(53.762696388058266)),
     abs((m.x[1]) - (0.42899999999999999)) <= 1e-12 * (1 + abs(0.42899999999999999)),
     abs((m.fitted[1]) - (0.87626767490049307)) <= 1e-8 * (1 + abs(0.87626767490049307)),
     abs((m.se_fit[1]) - (0.15662004515420602)) <= 1e-8 * (1 + abs(0.15662004515420602)),
@@ -205,7 +220,7 @@ SELECT
     abs((m.se_fit[60]) - (0.1904393588565145)) <= 1e-8 * (1 + abs(0.1904393588565145))
 FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 10, 'lambda': 0.25}) AS m FROM d)
 ----
-true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 # fit_predict, fixed lambda, 90% prediction interval
 query IIIIIIIIIIIIIIIII
@@ -278,6 +293,52 @@ SELECT
 FROM (SELECT unnest(l) AS r, unnest(ts) AS t FROM (SELECT pspline_fit_predict_agg(y, x, {'n_basis': 12, 'penalty_order': 3} ORDER BY t) AS l, list(t ORDER BY t) AS ts FROM p))
 ----
 true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# predict(model, [x]) of a stored fit, fixed lambda, 90% prediction interval
+query IIIIIIIIIIIIIIII
+SELECT
+    abs((predict(m, [-1])) - (0.36998487005214892)) <= 1e-8 * (1 + abs(0.36998487005214892)),
+    abs(((predict(m, [-1], {'interval': 'prediction', 'level': 0.90000000000000002})).se_fit) - (0.48534125834191977)) <= 1e-8 * (1 + abs(0.48534125834191977)),
+    abs(((predict(m, [-1], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_lower) - (-0.5994473895585164)) <= 1e-8 * (1 + abs(-0.5994473895585164)),
+    abs(((predict(m, [-1], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_upper) - (1.3394171296628141)) <= 1e-8 * (1 + abs(1.3394171296628141)),
+    abs((predict(m, [0.5])) - (0.90102393231258926)) <= 1e-8 * (1 + abs(0.90102393231258926)),
+    abs(((predict(m, [0.5], {'interval': 'prediction', 'level': 0.90000000000000002})).se_fit) - (0.14474071018658932)) <= 1e-8 * (1 + abs(0.14474071018658932)),
+    abs(((predict(m, [0.5], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_lower) - (0.31894278125623998)) <= 1e-8 * (1 + abs(0.31894278125623998)),
+    abs(((predict(m, [0.5], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_upper) - (1.4831050833689385)) <= 1e-8 * (1 + abs(1.4831050833689385)),
+    abs((predict(m, [5])) - (0.74518225995048082)) <= 1e-8 * (1 + abs(0.74518225995048082)),
+    abs(((predict(m, [5], {'interval': 'prediction', 'level': 0.90000000000000002})).se_fit) - (0.085726471010329069)) <= 1e-8 * (1 + abs(0.085726471010329069)),
+    abs(((predict(m, [5], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_lower) - (0.19679294064889674)) <= 1e-8 * (1 + abs(0.19679294064889674)),
+    abs(((predict(m, [5], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_upper) - (1.293571579252065)) <= 1e-8 * (1 + abs(1.293571579252065)),
+    abs((predict(m, [11])) - (1.7229936517716964)) <= 1e-8 * (1 + abs(1.7229936517716964)),
+    abs(((predict(m, [11], {'interval': 'prediction', 'level': 0.90000000000000002})).se_fit) - (0.43860379024264801)) <= 1e-8 * (1 + abs(0.43860379024264801)),
+    abs(((predict(m, [11], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_lower) - (0.81807915939272469)) <= 1e-8 * (1 + abs(0.81807915939272469)),
+    abs(((predict(m, [11], {'interval': 'prediction', 'level': 0.90000000000000002})).yhat_upper) - (2.627908144150668)) <= 1e-8 * (1 + abs(2.627908144150668))
+FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 10, 'lambda': 0.25}) AS m FROM d)
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# predict(model, [x]) of a stored fit, GCV, k = 12, m = c(2, 3), 95% confidence interval
+query IIIIIIIIIIIIIIII
+SELECT
+    abs((predict(m, [-1])) - (-0.50301403776175779)) <= 1e-5 * (1 + abs(-0.50301403776175779)),
+    abs(((predict(m, [-1], {'interval': 'confidence', 'level': 0.94999999999999996})).se_fit) - (0.77292163935835467)) <= 1e-5 * (1 + abs(0.77292163935835467)),
+    abs(((predict(m, [-1], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_lower) - (-2.0531571568465088)) <= 1e-5 * (1 + abs(-2.0531571568465088)),
+    abs(((predict(m, [-1], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_upper) - (1.0471290813229934)) <= 1e-5 * (1 + abs(1.0471290813229934)),
+    abs((predict(m, [0.5])) - (0.77869066271471432)) <= 1e-5 * (1 + abs(0.77869066271471432)),
+    abs(((predict(m, [0.5], {'interval': 'confidence', 'level': 0.94999999999999996})).se_fit) - (0.15854713129234557)) <= 1e-5 * (1 + abs(0.15854713129234557)),
+    abs(((predict(m, [0.5], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_lower) - (0.46071438658472513)) <= 1e-5 * (1 + abs(0.46071438658472513)),
+    abs(((predict(m, [0.5], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_upper) - (1.0966669388447035)) <= 1e-5 * (1 + abs(1.0966669388447035)),
+    abs((predict(m, [5])) - (0.67047477808112099)) <= 1e-5 * (1 + abs(0.67047477808112099)),
+    abs(((predict(m, [5], {'interval': 'confidence', 'level': 0.94999999999999996})).se_fit) - (0.089647815117682494)) <= 1e-5 * (1 + abs(0.089647815117682494)),
+    abs(((predict(m, [5], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_lower) - (0.49068042808592399)) <= 1e-5 * (1 + abs(0.49068042808592399)),
+    abs(((predict(m, [5], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_upper) - (0.85026912807631794)) <= 1e-5 * (1 + abs(0.85026912807631794)),
+    abs((predict(m, [11])) - (1.1708883822927416)) <= 1e-5 * (1 + abs(1.1708883822927416)),
+    abs(((predict(m, [11], {'interval': 'confidence', 'level': 0.94999999999999996})).se_fit) - (0.66182542582542658)) <= 1e-5 * (1 + abs(0.66182542582542658)),
+    abs(((predict(m, [11], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_lower) - (-0.15644427038120501)) <= 1e-5 * (1 + abs(-0.15644427038120501)),
+    abs(((predict(m, [11], {'interval': 'confidence', 'level': 0.94999999999999996})).yhat_upper) - (2.4982210349666882)) <= 1e-5 * (1 + abs(2.4982210349666882))
+FROM (SELECT pspline_fit_agg(y, x, {'n_basis': 12, 'penalty_order': 3}) AS m FROM d)
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 
 statement ok
 CREATE TABLE g AS SELECT 'a' AS grp, t, x, y FROM p UNION ALL SELECT 'b', t, x, -y FROM p;

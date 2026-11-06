@@ -1,6 +1,8 @@
 //! Data reduction and transforms (#320): upstream anofox-regression
 //! `reduction` (`Hmisc::spearman2`, `hoeffd`, `varclus`, `redun`) and
-//! `transform` (`MASS::boxcox`, the Box–Cox transform and its inverse).
+//! `transform` (`MASS::boxcox`, the Box–Cox transform and its inverse, and
+//! `Hmisc::areg`, additive regression with optimal transformations, whose
+//! stored model is rebuilt with `Areg::from_parts` to transform and predict).
 //!
 //! The wrappers only convert between the extension's column vectors and
 //! upstream's matrices, and translate upstream's "the data cannot support a
@@ -12,16 +14,20 @@ use anofox_regression::reduction::{
     self, Linkage, Node, RedunOptions, RedunVariable, Similarity, SimilarityTransform,
 };
 use anofox_regression::solvers::RegressionError;
-use anofox_regression::transform::{self, BoxCoxOptions};
+pub use anofox_regression::transform::AregType;
+use anofox_regression::transform::{self, Areg, AregBasis, AregOptions, BoxCoxOptions};
 use faer::{Col, Mat};
 
 /// Upstream input errors that describe degenerate data rather than invalid
 /// arguments: reported as [`StatsError::InsufficientDataMsg`] (SQL NULL).
-const DEGENERATE_MESSAGES: [&str; 4] = [
+const DEGENERATE_MESSAGES: [&str; 5] = [
     "y is constant",
     "two or more levels",
     "could not be computed",
     "dissimilarities must be finite",
+    // areg: a spline basis of a variable with fewer than 6 rows (upstream
+    // wraps rcspline.eval's TooFewObservations in an InvalidInput string)
+    "non-missing observations",
 ];
 
 fn convert(e: RegressionError) -> StatsError {
@@ -259,6 +265,178 @@ pub fn varclus(
         clusters: cut_height.map(|h| vc.hclust.cut_height(h)),
         n_observations: x.nrows(),
     })
+}
+
+// ------------------------------------------------------------------- areg --
+
+/// The kind of an `areg` variable (`xtype` / `ytype`): `s`, `l`, `c`.
+pub fn parse_areg_type(name: &str) -> Option<AregType> {
+    match name.to_ascii_lowercase().as_str() {
+        "s" | "spline" => Some(AregType::Spline),
+        "l" | "linear" => Some(AregType::Linear),
+        "c" | "categorical" => Some(AregType::Categorical),
+        _ => None,
+    }
+}
+
+/// The stored basis of one `areg` variable: `kind` 0 linear, 1 spline (its
+/// knots in `values`), 2 categorical (its levels in `values`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredAregBasis {
+    pub kind: u8,
+    pub values: Vec<f64>,
+}
+
+impl StoredAregBasis {
+    fn from_upstream(b: &AregBasis) -> Self {
+        match b {
+            AregBasis::Spline { knots } => Self {
+                kind: 1,
+                values: knots.clone(),
+            },
+            AregBasis::Categorical { levels } => Self {
+                kind: 2,
+                values: levels.clone(),
+            },
+            // Linear (and any basis added upstream, which has no parameters
+            // the extension could store) is one untransformed column.
+            _ => Self {
+                kind: 0,
+                values: Vec::new(),
+            },
+        }
+    }
+
+    fn to_upstream(&self) -> StatsResult<AregBasis> {
+        match self.kind {
+            0 => Ok(AregBasis::Linear),
+            1 => Ok(AregBasis::Spline {
+                knots: self.values.clone(),
+            }),
+            2 => Ok(AregBasis::Categorical {
+                levels: self.values.clone(),
+            }),
+            k => Err(StatsError::InvalidInput(format!(
+                "unknown areg basis kind {k} (0 linear, 1 spline, 2 categorical)"
+            ))),
+        }
+    }
+}
+
+/// A fitted `Hmisc::areg` model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AregFit {
+    /// Intercept, then the coefficients of the predictor bases (`xcoefficients`).
+    pub x_coefficients: Vec<f64>,
+    /// Intercept, then the coefficients of the response basis (`ycoefficients`).
+    pub y_coefficients: Vec<f64>,
+    pub r_squared: f64,
+    /// Basis columns per predictor (`xdf`) and of the response (`ydf`).
+    pub x_df: Vec<usize>,
+    pub y_df: usize,
+    /// Mean / median `|y − ŷ|`; `None` when the response transformation is
+    /// not monotone (or categorical).
+    pub mad: Option<f64>,
+    pub med: Option<f64>,
+    pub x_bases: Vec<StoredAregBasis>,
+    pub y_basis: StoredAregBasis,
+    /// `(min, max)` of the response.
+    pub y_range: (f64, f64),
+    pub n_observations: usize,
+}
+
+/// `Hmisc::areg(x, y, xtype, ytype, nk)` on the columns `x` (one per
+/// predictor) and `y`; `x_types` `None` makes every predictor a spline.
+pub fn fit_areg(
+    y: &[f64],
+    x: &[Vec<f64>],
+    nk: usize,
+    x_types: Option<Vec<AregType>>,
+    y_type: AregType,
+) -> StatsResult<AregFit> {
+    if x.is_empty() {
+        return Err(StatsError::InvalidInput(
+            "areg needs at least one predictor".into(),
+        ));
+    }
+    let opts = AregOptions::default()
+        .nk(nk)
+        .x_types(x_types)
+        .y_type(y_type);
+    let f = transform::areg(&matrix(x), y, &opts).map_err(convert)?;
+    Ok(AregFit {
+        x_coefficients: f.x_coefficients.iter().copied().collect(),
+        y_coefficients: f.y_coefficients.iter().copied().collect(),
+        r_squared: f.r_squared,
+        x_df: f.x_df.clone(),
+        y_df: f.y_df,
+        mad: f.mad,
+        med: f.med,
+        x_bases: f
+            .x_bases()
+            .iter()
+            .map(StoredAregBasis::from_upstream)
+            .collect(),
+        y_basis: StoredAregBasis::from_upstream(&f.y_basis()),
+        y_range: f.y_range(),
+        n_observations: y.len(),
+    })
+}
+
+/// A stored `areg` model (the parts of [`AregFit`]).
+#[derive(Debug, Clone)]
+pub struct StoredAreg {
+    pub x_bases: Vec<StoredAregBasis>,
+    pub x_coefficients: Vec<f64>,
+    pub y_basis: StoredAregBasis,
+    pub y_coefficients: Vec<f64>,
+    pub y_range: (f64, f64),
+}
+
+impl StoredAreg {
+    /// Upstream's model rebuilt from the parts (`Areg::from_parts`).
+    pub fn rebuild(&self) -> StatsResult<Areg> {
+        let x_bases = self
+            .x_bases
+            .iter()
+            .map(StoredAregBasis::to_upstream)
+            .collect::<StatsResult<Vec<_>>>()?;
+        let xc = &self.x_coefficients;
+        let yc = &self.y_coefficients;
+        Areg::from_parts(
+            x_bases,
+            Col::from_fn(xc.len(), |i| xc[i]),
+            self.y_basis.to_upstream()?,
+            Col::from_fn(yc.len(), |i| yc[i]),
+            self.y_range,
+        )
+        .map_err(StatsError::from)
+    }
+}
+
+/// The linear predictor (transformed-`y` scale) of each row of `x` (one
+/// vector per row, one value per predictor).
+pub fn areg_predict(model: &Areg, x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
+    let p = model.x_df.len();
+    if let Some(r) = x.iter().find(|r| r.len() != p) {
+        return Err(StatsError::DimensionMismatchMsg(format!(
+            "the model has {p} predictors but x has {} values",
+            r.len()
+        )));
+    }
+    Ok(model.predict(&Mat::from_fn(x.len(), p, |i, j| x[i][j])))
+}
+
+/// The transformation of the response at `y` (`ytrans`).
+pub fn areg_transform_y(model: &Areg, y: &[f64]) -> Vec<f64> {
+    model.transform_y(y)
+}
+
+/// The back-transformation of `t` to the `y` scale (`yinv`); `None` when the
+/// transformation is not monotone over the fitted range or the response is
+/// categorical.
+pub fn areg_inverse_y(model: &Areg, t: &[f64]) -> Option<Vec<f64>> {
+    model.inverse_y(t)
 }
 
 // ------------------------------------------------------------------ redun --

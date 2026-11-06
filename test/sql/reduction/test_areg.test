@@ -1,0 +1,160 @@
+# name: test/sql/reduction/test_areg.test
+# description: areg_fit_agg, areg_predict, areg_transform, areg_inverse (Hmisc::areg, #320 follow-up): shapes,
+#              options, GROUP BY, NULL handling, edge cases and invalid options; Hmisc parity is in
+#              test/sql/reference/areg_reference.test
+# group: [reduction]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS
+SELECT i, i % 2 AS grp, round(sin(i * 0.37) * 2, 4) AS x1, (i % 3)::DOUBLE AS g,
+       round(exp(0.5 * sin(i * 0.37) * 2 + 0.3 * (i % 3) + 0.2 * sin(i * 12.9)), 4) AS y
+FROM range(1, 121) r(i);
+
+# shape: spline x1 (3 columns with 4 knots), categorical g (2 dummies), spline y
+query IIIIIIIIII
+SELECT len(m.x_coefficients), len(m.y_coefficients), m.x_df, m.y_df, m.x_types, len(m.x_parameters[1]),
+       m.x_parameters[2], m.y_type, m.n_observations, m.model_type
+FROM (SELECT areg_fit_agg(y, [x1, g], {'x_types': ['s', 'c']}) AS m FROM t);
+----
+6	4	[3, 2]	3	[spline, categorical]	4	[0.0, 1.0, 2.0]	spline	120	areg
+
+# R^2 in (0, 1]; mad / med present (monotone transformation); y range
+query IIII
+SELECT m.r_squared > 0.5 AND m.r_squared <= 1, m.mad > 0 AND m.med > 0, m.y_min = (SELECT min(y) FROM t),
+       m.y_max = (SELECT max(y) FROM t)
+FROM (SELECT areg_fit_agg(y, [x1, g], {'x_types': ['s', 'c']}) AS m FROM t);
+----
+true	true	true	true
+
+# the stored model predicts the fit: inverse(transform(y)) = y inside the range, lp of a row
+query III
+SELECT abs(areg_inverse(m, areg_transform(m, 2.0)) - 2.0) < 1e-2,
+       areg_predict(m, [0.5, 1]) IS NOT NULL,
+       areg_predict(m, [0.5, 1], {'type': 'fitted'}) BETWEEN m.y_min AND m.y_max
+FROM (SELECT areg_fit_agg(y, [x1, g], {'x_types': ['s', 'c']}) AS m FROM t);
+----
+true	true	true
+
+# a single type (or a one-entry list) applies to every predictor; nk = 0 makes every spline linear
+query II
+SELECT (SELECT areg_fit_agg(y, [x1, g], {'x_types': 'l'}).x_types FROM t),
+       (SELECT areg_fit_agg(y, [x1, g], {'nk': 0}).x_df FROM t);
+----
+[linear, linear]	[1, 1]
+
+# a linear y: least squares on the predictor bases, y_coefficients [0, 1], transform is the identity
+query III
+SELECT m.y_coefficients, areg_transform(m, 3.25), areg_inverse(m, 3.25)
+FROM (SELECT areg_fit_agg(y, [x1], {'y_type': 'l'}) AS m FROM t);
+----
+[0.0, 1.0]	3.25	3.25
+
+# a categorical y has no inverse: mad / med and areg_inverse are NULL
+query III
+SELECT m.y_type, m.mad IS NULL, areg_inverse(m, 0.1) IS NULL
+FROM (SELECT areg_fit_agg(round(y), [x1], {'y_type': 'c'}) AS m FROM t);
+----
+categorical	true	true
+
+# GROUP BY: one model per group
+query II
+SELECT grp, m.n_observations FROM (SELECT grp, areg_fit_agg(y, [x1, g]) AS m FROM t GROUP BY grp) ORDER BY grp;
+----
+0	60
+1	60
+
+# ---- NULL handling ----
+# rows with a NULL y, a NULL x, a NULL / NaN element are left out
+query I
+SELECT areg_fit_agg(CASE WHEN i <= 5 THEN NULL ELSE y END,
+                    CASE WHEN i BETWEEN 6 AND 8 THEN NULL WHEN i = 9 THEN [x1, NULL] WHEN i = 10 THEN [x1, 'nan'::DOUBLE]
+                         ELSE [x1, g] END).n_observations
+FROM t;
+----
+110
+
+# too few rows for a spline, an empty group, aliased predictors: NULL
+query III
+SELECT (SELECT areg_fit_agg(y, [x1]) FROM t WHERE i < 6) IS NULL,
+       (SELECT areg_fit_agg(y, [x1]) FROM t WHERE i < 0) IS NULL,
+       (SELECT areg_fit_agg(y, [x1, x1]) FROM t) IS NULL;
+----
+true	true	true
+
+# a NULL model, input or element predicts NULL
+query IIII
+SELECT areg_predict(m, NULL::DOUBLE[]) IS NULL, areg_predict(m, [0.5, NULL]) IS NULL,
+       areg_transform(m, NULL) IS NULL, areg_inverse(NULL::STRUCT(x_coefficients DOUBLE[], y_coefficients DOUBLE[],
+           x_types VARCHAR[], x_parameters DOUBLE[][], y_type VARCHAR, y_parameters DOUBLE[], y_min DOUBLE,
+           y_max DOUBLE), 0.1) IS NULL
+FROM (SELECT areg_fit_agg(y, [x1, g]) AS m FROM t);
+----
+true	true	true	true
+
+# a hand-written model literal (DECIMAL / INTEGER fields are cast): linear x and y, lp = 1 + 2 x
+query II
+SELECT areg_predict(m, [3]), areg_inverse(m, 7)
+FROM (SELECT {'x_coefficients': [1, 2], 'y_coefficients': [0, 1], 'x_types': ['linear'], 'x_parameters': [[]],
+              'y_type': 'linear', 'y_parameters': [], 'y_min': 0, 'y_max': 10} AS m);
+----
+7.0	7.0
+
+# ---- invalid input ----
+statement error
+SELECT areg_predict(m, [0.5]) FROM (SELECT areg_fit_agg(y, [x1, g]) AS m FROM t);
+----
+the model has 2 predictors but x has 1 values
+
+statement error
+SELECT areg_predict(m, [0.5, 1], {'type': 'link'}) FROM (SELECT areg_fit_agg(y, [x1, g]) AS m FROM t);
+----
+option 'type' must be one of lp, fitted
+
+statement error
+SELECT areg_predict({'x_coefficients': [1.0]}, [0.5]);
+----
+the model needs the field 'y_coefficients'
+
+statement error
+SELECT areg_predict(1.5, [0.5]);
+----
+model must be the STRUCT returned by areg_fit_agg
+
+statement error
+SELECT areg_predict({'x_coefficients': [1, 2, 3], 'y_coefficients': [0, 1], 'x_types': ['linear'], 'x_parameters': [[]],
+                     'y_type': 'linear', 'y_parameters': [], 'y_min': 0, 'y_max': 10}, [1]);
+----
+coefficients
+
+statement error
+SELECT areg_predict({'x_coefficients': [1, 2], 'y_coefficients': [0, 1], 'x_types': ['quadratic'], 'x_parameters': [[]],
+                     'y_type': 'linear', 'y_parameters': [], 'y_min': 0, 'y_max': 10}, [1]);
+----
+unknown areg basis type 'quadratic'
+
+statement error
+SELECT areg_fit_agg(y, [x1, g], {'x_types': ['s', 'l', 'c']}) FROM t;
+----
+x_types has 3 entries but x has 2 predictors
+
+statement error
+SELECT areg_fit_agg(y, [x1], {'x_types': 'q'}) FROM t;
+----
+must be 's' (spline), 'l' (linear) or 'c' (categorical)
+
+statement error
+SELECT areg_fit_agg(y, [x1], {'nk': 2}) FROM t;
+----
+option 'nk' must be 0 (linear) or between 3 and 20
+
+statement error
+SELECT areg_fit_agg(y, [x1], {'B': 10}) FROM t;
+----
+unknown option 'b'
+
+statement error
+SELECT areg_fit_agg(y, CASE WHEN i = 1 THEN [x1] ELSE [x1, g] END) FROM t;
+----
+inconsistent feature count

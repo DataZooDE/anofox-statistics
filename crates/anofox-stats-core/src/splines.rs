@@ -156,14 +156,8 @@ impl SplineBasis {
 /// (`Hmisc::rcspline.eval(x, nk, knots.only = TRUE, fractied)`); non-finite
 /// values are ignored.
 pub fn rcs_default_knots(x: &[f64], nk: usize, fractied: f64) -> StatsResult<Vec<f64>> {
-    // anofox-regression 0.11.0 panics on a single distinct value (it slices
-    // `xu[1..0]`); report it as the "fewer than 3 unique knots" outcome.
-    let mut finite = x.iter().copied().filter(|v| v.is_finite());
-    if let Some(first) = finite.next() {
-        if nk >= 3 && x.len() >= 6 && finite.all(|v| v == first) {
-            return Err(map_err(SplineError::TooFewUniqueKnots));
-        }
-    }
+    // A constant column (fewer than 5 distinct values) is upstream's
+    // TooFewUniqueKnots: a degenerate outcome (NULL), see `map_err`.
     up::rcs_default_knots_with(x, nk, fractied).map_err(map_err)
 }
 
@@ -281,7 +275,7 @@ mod tests {
             Err(StatsError::InsufficientDataMsg(_))
         ));
         assert!(default_knot_quantiles(2).is_err());
-        // A constant column (upstream 0.11.0 panics here).
+        // A constant column.
         assert!(matches!(
             rcs_default_knots(&[1.0; 20], 3, 0.05),
             Err(StatsError::InsufficientDataMsg(_))

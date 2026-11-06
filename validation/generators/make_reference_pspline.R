@@ -10,6 +10,9 @@
 #   the unscaled penalty matrix; mgcv rescales the penalty by S.scale).
 # * edf is sum(gam$edf) (intercept included), sigma2 gam$sig2, se_fit
 #   predict.gam(se.fit = TRUE) and r_squared 1 - RSS / TSS.
+# * log_likelihood / aic / bic are logLik(gam), AIC(gam) and BIC(gam).
+# * predict(model, [x]) rebuilds the stored smoother (FittedPSpline::from_parts)
+#   and is checked against predict.gam(se.fit = TRUE) and the intervals below.
 # * Intervals: fit -/+ qt((1 + level) / 2, n - edf) * s with s = se.fit
 #   (confidence) or sqrt(se.fit^2 + sig2) (prediction); mgcv itself has no
 #   prediction interval, so this is the textbook formula on mgcv's se.fit / sig2.
@@ -89,7 +92,11 @@ fit_case <- function(out, title, call, g, tol) {
              close("m.lambda", lambda_of(g), tol),
              close("m.edf", sum(g$edf), tol),
              close("m.sigma2", g$sig2, tol),
-             close("m.r_squared", 1 - rss / tss, tol))
+             close("m.r_squared", 1 - rss / tss, tol),
+             # mgcv's logLik.gam (Gaussian, sigma^2 = RSS / n, df = edf + 1), AIC and BIC
+             close("m.log_likelihood", as.numeric(logLik(g)), tol),
+             close("m.aic", AIC(g), tol),
+             close("m.bic", BIC(g), tol))
   for (k in c(1, 17, 33, length(grid))) {
     conds <- c(conds, close(sprintf("m.x[%d]", k), grid[k], "1e-12"),
                close(sprintf("m.fitted[%d]", k), p$fit[k], tol),
@@ -145,6 +152,29 @@ out <- band_case(out, "fit_predict, fixed lambda, 95% confidence interval",
 out <- band_case(out, "fit_predict, GCV, k = 12, m = c(2, 3), 95% prediction interval",
                  "pspline_fit_predict_agg(y, x, {'n_basis': 12, 'penalty_order': 3} ORDER BY t)",
                  gam_ps(d, 12, 3), "prediction", 0.95, "1e-5")
+
+# predict(model, [x]) from the stored smoother: the fit at new x (two outside the data range),
+# se_fit and the interval, as the fit_predict aggregate
+stored_case <- function(out, title, call, g, interval, level, tol) {
+  p <- predict(g, newdata = data.frame(x = future), se.fit = TRUE)
+  q <- qt((1 + level) / 2, n - sum(g$edf))
+  s <- if (interval == "confidence") p$se.fit else sqrt(p$se.fit^2 + g$sig2)
+  conds <- character()
+  for (j in seq_along(future)) {
+    e <- sprintf("predict(m, [%s], {'interval': '%s', 'level': %s})", fmt(future[j]), interval, fmt(level))
+    conds <- c(conds, close(sprintf("predict(m, [%s])", fmt(future[j])), p$fit[j], tol),
+               close(sprintf("(%s).se_fit", e), p$se.fit[j], tol),
+               close(sprintf("(%s).yhat_lower", e), p$fit[j] - q * s[j], tol),
+               close(sprintf("(%s).yhat_upper", e), p$fit[j] + q * s[j], tol))
+  }
+  check(out, title, sprintf("FROM (SELECT %s AS m FROM d)", call), conds)
+}
+out <- stored_case(out, "predict(model, [x]) of a stored fit, fixed lambda, 90% prediction interval",
+                   sprintf("pspline_fit_agg(y, x, {'n_basis': 10, 'lambda': %s})", fmt(lambda)), gl,
+                   "prediction", 0.9, "1e-8")
+out <- stored_case(out, "predict(model, [x]) of a stored fit, GCV, k = 12, m = c(2, 3), 95% confidence interval",
+                   "pspline_fit_agg(y, x, {'n_basis': 12, 'penalty_order': 3})", gam_ps(d, 12, 3),
+                   "confidence", 0.95, "1e-5")
 
 # pspline_fit_predict_by: one smooth per group (group b is the mirrored response)
 db <- d

@@ -160,7 +160,9 @@ true	true	true
 
 # a NULL model or x, or a NULL element of x, predicts NULL
 query III
-SELECT ordinal_predict(NULL::STRUCT(levels DOUBLE[], intercepts DOUBLE[], coefficients DOUBLE[]), [1.0]) IS NULL,
+SELECT ordinal_predict(NULL::STRUCT(levels DOUBLE[], intercepts DOUBLE[], coefficients DOUBLE[],
+                                     information STRUCT(intercept_diagonal DOUBLE[], intercept_off_diagonal DOUBLE[],
+                                                        intercept_slope DOUBLE[], slopes DOUBLE[])), [1.0]) IS NULL,
        ordinal_predict(m, NULL::DOUBLE[]) IS NULL,
        ordinal_predict(m, [1.0, NULL]) IS NULL
 FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
@@ -174,12 +176,63 @@ SELECT grp, m.n_observations FROM (SELECT grp, ordinal_fit_agg(y, [x1, x2]) AS m
 0	100
 1	100
 
-# a hand-written model literal (DECIMAL fields are cast)
+# a hand-written model literal (DECIMAL fields are cast); the model is rebuilt from its information
 query I
-SELECT round(ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0], 'link': 'logistic'},
+SELECT round(ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0], 'link': 'logistic',
+                              'information': {'intercept_diagonal': [1], 'intercept_off_diagonal': [],
+                                              'intercept_slope': [0], 'slopes': [1]}},
                              [0.0], {'type': 'mean'}), 12);
 ----
 0.5
+
+# a model without its information cannot be rebuilt
+statement error
+SELECT ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0]}, [0.0]);
+----
+needs its information field
+
+# the information blocks must match the intercepts and slopes
+statement error
+SELECT ordinal_predict({'levels': [0, 1], 'intercepts': [0.0], 'coefficients': [1.0],
+                        'information': {'intercept_diagonal': [1], 'intercept_off_diagonal': [],
+                                        'intercept_slope': [0, 0], 'slopes': [1]}}, [0.0]);
+----
+intercept_slope block of 2
+
+# the information blocks are stored with the fit: (k - 1), (k - 2), (k - 1) * p and p * p values
+query IIII
+SELECT len(m.information.intercept_diagonal), len(m.information.intercept_off_diagonal),
+       len(m.information.intercept_slope), len(m.information.slopes)
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+3	2	6	4
+
+# ---- type 'quantile' (rms Quantile.orm): the estimate inside its confidence limits ----
+query IIII
+SELECT (q).yhat BETWEEN 1 AND 5, (q).yhat_lower <= (q).yhat AND (q).yhat <= (q).yhat_upper,
+       (d).yhat IN (1, 2, 3, 5), typeof(q)
+FROM (SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile'}) AS q,
+             predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.25, 'method': 'discrete', 'level': 0.9}) AS d
+      FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r));
+----
+true	true	true	STRUCT(yhat DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE)
+
+# a higher quantile is not lower; with an offset the quantile moves with it
+query II
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.9}).yhat
+           >= ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 0.1}).yhat,
+       ordinal_predict(o, [0.5, 1.3, 1.0], {'type': 'quantile'}).yhat
+           >= ordinal_predict(o, [0.5, 0.3, 1.0], {'type': 'quantile'}).yhat
+FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m, ordinal_fit_agg(y, [x1, off, x2], {'offset': 2}) AS o FROM r);
+----
+true	true
+
+# the predicted median of a continuous response (one intercept per distinct value)
+query I
+SELECT ordinal_predict(m, [1.0], {'type': 'quantile'}).yhat BETWEEN -3 AND 4
+FROM (SELECT ordinal_fit_agg(x1 + 0.3 * x2, [x2]) AS m FROM r);
+----
+true
 
 # ---- invalid options ----
 statement error
@@ -213,14 +266,29 @@ SELECT ordinal_fit_agg(y, [x1, x2], -1.0, NULL) FROM r;
 weights
 
 statement error
-SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile'}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'q': 1}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
 ----
-type 'quantile' is not available for a stored ordinal model
+option 'q' must be in (0, 1)
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile', 'method': 'nearest'}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+option 'method' must be 'interpolated' or 'discrete'
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'q': 0.5}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+apply to {'type': 'quantile'} only
+
+statement error
+SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'quantile'}) FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2]) AS m FROM r);
+----
+type 'quantile' is available for ordinal_fit_agg models only
 
 statement error
 SELECT ordinal_predict(m, [0.5, 1.0], {'type': 'link'}) FROM (SELECT ordinal_fit_agg(y, [x1, x2]) AS m FROM r);
 ----
-option 'type' must be 'class', 'prob', 'exceedance' or 'mean'
+option 'type' must be 'class', 'prob', 'exceedance', 'mean' or 'quantile'
 
 statement error
 SELECT ordinal_predict({'intercept': 1.0, 'coefficients': [1.0]}, [1.0]);

@@ -170,6 +170,11 @@ bool IsMultinomialModelType(const LogicalType &type);
 unique_ptr<FunctionData> MultinomialPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
                                                 vector<unique_ptr<Expression>> &arguments, const char *fn_name);
 
+// P-spline models (#316) are predicted by pspline_aggregate.cpp (FittedPSpline::from_parts).
+bool IsPSplineModelType(const LogicalType &type);
+unique_ptr<FunctionData> PSplinePredictModelBind(ClientContext &context, ScalarBindFunction &bound_function,
+                                                 vector<unique_ptr<Expression>> &arguments);
+
 // Ordinal models (#313) are predicted by ordinal_aggregate.cpp.
 bool IsOrdinalModelType(const LogicalType &type);
 unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
@@ -253,6 +258,10 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 	// with {'type': 'prob' | 'exceedance' | 'mean'}, the probabilities or the mean (#313).
 	if (IsOrdinalModelType(ReturnTypeOf(*arguments[0]))) {
 		return OrdinalPredictBind(context, bound_function, arguments, "predict");
+	}
+	// A pspline_fit_agg model: the smooth at x[1], with se_fit / interval as a linear model.
+	if (IsPSplineModelType(ReturnTypeOf(*arguments[0]))) {
+		return PSplinePredictModelBind(context, bound_function, arguments);
 	}
 	// Numeric fields of a hand-written model literal (e.g. DECIMAL) are cast to DOUBLE.
 	{

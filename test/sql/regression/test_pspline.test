@@ -21,7 +21,7 @@ FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
 
 # Automatic basis size (n / 4 + 4, clamped to [6, 40]), default penalty order 2, summary fields
 query IIIIIII
-SELECT m.n_basis, len(m.coefficients), m.penalty_order, m.n_observations, m.model_type, m.family, m.aic IS NULL
+SELECT m.n_basis, len(m.coefficients), m.penalty_order, m.n_observations, m.model_type, m.family, m.aic IS NOT NULL
 FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
 ----
 40	40	2	200	pspline	gaussian	true
@@ -182,3 +182,61 @@ statement error
 SELECT pspline_fit_agg(y, x, {'n_basis': i}) FROM s;
 ----
 options must be a constant
+
+# ---- predict(model, [x]) from the stored smoother (FittedPSpline::from_parts) ----
+# The smooth at the training x equals the fit's; knots and covariance are stored
+query IIII
+SELECT len(m.knots) = m.n_basis + 4, len(m.covariance) = m.n_basis * m.n_basis,
+       abs(predict(m, [m.x[10]]) - m.fitted[10]) < 1e-10,
+       abs(predict(m, [m.x[10]], {'se_fit': true}).se_fit - m.se_fit[10]) < 1e-10
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+true	true	true	true
+
+# Per group, with the prediction / confidence intervals of pspline_fit_predict_agg
+query II
+WITH m AS (SELECT g, pspline_fit_agg(y, x) AS m FROM s GROUP BY g),
+     p AS (SELECT g, unnest(pspline_fit_predict_agg(y, x, {'interval': 'confidence', 'confidence_level': 0.9})) AS r,
+                  unnest(list(x)) AS x FROM s GROUP BY g)
+SELECT count(*), bool_and(abs((predict(m.m, [p.x], {'interval': 'confidence', 'level': 0.9})).yhat_upper - (p.r).yhat_upper) < 1e-9)
+FROM p JOIN m USING (g);
+----
+200	true
+
+# NULL model, NULL x, a NULL element: NULL; extrapolation outside the data range is linear
+query IIII
+SELECT predict(NULL::STRUCT(knots DOUBLE[], covariance DOUBLE[], edf DOUBLE, sigma2 DOUBLE, coefficients DOUBLE[],
+                            n_observations BIGINT), [1.0]) IS NULL,
+       predict(m, NULL::DOUBLE[]) IS NULL, predict(m, [NULL::DOUBLE]) IS NULL,
+       abs((predict(m, [14.0]) - predict(m, [12.0])) - (predict(m, [12.0]) - predict(m, [10.0]))) < 1e-9
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+true	true	true	true
+
+statement error
+SELECT predict(m, [1.0, 2.0]) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+takes x with one value
+
+statement error
+SELECT predict(m, [1.0], {'interval': 'credible'}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+option 'interval' must be 'none', 'confidence' or 'prediction'
+
+statement error
+SELECT predict(m, [1.0], {'type': 'link'}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+must be 'response'
+
+statement error
+SELECT predict(m, [1.0], {'alpha': 1}) FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+unknown option 'alpha' for a P-spline model
+
+# a covariance of the wrong size cannot rebuild the smoother
+statement error
+SELECT predict({'knots': m.knots, 'coefficients': m.coefficients, 'covariance': m.covariance[2:], 'edf': m.edf,
+                'sigma2': m.sigma2, 'n_observations': m.n_observations}, [1.0])
+FROM (SELECT pspline_fit_agg(y, x) AS m FROM s);
+----
+covariance

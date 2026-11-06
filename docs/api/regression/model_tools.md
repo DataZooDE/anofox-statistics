@@ -66,9 +66,13 @@ How the prediction is computed depends on the model:
   probability, a mean). With `{'type': 'link'}` the linear predictor `η` itself
   is returned.
 - **Ordinal models** (`ordinal_fit_agg`, `continuation_ratio_fit_agg`): the most
-  probable level, or with `{'type': 'prob' | 'exceedance' | 'mean'}` the level
-  probabilities, the exceedance probabilities or the mean; see
+  probable level, or with `{'type': 'prob' | 'exceedance' | 'mean' | 'quantile'}`
+  the level probabilities, the exceedance probabilities, the mean or a
+  predicted quantile with confidence limits; see
   [ordinal_predict](../glm/ordinal.md#ordinal_predict).
+- **P-spline models** (`pspline_fit_agg`): `x` holds a single value; the stored
+  smoother is rebuilt upstream and evaluated there, with `se_fit` / `interval`
+  as below; see [P-splines](pspline.md#predict).
 - **Isotonic models** (`isotonic_fit_agg`): `x` holds a single value. The
   prediction interpolates linearly between the neighbouring knots and is
   clamped to the first/last fitted value outside the training range.
