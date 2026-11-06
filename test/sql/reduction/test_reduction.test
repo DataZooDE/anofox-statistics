@@ -32,7 +32,7 @@ STRUCT(lambda_hat DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, confidence_level DOU
 query T
 SELECT typeof(varclus_agg([a, b, c])) FROM d
 ----
-STRUCT(variables VARCHAR[], similarity DOUBLE[][], merges BIGINT[][], height DOUBLE[], dendrogram_order BIGINT[], clusters BIGINT[], n_observations BIGINT)
+STRUCT(variables VARCHAR[], similarity_matrix DOUBLE[][], merges BIGINT[][], height DOUBLE[], dendrogram_order BIGINT[], clusters BIGINT[], n_observations BIGINT)
 
 query T
 SELECT typeof(redun_agg([a, b, c])) FROM d
@@ -199,7 +199,7 @@ SELECT v.merges[1], v.clusters FROM (SELECT varclus_agg([a, b, c], {'cut_height'
 [-1, -2]	[1, 1, 2]
 
 query I
-SELECT (varclus_agg([a, b, c], {'similarity': 'hoeffding', 'trans': 'abs', 'method': 'ward.D2'})).similarity[1][1] FROM d
+SELECT (varclus_agg([a, b, c], {'similarity': 'hoeffding', 'trans': 'abs', 'method': 'ward.D2'})).similarity_matrix[1][1] FROM d
 ----
 1.0
 

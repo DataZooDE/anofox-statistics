@@ -27,6 +27,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "../include/duckdb_compat.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
@@ -461,8 +462,10 @@ static unique_ptr<FunctionData> SplineBasisBind(ClientContext &context, ScalarBi
 	if (data->kind < 0 || data->knots < 0) {
 		throw InvalidInputException("%s: spec must have the fields 'kind' and 'knots' (see spline_spec)", fn);
 	}
-	// Cast the struct so the fields arrive with the types read below.
-	SetArgumentTypeOf(function, 1, LogicalType::STRUCT(std::move(cast_children)));
+	// Cast the struct so the fields arrive with the types read below. The cast wraps the
+	// argument expression: DuckDB 2.0 forbids changing argument types in bind.
+	arguments[1] = BoundCastExpression::AddCastToType(context, std::move(arguments[1]),
+	                                                  LogicalType::STRUCT(std::move(cast_children)));
 	PostHogTelemetry::Instance().RecordFunctionCall(fn);
 	return std::move(data);
 }

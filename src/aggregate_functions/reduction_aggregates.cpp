@@ -795,7 +795,7 @@ struct VarclusBindData : public FunctionData {
 LogicalType VarclusResultType() {
 	child_list_t<LogicalType> c;
 	c.push_back(make_pair("variables", LogicalType::LIST(LogicalType::VARCHAR)));
-	c.push_back(make_pair("similarity", LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))));
+	c.push_back(make_pair("similarity_matrix", LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))));
 	c.push_back(make_pair("merges", LogicalType::LIST(LogicalType::LIST(LogicalType::BIGINT))));
 	c.push_back(make_pair("height", LogicalType::LIST(LogicalType::DOUBLE)));
 	c.push_back(make_pair("dendrogram_order", LogicalType::LIST(LogicalType::BIGINT)));

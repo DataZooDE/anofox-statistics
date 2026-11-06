@@ -135,7 +135,7 @@ vc_cols <- c("mpg", "disp", "hp", "drat", "wt", "qsec")
 X <- as.matrix(d[, vc_cols])
 vc_conds <- function(v, cut = NULL) {
   p <- ncol(v$sim)
-  c(paste(sapply(1:p, function(j) close_list(sprintf("v.similarity[%d]", j), v$sim[j, ])), collapse = " AND "),
+  c(paste(sapply(1:p, function(j) close_list(sprintf("v.similarity_matrix[%d]", j), v$sim[j, ])), collapse = " AND "),
     sprintf("v.merges = %s", str_list(apply(v$hclust$merge, 1, function(m) str_list(m)))),
     close_list("v.height", v$hclust$height),
     sprintf("v.dendrogram_order = %s", str_list(v$hclust$order)),

@@ -150,7 +150,7 @@ rows (Hmisc uses pairwise-complete correlations when values are missing).
 | Field | Type | Description |
 |-------|------|-------------|
 | `variables` | `VARCHAR[]` | Feature names |
-| `similarity` | `DOUBLE[][]` | The similarity matrix, one list per feature |
+| `similarity_matrix` | `DOUBLE[][]` | The similarity matrix, one list per feature (`similarity` is a keyword in DuckDB 2.0) |
 | `merges` | `BIGINT[][]` | The `p − 1` merges in R's convention: `-j` is feature `j`, `k` the cluster formed at step `k` |
 | `height` | `DOUBLE[]` | `1 − similarity` at each merge |
 | `dendrogram_order` | `BIGINT[]` | Features (1-based) in dendrogram order |
