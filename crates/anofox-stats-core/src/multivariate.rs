@@ -55,6 +55,8 @@ pub fn pca_transform(
         sdev: sdev.to_vec(),
         rotation: rotation.to_vec(),
         explained_variance_ratio: vec![f64::NAN; sdev.len()],
+        // pca_agg fits without scaling (the `scale` option is not exposed yet).
+        scale: None,
     };
     model
         .transform(rows, model.n_components())
