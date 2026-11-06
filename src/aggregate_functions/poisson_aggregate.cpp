@@ -352,6 +352,10 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		// Note: Detailed min_obs validation including zero-variance column handling is done in Rust
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
 		const bool weighted = !state.weights.empty();
+		// Before the fit: its FFI result arrays would leak if this threw afterwards.
+		if (state.profile_ci && weighted) {
+			throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with prior weights");
+		}
 		const bool clustered = !state.cluster.dims.empty();
 		if (clustered) {
 			CanonicalRows rows;
@@ -417,9 +421,6 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			if (clustered) {
 				throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with the cluster-robust "
 				                            "covariance");
-			}
-			if (weighted) {
-				throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with prior weights");
 			}
 			ApplyProfileConfint("poisson_fit_agg", AnofoxLikelihoodFamily {1, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
