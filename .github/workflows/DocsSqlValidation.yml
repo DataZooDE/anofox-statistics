@@ -27,6 +27,28 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # guides/0*.md are generated from guides/templates/*.md.in. A guide edited by
+  # hand without its template is silently reverted the next time anyone runs
+  # scripts/build_docs.sh (the pre-commit hook runs it). The script is plain
+  # bash and needs no built extension, so this job is cheap and runs alone.
+  generated-docs-in-sync:
+    name: Generated guides match their templates
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Regenerate guides and fail on any diff
+        run: |
+          bash scripts/build_docs.sh
+          if ! git diff --exit-code --stat || [ -n "$(git status --porcelain --untracked-files=all guides)" ]; then
+            git status --short
+            git diff
+            echo "::error::guides/ differ from what scripts/build_docs.sh generates. Edit guides/templates/*.md.in and run the script."
+            exit 1
+          fi
+
   docs-sql-validation:
     name: Validate doc-file SQL blocks
     timeout-minutes: 120
