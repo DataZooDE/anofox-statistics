@@ -108,7 +108,7 @@ jobs:
         run: node test/wasm/sqllogic.mjs --self-test
 
       - name: Install harness dependencies
-        run: npm --prefix test/wasm install
+        run: npm --prefix test/wasm ci
 
       - name: Run DuckDB-Wasm load + runtime harness
         run: |

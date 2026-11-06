@@ -24,7 +24,7 @@ against it.
 
 ```bash
 # 1. install harness deps (isolated; does not touch the Rust/C++ build)
-npm --prefix test/wasm install
+npm --prefix test/wasm ci
 
 # 2. point it at your built extension and run
 ANOFOX_WASM_EXT=/path/to/anofox_statistics.duckdb_extension.wasm \
@@ -74,9 +74,10 @@ records are `SET threads` statements DuckDB-Wasm cannot run (reported as
 skipped), and 7 `EXECUTE` queries run unwrapped (compared by type letter).
 `test/sql/quack.test` is skipped — extension-template boilerplate calling
 `quack` / `quack_openssl_version`, functions this extension doesn't define.
-Two records fail under the strict comparator, natively as well as in
-DuckDB-Wasm: their expected values are only within the native runner's 1%
-(`anofox_stats.test:44`, `api/test_stable_model_struct_glm.test:74`).
+Every record passes under the strict comparator. Two expectations that held
+only within the native runner's 1% were corrected when it was introduced
+(`anofox_stats.test`, ridge R², and `api/test_stable_model_struct_glm.test`, a
+logistic reference taken from R's under-converged default `glm` fit).
 
 Notes on how results are compared (learned the hard way):
 

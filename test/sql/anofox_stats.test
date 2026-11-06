@@ -40,11 +40,13 @@ SELECT (ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'intercept': true
 # Ridge Regression Tests
 #######################################
 
-# Basic Ridge with low alpha using MAP syntax
+# Basic Ridge with low alpha using MAP syntax: near-perfect but penalized. With alpha > 0 the
+# slope is shrunk toward 0, so R² cannot be 1 even on exactly linear data (it is 0.999996...)
 query I
-SELECT (ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 0.01})).r_squared;
+SELECT r2 > 0.9999 AND r2 < 1.0
+FROM (SELECT (ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 0.01})).r_squared AS r2);
 ----
-1.0
+true
 
 # Ridge with alpha - produces valid model
 query I
