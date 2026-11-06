@@ -27,7 +27,14 @@ description: >
   glmm_tidy_by / glance_by / augment_by, ols_anova_by / ols_anova_table_by,
   mediation_by,
   p_adjust_by, ridge / elasticnet_nested_cv_by, the split := rule and order_by
-  := for rls_tidy_by. Use when the task is "fit one model per group" at scale,
+  := for rls_tidy_by. Since 0.15.0 also cox_fit_by / cox_tidy_by /
+  cox_glance_by / cox_augment_by, gls_fit_by / gls_tidy_by / gls_glance_by /
+  gls_augment_by, aft_augment_by, ordinal_fit_predict_by,
+  continuation_ratio_fit_predict_by, multinomial_fit_predict_by,
+  pspline_fit_predict_by / pspline_prediction_by / pspline_fit_predict_agg,
+  predict_grid_by, validate_by / calibrate_by / calibrate_cph_by / bootcov_by,
+  pentrace_by / penalized_ols_fit_by, glm_score_test_by, areg_impute_by,
+  pca_by and dataset_drift_by. Use when the task is "fit one model per group" at scale,
   or "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
 version: 0.15.0
@@ -39,6 +46,8 @@ user-invocable: false
 **Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0
 
 > **New in 0.15.0:** contract `*_by` outputs end with `row_order BIGINT` (display order per group). For incremental per-partition fits, store `ls_state_agg` states and refit with `*_fit_from_state(ls_state_combine_agg(state))`.
+>
+> **New since 0.15.0:** per-group Cox (`cox_*_by`), GLS (`gls_*_by`), AFT residuals (`aft_augment_by`), ordinal / continuation-ratio / multinomial and P-spline `*_fit_predict_by`, `predict_grid_by`, rms validation (`validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by`), `pentrace_by` / `penalized_ols_fit_by`, `glm_score_test_by`, `areg_impute_by`, `pca_by`, `dataset_drift_by` (Pattern 1, 1b, 1c). Behaviour changes that reach the `_by` outputs: with `hc_type`, the OLS / WLS `vcov` (and so the `predict(model, x, {'se_fit': true})` intervals) is now the HC covariance; `wls_*` with `hc_type` now uses the weights.
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
@@ -72,6 +81,36 @@ Available macros: `ols_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_pred
 `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`,
 `tweedie_fit_predict_by`. Related grouped macros: `glmm_fit_by(source, group_col, y_col, x_cols[, options])`,
 `eb_shrink_by(source, estimate_col, se_col[, options])`, `aid_by`, `aid_anomaly_by`.
+
+New since 0.15.0 (same `(source, group_col, y_col, x_cols, options := NULL, split := NULL)` shape, no `order_by`, no interval columns):
+
+| Macro | Purpose / added columns |
+|---|---|
+| `ordinal_fit_predict_by` | Cumulative-link model per group (`rms::orm` / `MASS::polr`, option `link`): `yhat` (most probable level), `yhat_mean`, `probabilities` (`DOUBLE[]` in level order), `is_training` |
+| `continuation_ratio_fit_predict_by` | Continuation-ratio ordinal model per group (`cr.setup` + `lrm`); same columns as `ordinal_fit_predict_by` |
+| `multinomial_fit_predict_by` | Softmax logistic per group (options `C` / `lambda`, `l1_ratio`): `yhat` (most probable class), `probabilities` (class order), `is_training`; a single-class group gets NULLs |
+| `pspline_fit_predict_by(source, group_col, y_col, x_col, …)` | P-spline smoother (mgcv `s(x, bs = 'ps')`) of `y` on a **single** `x_col` per group (options `n_basis`, `penalty_order`, `lambda`, `interval`); `yhat`, `yhat_lower`, `yhat_upper` (prediction interval by default), `is_training`; also takes `order_by` |
+
+```sql
+CREATE TABLE ratings AS
+SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'north' ELSE 'south' END AS site,
+       (i % 7)::DOUBLE AS dose, (20 + i % 13)::DOUBLE AS age,
+       CASE WHEN (i % 7) + (i % 3) < 3 THEN 1 WHEN (i % 7) + (i % 3) < 6 THEN 2 ELSE 3 END::DOUBLE AS grade,
+       ['low', 'mid', 'high'][grade::INT] AS rating
+FROM range(1, 121) t(i);
+
+-- One proportional-odds model per site (y is numeric: the levels are its ordered values)
+SELECT site, id, grade, yhat, round(yhat_mean, 2) AS yhat_mean,
+       list_transform(probabilities, lambda p: round(p, 3)) AS probs
+FROM ordinal_fit_predict_by('ratings', site, grade, [dose, age])
+ORDER BY site, id LIMIT 4;
+
+-- One multinomial model per site, trained on 4/5 of the rows; train vs test accuracy
+SELECT site, is_training, round(avg((yhat = rating)::INT), 3) AS accuracy
+FROM multinomial_fit_predict_by('ratings', site, rating, [dose, age],
+                                split := CASE WHEN id % 5 = 0 THEN 'test' ELSE 'train' END)
+GROUP BY ALL ORDER BY ALL;
+```
 
 The five GLM macros fit `{family}_fit_agg` per group and apply `predict(model, x)` to every row:
 `yhat` is on the **response scale** (probability / rate / mean), `yhat_lower`/`yhat_upper` are
@@ -143,12 +182,20 @@ When you want a **report table** per group instead of predictions, use the outpu
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `quantile_process_by` | `(source, group_col, y_col, x_cols [, options := …, names := […]])` | the tidy columns, `index_name` `'lambda'` (`'alpha'` for LARS, `'tau'` for the quantile process) |
 | `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …, cv_key := col])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
 | `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | `(source, group_col, y_col, x_cols [, options := …, cv_key := col])` | `curve_type ('nested_cv'), series ('fold' / 'mean'), x, y, y_low, y_high, threshold, weight, n_censor, fold, lambda, test_error, test_se, inner_cv_mean, inner_cv_se, n_train, n_test, n_inner_folds, n_folds, metric` |
+| `cox_fit_by` (new) | `(source, group_col, time_col, x_cols, event_col [, options := …])` | one row per group with the `cox_fit_agg` fields (`coefficients`, `hazard_ratios`, `hr_conf_low/high`, LR / Wald / score tests, `concordance`, `aic`, …) |
+| `cox_tidy_by`, `cox_glance_by`, `cox_augment_by` (new) | as `cox_fit_by` (`+ names := […]` / `order_by := …`) | `terms` (log hazard ratios, no intercept row), `summary`, `obs` (`fitted` = linear predictor, `residual` = martingale, + deviance / score / dfbeta / Schoenfeld residuals). No weight column: weights only via `cox_fit_agg` |
+| `gls_fit_by` (new) | `(source, group_col, y_col, x_cols, subject_col, time_col [, options := …, variance_col := …])` | one row per group with the `gls_fit_agg` fields (`nlme::gls`; options `correlation`, `variance`, `method`) |
+| `gls_tidy_by`, `gls_glance_by`, `gls_augment_by` (new) | as `gls_fit_by` (`+ names := […]`) | `terms` (`effect` `'coefficient'` / `'correlation'` / `'variance'` / `'sigma'`, always with inference), `summary`, `obs` (+ `se_fit`, `normalized_residual`) |
+| `aft_augment_by` (new) | `(source, group_col, time_col, x_cols, event_col [, options := …, order_by := …])` | `obs`: `fitted` = linear predictor, `residual` = Cox-Snell, `std_residual` = standardized, `score_contributions` |
+| `pspline_prediction_by` (new) | `(source, group_col, x_col, y_col [, options := …, level := 0.95, split := …])` | the `prediction` schema of a per-group P-spline (`model_id` `'pspline'`) |
+| `predict_grid_by` (new) | `(source, group_col, x_cols, model, terms, term [, grid_values := …, simultaneous := false, level := 0.95])` | `rms::Predict` grid per group in the `prediction` schema (`model_name` `'predict_grid'`); `model` / `terms` are columns of `source` (a view joining each group's rows with its `effects_design` model) |
 
 Model coverage:
 - `_tidy_by` / `_glance_by` (26): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls` (sequential: pass `order_by := t` by name, else the row order is undefined), `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`); `glmm_tidy_by` / `glmm_glance_by` take the random-effects factor `re_group` after `x_cols` (one mixed model per `group_col`, the outer group). Not `isotonic`
-- `_augment_by`: `ols`, `wls`, `ridge`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `glmm` (+`re_group`). `_partial_residuals_by`: the same without `glmm`.
-- `_prediction_by` (23): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
+- `_augment_by`: `ols`, `wls`, `ridge`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `glmm` (+`re_group`), and new `cox`, `gls`, `aft`. `_partial_residuals_by`: the original list without `glmm`.
+- `_prediction_by` (24): every `*_fit_predict_by` model incl. the new `pspline` (not `ordinal`, `continuation_ratio`, `multinomial`); `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
 - `_effects_by` (9): `ols`, `wls`, `ridge` and the six GLMs (models whose `predict` has standard errors); GLM bands on the response scale.
+- Survival / correlated errors: `cox_{fit,tidy,glance,augment}_by`, `gls_{fit,tidy,glance,augment}_by`, `aft_tidy_by` / `aft_glance_by` / `aft_augment_by` (all take `event_col` or `subject_col, time_col` after `x_cols`).
 - `_rolling_tidy_by` (6): `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `poisson`. Windows shorter than `min_obs` (default `window_size`: full windows only) are skipped; `window_end` keeps the type of `order_col`.
 
 Other per-group long tables: `acf_by` / `pacf_by(source, group_col, value_col, order_col[, max_lag := …])`, `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := …, conf_type := …])`, `roc_curve_by` / `pr_curve_by` / `calibration_curve_by(source, group_col, y_true_col, score_col …)` (`curve` schema), and `pairwise_t_test_by` / `tukey_hsd_by` / `dunn_test_by(source, group_col, value_col, factor_col, options := NULL)` (`test` schema).
@@ -191,6 +238,63 @@ FROM ols_rolling_tidy_by('sales', category, units, revenue, [units, price], wind
 WHERE term = 'price' ORDER BY category, window_end;
 ```
 
+```sql
+-- Survival data: one Cox model per site (hazard ratios, terms schema)
+CREATE TABLE patients AS
+SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END AS site,
+       (40 + (i * 7) % 30)::DOUBLE AS age, (i % 3 = 0)::INT::DOUBLE AS treated,
+       (30 + (i * 37) % 300 + 4 * (i % 3 = 0)::INT * (i % 50))::DOUBLE AS days,
+       ((i * 7 + age::INT) % 5 < 3)::INT::DOUBLE AS died
+FROM range(1, 161) t(i);
+
+SELECT site, term, round(exp(estimate), 3) AS hr, round(p_value, 4) AS p
+FROM cox_tidy_by('patients', site, days, [age, treated], died, names := ['age', 'treated'])
+ORDER BY site, term;
+
+-- Repeated measures: one GLS model per clinic with AR(1) errors within patient
+CREATE TABLE visits AS
+SELECT CASE WHEN p % 2 = 0 THEN 'c1' ELSE 'c2' END AS clinic, p AS patient, w AS week,
+       (p % 3)::DOUBLE AS dose,
+       (10 + 0.5 * w + 1.5 * (p % 3) + ((p * 13 + w * 7) % 5) * 0.4)::DOUBLE AS score
+FROM range(1, 21) a(p), range(1, 6) b(w);
+
+SELECT clinic, correlation_params, round(sigma, 3) AS sigma, round(aic, 2) AS aic
+FROM gls_fit_by('visits', clinic, score, [dose, week::DOUBLE], patient, week, options := {'correlation': 'ar1'})
+ORDER BY clinic;
+```
+
+## Pattern 1c — per-group validation, penalization, imputation, drift (new since 0.15.0)
+
+Same `source`-string convention; one row per group and result element.
+
+| Macro | Signature | Purpose / output |
+|---|---|---|
+| `validate_by` | `(source, group_col, y_col, x_cols, options := …)` | `rms::validate` per group (`'model'`: `'ols'` / `'logistic'`, `'B'`, `'method'` bootstrap / CV / .632): `index_name, index_orig, training, test, optimism, index_corrected, …` |
+| `calibrate_by` | `(source, group_col, y_col, x_cols, options := …)` | `rms::calibrate` overfitting-corrected calibration curve (`curve` schema: `x` = predicted, `y` = corrected) |
+| `calibrate_cph_by` | `(source, group_col, time_col, x_cols, event_col, options := …)` | `rms::calibrate.cph` (KM vs predicted survival at `'u'`, groups of `'m'`) |
+| `bootcov_by` | `(source, group_col, y_col, x_cols, options := …, cluster := col, names := […])` | `rms::bootcov` bootstrap SEs / percentile CIs (`terms` schema); `cluster :=` resamples whole clusters |
+| `pentrace_by` | `(source, group_col, y_col, x_cols, options := {'penalties': […], …})` | `rms::pentrace`: one row per penalty with `df`, `aic`, `bic`, `aic_c`, `is_best` |
+| `penalized_ols_fit_by` | `(source, group_col, y_col, x_cols, options := {'penalty': …})` | `rms::ols(penalty =)` per group: coefficients, `effective_df`, `sigma`, … |
+| `glm_score_test_by` | `(source, group_col, y_col, x_reduced := […], x_add := […], options := {'family': …})` | Rao score test for adding `x_add` to a GLM (`test` schema); only the reduced model is fitted |
+| `areg_impute_by` | `(source, group_col, id_col, x_cols, options := …)` | `Hmisc::aregImpute` per group: one row per imputation and id with the completed `x`; constant `group_col` (e.g. `1`) imputes the whole table. Pool fits with `pool_rubin_agg` |
+| `pca_by` | `(source, group_col, x_cols, options := {'n_components': k, 'scale': …})` | every source row with its group's PCA `scores DOUBLE[]` |
+| `dataset_drift_by` | `(source, group_col, columns, options := …, drift_share := 0.5)` | evidently dataset drift: one row per column name in `columns` (a list of strings). Here `group_col` is the **reference vs current** split, not a segment: loop segments with a `WHERE` / view |
+
+All resampling macros are seeded (`'seed'`) and independent of thread count and row order; keep `'B'` small in exploratory runs.
+
+```sql
+-- Bootstrap-corrected discrimination / calibration slope of a logistic model per site
+SELECT site, index_name, round(index_orig, 3) AS apparent, round(index_corrected, 3) AS corrected
+FROM validate_by('patients', site, died, [age, treated], options := {'model': 'logistic', 'B': 40})
+WHERE index_name IN ('Dxy', 'Slope')
+ORDER BY site, index_name;
+
+-- Best rms penalty per site (by corrected AIC)
+SELECT site, simple AS best_penalty, round(df, 2) AS eff_df
+FROM pentrace_by('patients', site, days, [age, treated], options := {'penalties': [0, 1, 4, 16]})
+WHERE is_best ORDER BY site;
+```
+
 ## Pattern 2 — `*_fit_agg` with `GROUP BY` (extract per-group coefficients)
 
 When you want the fitted **model struct per group** (coefficients, R², inference) rather than predictions:
@@ -204,6 +308,14 @@ FROM (
   GROUP BY category
 );
 ```
+
+The same works for every `*_fit_agg`, including the new ones: `cox_fit_agg(time, x, event)`,
+`gls_fit_agg(y, x, subject, time, opts)`, `ordinal_fit_agg`, `continuation_ratio_fit_agg`,
+`multinomial_fit_agg`, `pspline_fit_agg(y, x)`, `penalized_ols_fit_agg`, `areg_fit_agg`; score
+with `predict` / `ordinal_predict` / `multinomial_predict` / `cox_survival`. Cluster-robust SEs per
+group: `ols_fit_agg(y, x, cluster, {...})`, `wls_fit_agg(y, x, w, cluster, {...})`, the GLMs with
+`{'vcov': 'cluster'}` (`poisson_fit_agg(y, x, cluster, {'vcov': 'cluster'})`) and
+`aft_fit_agg(time, x, event, cluster, opts)`.
 
 > Tip: compute the struct once in a subquery/CTE and unpack fields downstream to avoid repeating the `_agg` call — DuckDB evaluates each `(…_agg(...)).field` independently.
 
@@ -233,7 +345,8 @@ FROM sales GROUP BY category ORDER BY category;
 `{model}_fit_predict_agg(y, [x…][, opts])` fits on the group's rows with non-NULL `y` and returns a
 `LIST<STRUCT(y, yhat, yhat_lower, yhat_upper, is_training)>` covering every row of the group.
 Available for `ols`, `ridge`, `elasticnet`, `wls` (extra weight arg), `rls`, `huber`, `ransac`,
-`theil_sen`, `bls`, `alm`, `poisson`, `pls`, `isotonic`, `quantile`. A variant
+`theil_sen`, `bls`, `alm`, `poisson`, `pls`, `isotonic`, `quantile`, `bayesian_ridge`, `ard`,
+`passive_aggressive`, `lm_dynamic` and (new) `pspline` (`pspline_fit_predict_agg(y, x [, split] [, options])`, single `x`). A variant
 `{model}_fit_predict_agg(y, x, split_col[, opts])` trains only on rows where `lower(split_col) IN ('train', 'training')`; a NULL split is a prediction row, as in the `_by` macros.
 
 ```sql
@@ -247,7 +360,10 @@ LIMIT 3;
 
 `{model}_fit_predict(y, [x…][, opts]) OVER (…)` fits on the window frame and returns
 `STRUCT(yhat, yhat_lower, yhat_upper)` for the **last row of the frame**. Available for `ols`, `ridge`,
-`elasticnet`, `wls` (extra weight arg), `rls`, `huber`, `ransac`, `theil_sen`.
+`elasticnet`, `wls` (extra weight arg), `rls`, `huber`, `ransac`, `theil_sen`, `passive_aggressive`.
+The model-specific window aggregates `cox_augment_agg`, `gls_augment_agg` and `aft_augment_agg` (new)
+fit the frame and return one STRUCT per frame row; use them over a whole partition, or simply
+call `cox_augment_by` / `gls_augment_by` / `aft_augment_by`.
 
 Use frames that end at `CURRENT ROW` over a unique `ORDER BY`. Do **not** use `*_fit_predict … AND 1 PRECEDING`
 (that is not a one-step-ahead forecast), `OVER (PARTITION BY g)` without `ORDER BY` (every row

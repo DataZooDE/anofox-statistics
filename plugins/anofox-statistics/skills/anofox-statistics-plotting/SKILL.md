@@ -15,7 +15,12 @@ description: >
   and CV curves, quantile process, ROC / PR / calibration curves, Kaplan-Meier
   curves, ACF / PACF and post-hoc test tables. Also GLMM tables (glmm_tidy_by
   ran_vals for caterpillar plots), mediation_by, ols_anova_by, nested-CV
-  curves and LOO columns. Use when the user wants to make a model or test
+  curves and LOO columns, and the producers added since 0.15.0: rms effect
+  curves (predict_grid_by), P-spline smooths (pspline_prediction_by),
+  bootstrap-corrected calibration curves (calibrate_by), bootstrap
+  coefficients (bootcov_by), Cox PH and GLS tidy / glance / augment tables
+  (cox_*_by, gls_*_by), AFT residuals (aft_augment_by) and score tests
+  (glm_score_test_by). Use when the user wants to make a model or test
   result plottable, asks "which table do I need for this chart", wants long /
   tidy tables instead of STRUCTs, or wants to combine several models or groups
   into one plot.
@@ -28,10 +33,12 @@ user-invocable: false
 **Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 > **New in 0.15.0:** every contract producer `*_by` macro ends with `row_order BIGINT` (1..n per group in display order); collect rows with `list(t ORDER BY t.row_order)` instead of sorting by the struct.
+>
+> **New since 0.15.0:** `predict_grid_by`, `pspline_prediction_by` (`prediction`); `calibrate_by` (`curve`, `curve_type = 'calibrate'`); `bootcov_by`, `cox_tidy_by`, `gls_tidy_by` (`terms`); `cox_glance_by`, `gls_glance_by` (`summary`); `cox_augment_by`, `gls_augment_by`, `aft_augment_by` (`obs`); `glm_score_test_by` (`test`). Fitting details are in **anofox-statistics-regression**, residual meaning in **anofox-statistics-diagnostics**.
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 
-**Identifiers.** Macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`) return the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), in that order, before the schema columns. `_augment_by` keeps all source columns and adds `model_id` / `model_name` but **no `id`** (a source column named `id` would collide). Macros whose groups are the things compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`) set `model_id` = the group value.
+**Identifiers.** Macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`, `cox_` / `gls_tidy_by` / `_glance_by`, `predict_grid_by`, `pspline_prediction_by`, `calibrate_by`, `bootcov_by`) return the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), in that order, before the schema columns. `_augment_by` keeps all source columns and adds `model_id` / `model_name` but **no `id`** (a source column named `id` would collide). Macros whose groups are the things compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`) set `model_id` = the group value.
 
 ## Which table do I need?
 
@@ -46,6 +53,12 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`, `ridge_augment_by` (leverage and LOO only), `glmm_augment_by` (no leverage / Cook's) | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
 | Fitted line / band, train vs test vs future | `<model>_prediction_by` (23 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
+| rms `Predict` curve of a spline / categorical term (adjusted to `datadist`, pointwise or simultaneous band) | `predict_grid_by(source, group_col, x_cols, model, terms, term[, grid_values, simultaneous, level])` (model and terms are columns of `source`, e.g. a view joining each group to its fit) | `prediction` (`model_id = 'predict_grid'`, `focal_name` = term, `y` NULL) | `anofox_plot_prediction` |
+| Smooth of `y` on one `x` with band | `pspline_prediction_by(source, group_col, x_col, y_col[, options, level, split])` | `prediction` (`model_id = 'pspline'`) | `anofox_plot_prediction` |
+| Overfitting-corrected calibration curve | `calibrate_by(source, group_col, y_col, x_cols[, options := {'model', 'B', …}])` | `curve` (`'calibrate'`; `x` = predicted, `y` = bias-corrected) | `anofox_plot_curve` |
+| Bootstrap SEs / percentile intervals of coefficients | `bootcov_by(source, group_col, y_col, x_cols[, options, cluster, names])` | `terms` (`model_id = 'bootcov'`, `statistic` / `p_value` NULL) | `anofox_plot_terms` |
+| Cox hazard ratios, GLS coefficients and variance parameters | `cox_tidy_by(source, group_col, time_col, x_cols, event_col[, names])` (log scale, no intercept), `gls_tidy_by(…, subject_col, time_col[, options, names])` (`effect`: `'coefficient'`, `'correlation'`, `'variance'`, `'sigma'`) | `terms` | `anofox_plot_terms` (exponentiate Cox `estimate` / `conf_*` for an HR forest) |
+| Cox / AFT / GLS residual plots | `cox_augment_by` (martingale `residual` + Schoenfeld, dfbeta), `aft_augment_by` (`cox_snell_residual`), `gls_augment_by` (`normalized_residual`) | `obs` (no leverage / Cook's) | `anofox_plot_obs` (`resid_fitted`) |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |
 | CV error over lambda (`lambda.min`, `lambda.1se`) | `ridge_cv_by`, `elasticnet_cv_by` | `curve` (`'lambda_cv'`) | `anofox_plot_curve` |
 | Survival curves per stratum | `kaplan_meier_by` | `curve` (`'km'`) | `anofox_plot_curve` |
@@ -53,6 +66,7 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Scatterplot smoother | `lowess_by(source, group_col, x_col, y_col[, frac, iterations])` | `curve` (`'lowess'`; not yet in the contract's curve_type vocabulary) | `anofox_plot_curve` |
 | Time-varying coefficients | `lm_dynamic_tidy_by(source, group_col, order_col, y_col, x_cols)` | `terms` (`'window_end'`, as rolling coefficients) | `anofox_plot_terms` |
 | Pairwise comparisons (significance brackets) | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | `test` | no dedicated plot macro |
+| Score test for adding predictors to a GLM, per group | `glm_score_test_by` | `test` | no dedicated plot macro |
 | Partial-residual / added-variable plot | `<model>_partial_residuals_by` (`ols`, `wls`, six GLMs) | not a contract schema | plot `x` vs `partial_residual` (or `x_residual` vs `y_residual`) with a generic scatter |
 
 Signatures of these macros are in the **anofox-statistics-batch** skill; the source is always a table-name string (`'my_table'`), columns are unquoted.
@@ -94,6 +108,8 @@ All functions of this extension also carry `tags['anofox.family'] = 'statistics'
 4. **`*_fit_predict_by` is not the `prediction` schema.** It keeps the source columns and adds `yhat`, `yhat_lower`, `yhat_upper`, `is_training`; use `<model>_prediction_by` for the contract columns (`x`, `id`, `split`, `level`).
 5. **STRUCT outputs to long rows:** `unnest(tidy(model), recursive := true)` gives `terms` columns for one model; `unnest(acf_agg(resid, 12 ORDER BY t), recursive := true)` gives the ACF points. The `_by` macros do this per group for you.
 6. **`lambda` is a SQL keyword:** quote `"lambda"` in the CV tables, or use `x`.
+7. **`calibrate_by` vs `calibration_curve_by`.** `calibration_curve_by` bins *given* probabilities (apparent); `calibrate_by` fits the model and returns the bootstrap overfitting-corrected lowess curve (`rms::calibrate`). Both are `curve` rows with different `curve_type`, so they can share one plot only after filtering to one group.
+8. **Not contract tables:** `validate_by` (one row per index), `calibrate_cph_by` (one row per risk group: `km` vs `mean_predicted` — plot as points with a scatter), `pentrace_by`, `pca_by` (scores appended to source rows).
 
 ## Worked examples
 
@@ -139,6 +155,24 @@ SELECT * FROM calibration_curve_by('plot_demo', grp, label, prob, n_bins := 4);
 -- test: Tukey HSD of y across the x2 levels, per group
 SELECT grp, test_id, round(estimate, 3) AS estimate, round(p_adj, 4) AS p_adj
 FROM tukey_hsd_by('plot_demo', grp, y, x2::BIGINT) ORDER BY grp, test_id LIMIT 4;
+```
+
+```sql
+-- New producers since 0.15.0 (same plot_demo table)
+-- prediction: P-spline smooth of y on x1 with a 90% band
+SELECT id, round(x, 1) AS x1, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
+FROM pspline_prediction_by('plot_demo', grp, x1, y, level := 0.9) WHERE x <= 4 ORDER BY id, x;
+
+-- curve: bootstrap overfitting-corrected calibration of a logistic model (x predicted, y corrected)
+SELECT id, curve_type, round(x, 3) AS predicted, round(y, 3) AS corrected
+FROM calibrate_by('plot_demo', grp, label::INTEGER, [x1, x2], options := {'model': 'logistic', 'B': 20})
+WHERE row_order <= 2;
+
+-- terms: Cox hazard ratios for a forest plot (exponentiate the log-scale columns)
+CREATE OR REPLACE TABLE surv_demo AS
+SELECT *, round(exp(2 + 0.03 * id + 0.5 * sin(id)), 1) AS days, (id % 4 <> 0)::DOUBLE AS died FROM plot_demo;
+SELECT grp, term, round(exp(estimate), 3) AS hr, round(exp(conf_low), 3) AS lo, round(exp(conf_high), 3) AS hi
+FROM cox_tidy_by('surv_demo', grp, days, [x1, x2], died, names := ['x1', 'x2']) ORDER BY grp, term;
 ```
 
 ## Hand-off to anofox-visualization
