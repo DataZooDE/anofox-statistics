@@ -13,6 +13,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ridge_conditioning.hpp"
 #include "../include/model_struct.hpp"
 #include "../include/null_rows.hpp"
 #include "telemetry.hpp"
@@ -50,6 +51,7 @@ struct RidgeFitBindData : public FunctionData {
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
     bool compute_loo = false; // press, press_rmse, loo_r_squared (#235): one SVD of the design
+    RidgeConditioningOpt conditioning; // conditioning-aware lambda (#305)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeFitBindData>();
@@ -60,6 +62,7 @@ struct RidgeFitBindData : public FunctionData {
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
         result->compute_loo = compute_loo;
+        result->conditioning = conditioning;
         return std::move(result);
     }
 
@@ -67,7 +70,8 @@ struct RidgeFitBindData : public FunctionData {
         auto &other = other_p.Cast<RidgeFitBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                compute_inference == other.compute_inference && confidence_level == other.confidence_level &&
-               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo;
+               solver == other.solver && lambda_scaling == other.lambda_scaling && compute_loo == other.compute_loo &&
+               conditioning == other.conditioning;
     }
 };
 
@@ -80,8 +84,8 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarBindF
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling",
-             "compute_loo"});
+            RidgeConditioningOpt::WithKeys({"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda",
+                                            "solver", "lambda_scaling", "compute_loo"}));
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -105,6 +109,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarBindF
         if (opts.compute_loo.has_value()) {
             result->compute_loo = opts.compute_loo.value();
         }
+        result->conditioning.Apply(opts, "ridge_fit");
     }
 
     // Set return type
@@ -198,6 +203,7 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         options.solver = ConvertSolverType(bind_data.solver);
         options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
         options.compute_loo = bind_data.compute_loo;
+        bind_data.conditioning.ToFFI(options);
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;
@@ -242,7 +248,9 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
         // the inference fields are NULL (the Rust core reports NaN for them).
         // alpha == 0 is OLS and keeps its inference.
-        writer.WriteInference(row, bind_data.compute_inference && bind_data.alpha == 0 ? &inference_result : nullptr);
+        // The lambda the fit used (conditioning-aware lambda, #305).
+        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit");
+        writer.WriteInference(row, bind_data.compute_inference && lambda == 0 ? &inference_result : nullptr);
         writer.WriteSummary(row, core_result.summary);
         if (bind_data.compute_inference) {
             anofox_free_result_inference(&inference_result);

@@ -40,6 +40,7 @@ struct HuberFitPredictState {
     bool fit_intercept;
     double confidence_level;
     double epsilon;
+    bool joint_scale = false; // scale_method = joint (#305)
     double alpha;
     uint32_t max_iterations;
     double tolerance;
@@ -64,6 +65,7 @@ struct HuberFitPredictBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
     double epsilon = 1.35;
+    bool joint_scale = false; // scale_method = joint (#305)
     double alpha = 0.0001;
     uint32_t max_iterations = 100;
     double tolerance = 1e-5;
@@ -74,6 +76,7 @@ struct HuberFitPredictBindData : public FunctionData {
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
         result->epsilon = epsilon;
+        result->joint_scale = joint_scale;
         result->alpha = alpha;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
@@ -84,7 +87,7 @@ struct HuberFitPredictBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<HuberFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               epsilon == other.epsilon && alpha == other.alpha && max_iterations == other.max_iterations &&
+               epsilon == other.epsilon && joint_scale == other.joint_scale && alpha == other.alpha && max_iterations == other.max_iterations &&
                tolerance == other.tolerance && null_policy == other.null_policy;
     }
 };
@@ -143,6 +146,7 @@ static void HuberFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
         state.epsilon = bind_data.epsilon;
+        state.joint_scale = bind_data.joint_scale;
         state.alpha = bind_data.alpha;
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
@@ -236,6 +240,7 @@ static void HuberFitPredictCombine(Vector &source_vector, Vector &target_vector,
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
             target.epsilon = source.epsilon;
+            target.joint_scale = source.joint_scale;
             target.alpha = source.alpha;
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
@@ -302,6 +307,7 @@ static void HuberFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
 
         AnofoxHuberOptions options;
         options.epsilon = state.epsilon;
+        options.joint_scale = state.joint_scale;
         options.alpha = state.alpha;
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
@@ -355,7 +361,7 @@ static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, Aggr
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "huber_fit_predict",
-            {"fit_intercept", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "null_policy"});
+            {"fit_intercept", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "null_policy", "scale_method"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -364,6 +370,9 @@ static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, Aggr
         }
         if (opts.epsilon.has_value()) {
             result->epsilon = opts.epsilon.value();
+        }
+        if (opts.huber_joint_scale.has_value()) {
+            result->joint_scale = opts.huber_joint_scale.value();
         }
         if (opts.alpha.has_value()) {
             result->alpha = opts.alpha.value();

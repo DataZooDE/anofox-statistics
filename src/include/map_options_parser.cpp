@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include "map_options_parser.hpp"
@@ -916,6 +917,11 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"variant", {"pa_variant"}},
 	    {"ic", {"information_criterion"}},
 	    {"span", {"lowess_span", "f"}},
+	    {"scale_method", {"scale"}},
+	    {"n_agq", {"nagq"}},
+	    {"conditioning", {"conditioning_aware"}},
+	    {"lambda_small", {}},
+	    {"cond_threshold", {"condition_threshold"}},
 	};
 	return table;
 }
@@ -1308,6 +1314,36 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 					                            function_name, val.ToString());
 				}
 			}
+		} else if (key == "scale_method") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v != "mad" && v != "joint") {
+					throw InvalidInputException("%s: scale_method must be 'mad' or 'joint', got '%s'", function_name,
+					                            val.ToString());
+				}
+				result.huber_joint_scale = v == "joint";
+			}
+		} else if (key == "n_agq") {
+			auto v = ExtractUInt32(val);
+			if (v.has_value() && v.value() > 25) {
+				throw InvalidInputException("%s: n_agq must be in [0, 25], got %u", function_name, v.value());
+			}
+			result.n_agq = v;
+		} else if (key == "conditioning") {
+			result.conditioning = ExtractBool(val);
+		} else if (key == "lambda_small") {
+			auto v = ExtractDouble(val);
+			if (v.has_value() && !(std::isfinite(v.value()) && v.value() >= 0.0)) {
+				throw InvalidInputException("%s: lambda_small must be a finite number >= 0, got %s", function_name,
+				                            val.ToString());
+			}
+			result.lambda_small = v;
+		} else if (key == "cond_threshold") {
+			auto v = ExtractDouble(val);
+			if (v.has_value() && !(v.value() > 0.0)) {
+				throw InvalidInputException("%s: cond_threshold must be > 0, got %s", function_name, val.ToString());
+			}
+			result.cond_threshold = v;
 		} else {
 			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}
@@ -1808,6 +1844,62 @@ TostCorrelationMapOptions TostCorrelationMapOptions::ParseFromValue(const Value 
 	    });
 }
 
+TostVariantMapOptions TostVariantMapOptions::ParseFromValue(const Value &map_value, const string &function_name,
+                                                            const vector<string> &extra_keys) {
+	static const vector<OptionKeyDef> extra_defs = {{"mu", {}},
+	                                                {"p0", {"p"}},
+	                                                {"trim", {"trim_proportion", "tr"}},
+	                                                {"n_bootstrap", {"bootstrap_samples", "n_boot"}},
+	                                                KEY_SEED};
+	vector<OptionKeyDef> keys = {KEY_CONFIDENCE, KEY_TOST_ALPHA, KEY_TOST_DELTA, KEY_TOST_LOWER, KEY_TOST_UPPER};
+	for (auto &def : extra_defs) {
+		if (std::find(extra_keys.begin(), extra_keys.end(), string(def.canonical)) != extra_keys.end()) {
+			keys.push_back(def);
+		}
+	}
+	auto result = ParseTestOptions<TostVariantMapOptions>(
+	    map_value, function_name, keys, [](TostVariantMapOptions &result, const string &key, const Value &val) {
+		    if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "alpha") {
+			    result.alpha = ExtractTostAlpha(val);
+		    } else if (key == "delta") {
+			    result.delta = ExtractDouble(val);
+		    } else if (key == "bound_lower") {
+			    result.bound_lower = ExtractDouble(val);
+		    } else if (key == "bound_upper") {
+			    result.bound_upper = ExtractDouble(val);
+		    } else if (key == "mu") {
+			    result.mu = ExtractDouble(val);
+		    } else if (key == "p0") {
+			    result.p0 = ExtractDouble(val);
+		    } else if (key == "trim") {
+			    result.trim = ExtractDouble(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+	if (result.delta && !(*result.delta > 0.0 && std::isfinite(*result.delta))) {
+		throw InvalidInputException("%s: delta must be a finite number > 0, got %g", function_name, *result.delta);
+	}
+	if (result.mu && !std::isfinite(*result.mu)) {
+		throw InvalidInputException("%s: mu must be finite", function_name);
+	}
+	if (result.p0 && !(*result.p0 >= 0.0 && *result.p0 <= 1.0)) {
+		throw InvalidInputException("%s: p0 must be in [0, 1], got %g", function_name, *result.p0);
+	}
+	if (result.trim && !(*result.trim >= 0.0 && *result.trim < 0.5)) {
+		throw InvalidInputException("%s: trim must be in [0, 0.5), got %g", function_name, *result.trim);
+	}
+	if (result.n_bootstrap && *result.n_bootstrap < 100) {
+		throw InvalidInputException("%s: n_bootstrap must be at least 100, got %u", function_name,
+		                            *result.n_bootstrap);
+	}
+	return result;
+}
+
 YuenMapOptions YuenMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_CONFIDENCE, {"trim", {"trim_proportion"}}};
 	return ParseTestOptions<YuenMapOptions>(map_value, function_name, keys,
@@ -1912,8 +2004,15 @@ IccMapOptions IccMapOptions::ParseFromValue(const Value &map_value, const string
 	return ParseTestOptions<IccMapOptions>(map_value, function_name, keys,
 	                                       [](IccMapOptions &result, const string &key, const Value &val) {
 		                                       if (key == "type" && !val.IsNull()) {
-			                                       result.average =
-			                                           ExtractChoice(val, "type", {"single", "average"}) == "average";
+			                                       auto t = ExtractChoice(val, "type",
+			                                                              {"icc1", "icc2", "icc3", "icc1k", "icc2k",
+			                                                               "icc3k", "single", "average"});
+			                                       if (t == "single") {
+				                                       t = "icc1";
+			                                       } else if (t == "average") {
+				                                       t = "icc1k";
+			                                       }
+			                                       result.type = t;
 		                                       }
 	                                       });
 }
@@ -1967,6 +2066,83 @@ MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, 
 			    result.treat_value = ExtractDouble(val);
 		    } else if (key == "control_value") {
 			    result.control_value = ExtractDouble(val);
+		    }
+	    });
+}
+
+BootstrapMeanMapOptions BootstrapMeanMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}},
+	                                          {"n_bootstrap", {"n_boot"}},
+	                                          {"block_length", {"l", "block_size", "expected_block_length"}},
+	                                          {"confidence_level", {"confidence", "conf_level", "level"}},
+	                                          KEY_SEED};
+	return ParseTestOptions<BootstrapMeanMapOptions>(
+	    map_value, function_name, keys, [](BootstrapMeanMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "method") {
+			    result.method =
+			        ExtractChoice(val, "method", {"iid", "stationary", "circular_block", "moving_block"});
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+SpaMapOptions SpaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"n_bootstrap", {"n_boot", "bootstrap"}}, {"block_length", {"block_size"}}, KEY_SEED};
+	return ParseTestOptions<SpaMapOptions>(
+	    map_value, function_name, keys, [](SpaMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+PartialCorMapOptions PartialCorMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}}};
+	return ParseTestOptions<PartialCorMapOptions>(
+	    map_value, function_name, keys, [](PartialCorMapOptions &result, const string &key, const Value &val) {
+		    if (key == "method" && !val.IsNull()) {
+			    result.spearman = ExtractChoice(val, "method", {"pearson", "spearman"}) == "spearman";
+		    }
+	    });
+}
+
+McsMapOptions McsMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"alpha", {}},
+	                                          {"n_bootstrap", {"n_boot", "bootstrap"}},
+	                                          {"block_length", {"block_size"}},
+	                                          KEY_SEED,
+	                                          {"statistic", {}},
+	                                          {"method", {"bootstrap_method"}}};
+	return ParseTestOptions<McsMapOptions>(
+	    map_value, function_name, keys, [](McsMapOptions &result, const string &key, const Value &val) {
+		    if (key == "alpha") {
+			    result.alpha = ExtractDouble(val);
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "block_length") {
+			    result.block_length = ExtractDouble(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "statistic") {
+			    result.max_statistic = ExtractChoice(val, "statistic", {"range", "max"}) == "max";
+		    } else if (key == "method") {
+			    result.method =
+			        ExtractChoice(val, "method", {"stationary", "moving_block", "circular_block", "iid"});
 		    }
 	    });
 }

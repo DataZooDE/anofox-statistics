@@ -288,6 +288,12 @@ struct RegressionMapOptions {
 	// lmDynamic (#63)
 	std::optional<int> lm_dynamic_ic;      // 'ic': mirrors AnofoxInformationCriterion
 	std::optional<double> lowess_span;     // 'span': lowess f of the weight smoothing, 0 = none
+	// Option pass-throughs (#305)
+	std::optional<bool> huber_joint_scale; // 'scale_method': 'mad' (false) | 'joint' (true), Huber
+	std::optional<uint32_t> n_agq;         // GLMM nAGQ: 0 = PIRLS Laplace, 1 = joint Laplace, > 1 = AGQ
+	std::optional<bool> conditioning;      // Ridge conditioning-aware lambda
+	std::optional<double> lambda_small;    // Ridge: lambda on a well-conditioned design (implies conditioning)
+	std::optional<double> cond_threshold;  // Ridge: kappa(X'X) threshold (implies conditioning)
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.
@@ -583,6 +589,30 @@ struct TostCorrelationMapOptions {
 };
 
 /**
+ * Options of the TOST variants (#293): tost_one_sample_agg ('mu'),
+ * tost_prop_one_agg ('p0'), tost_prop_two_agg, tost_wilcoxon_paired_agg,
+ * tost_wilcoxon_agg, tost_yuen_agg ('trim') and tost_bootstrap_agg
+ * ('n_bootstrap', 'seed'). Every function takes the bounds and alpha keys;
+ * a key outside `extra_keys` is rejected.
+ */
+struct TostVariantMapOptions {
+	std::optional<double> confidence_level;
+	std::optional<double> alpha;
+	std::optional<double> delta;
+	std::optional<double> bound_lower;
+	std::optional<double> bound_upper;
+	std::optional<double> mu;
+	std::optional<double> p0;
+	std::optional<double> trim;
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<uint64_t> seed;
+
+	//! `extra_keys`: canonical names among "mu", "p0", "trim", "n_bootstrap", "seed".
+	static TostVariantMapOptions ParseFromValue(const Value &map_value, const string &function_name,
+	                                            const vector<string> &extra_keys);
+};
+
+/**
  * Options for Yuen trimmed-mean test
  */
 struct YuenMapOptions {
@@ -661,7 +691,9 @@ struct PropTestTwoMapOptions {
  * Options for the intraclass correlation coefficient
  */
 struct IccMapOptions {
-	std::optional<bool> average; // 'type': 'single' (false) | 'average' (true)
+	// 'type', lower-cased: 'icc1' | 'icc2' | 'icc3' | 'icc1k' | 'icc2k' | 'icc3k'
+	// ('single' / 'average' are normalised to 'icc1' / 'icc1k')
+	std::optional<string> type;
 
 	static IccMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -698,6 +730,53 @@ struct MediationMapOptions {
 	std::optional<double> control_value;
 
 	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the bootstrap CI of the mean (bootstrap_mean_ci_agg, #294)
+ */
+struct BootstrapMeanMapOptions {
+	std::optional<string> method; // 'iid' | 'stationary' | 'circular_block' | 'moving_block'
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // expected block length for 'stationary'
+	std::optional<double> confidence_level;
+	std::optional<uint64_t> seed; // also accepted as random_state
+
+	static BootstrapMeanMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for partial_cor_agg / semi_partial_cor_agg (#296)
+ */
+struct PartialCorMapOptions {
+	std::optional<bool> spearman; // 'method': 'pearson' (false) | 'spearman' (true)
+
+	static PartialCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of the SPA-type tests (spa_test_agg, mspe_adjusted_spa_agg, #295)
+ */
+struct SpaMapOptions {
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+
+	static SpaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options of model_confidence_set_agg (#295)
+ */
+struct McsMapOptions {
+	std::optional<double> alpha;
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<double> block_length; // <= 0: T^(1/3)
+	std::optional<uint64_t> seed;       // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
+	std::optional<bool> max_statistic;  // 'statistic': 'range' (false) | 'max' (true)
+	std::optional<string> method;       // bootstrap: 'stationary' | 'moving_block' | 'circular_block' | 'iid'
+
+	static McsMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 } // namespace duckdb

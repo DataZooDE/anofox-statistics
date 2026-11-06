@@ -67,7 +67,7 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE tags['anofox.output'] = 'test' AND tags['anofox.contract'] = anofox_contract_version()
 ----
-59
+72
 
 # Every test aggregate carries all thirteen unified fields with the contract types.
 statement ok
@@ -85,6 +85,8 @@ SELECT 'mann_whitney_u_agg', typeof(mann_whitney_u_agg(v, g2::BIGINT)) FROM tt U
 SELECT 'brunner_munzel_agg', typeof(brunner_munzel_agg(v, g2::BIGINT)) FROM tt UNION ALL
 SELECT 'permutation_t_test_agg', typeof(permutation_t_test_agg(v, g2::BIGINT)) FROM tt UNION ALL
 SELECT 'wilcoxon_signed_rank_agg', typeof(wilcoxon_signed_rank_agg(x, y)) FROM tt UNION ALL
+SELECT 't_test_one_sample_agg', typeof(t_test_one_sample_agg(v)) FROM tt UNION ALL
+SELECT 't_test_paired_agg', typeof(t_test_paired_agg(x, y)) FROM tt UNION ALL
 SELECT 'kruskal_wallis_agg', typeof(kruskal_wallis_agg(v, g3)) FROM tt UNION ALL
 SELECT 'one_way_anova_agg', typeof(one_way_anova_agg(v, g3)) FROM tt UNION ALL
 SELECT 'brown_forsythe_agg', typeof(brown_forsythe_agg(v, g3)) FROM tt UNION ALL
@@ -104,9 +106,18 @@ SELECT 'mcnemar_agg', typeof(mcnemar_agg(b1, b2)) FROM tt UNION ALL
 SELECT 'cohen_kappa_agg', typeof(cohen_kappa_agg(c1, c2)) FROM tt UNION ALL
 SELECT 'diebold_mariano_agg', typeof(diebold_mariano_agg(v, x, y)) FROM tt UNION ALL
 SELECT 'clark_west_agg', typeof(clark_west_agg(v, x, y)) FROM tt UNION ALL
+SELECT 'spa_test_agg', typeof(spa_test_agg(v, [x, y] ORDER BY i)) FROM tt UNION ALL
+SELECT 'mspe_adjusted_spa_agg', typeof(mspe_adjusted_spa_agg(v, [x, y] ORDER BY i)) FROM tt UNION ALL
 SELECT 'tost_t_test_agg', typeof(tost_t_test_agg(v, g2)) FROM tt UNION ALL
 SELECT 'tost_paired_agg', typeof(tost_paired_agg(x, y)) FROM tt UNION ALL
 SELECT 'tost_correlation_agg', typeof(tost_correlation_agg(x, y)) FROM tt UNION ALL
+SELECT 'tost_one_sample_agg', typeof(tost_one_sample_agg(v, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_prop_one_agg', typeof(tost_prop_one_agg(b1, {'delta': 0.1})) FROM tt UNION ALL
+SELECT 'tost_prop_two_agg', typeof(tost_prop_two_agg(b1, g2, {'delta': 0.1})) FROM tt UNION ALL
+SELECT 'tost_wilcoxon_paired_agg', typeof(tost_wilcoxon_paired_agg(x, y, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_wilcoxon_agg', typeof(tost_wilcoxon_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_yuen_agg', typeof(tost_yuen_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
+SELECT 'tost_bootstrap_agg', typeof(tost_bootstrap_agg(v, g2, {'delta': 0.5})) FROM tt UNION ALL
 SELECT 'binom_test_agg', typeof(binom_test_agg(b1)) FROM tt UNION ALL
 SELECT 'prop_test_one_agg', typeof(prop_test_one_agg(b1)) FROM tt UNION ALL
 SELECT 'prop_test_two_agg', typeof(prop_test_two_agg(b1, g2)) FROM tt UNION ALL
@@ -128,7 +139,9 @@ SELECT 'psi_agg', typeof(psi_agg(v, g2)) FROM tt UNION ALL
 SELECT 'kl_divergence_agg', typeof(kl_divergence_agg(c1::VARCHAR, g2)) FROM tt UNION ALL
 SELECT 'jensen_shannon_agg', typeof(jensen_shannon_agg(v, g2)) FROM tt UNION ALL
 SELECT 'hellinger_agg', typeof(hellinger_agg(v, g2)) FROM tt UNION ALL
-SELECT 'tvd_agg', typeof(tvd_agg(c1, g2)) FROM tt;
+SELECT 'tvd_agg', typeof(tvd_agg(c1, g2)) FROM tt UNION ALL
+SELECT 'partial_cor_agg', typeof(partial_cor_agg(x, y, [v])) FROM tt UNION ALL
+SELECT 'semi_partial_cor_agg', typeof(semi_partial_cor_agg(x, y, [v])) FROM tt;
 
 query I
 SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field IN [
@@ -141,4 +154,4 @@ SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field
 query I
 SELECT count(*) FROM types
 ----
-50
+63

@@ -3,6 +3,7 @@
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
 mod drift_ffi;
+mod forecast_ffi;
 mod inference_ffi;
 mod models_ffi;
 mod types;
@@ -491,6 +492,7 @@ pub unsafe extern "C" fn anofox_huber_fit(
             tolerance: options.tolerance,
             compute_inference: options.compute_inference,
             confidence_level: options.confidence_level,
+            joint_scale: options.joint_scale,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1047,6 +1049,7 @@ pub unsafe extern "C" fn anofox_ridge_fit(
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
             compute_loo: options.compute_loo,
+            conditioning: options.conditioning_pair(),
         };
 
         // Call the core function with panic catching for regress-rs issues
@@ -4495,6 +4498,7 @@ pub unsafe extern "C" fn anofox_quantile_fit(
             fit_intercept: options.fit_intercept,
             max_iterations: options.max_iterations,
             tolerance: options.tolerance,
+            alpha: options.alpha,
         };
 
         // Call the core function with panic catching
@@ -7649,6 +7653,10 @@ pub unsafe extern "C" fn anofox_icc(
         let icc_type_rust = match icc_type {
             IccTypeFFI::Single => anofox_tests::ICCType::ICC1,
             IccTypeFFI::Average => anofox_tests::ICCType::ICC1k,
+            IccTypeFFI::Icc2 => anofox_tests::ICCType::ICC2,
+            IccTypeFFI::Icc3 => anofox_tests::ICCType::ICC3,
+            IccTypeFFI::Icc2k => anofox_tests::ICCType::ICC2k,
+            IccTypeFFI::Icc3k => anofox_tests::ICCType::ICC3k,
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -7667,17 +7675,19 @@ pub unsafe extern "C" fn anofox_icc(
 
         match result {
             Ok(r) => {
+                let unified = TestSummaryFFI::from(&r.unified);
+                let (ci_lower, ci_upper) = (r.ci_lower, r.ci_upper);
                 (*out_result) = IccResultFFI {
                     icc: r.icc,
                     f_statistic: r.f_statistic,
-                    ci_lower: r.ci_lower,
-                    ci_upper: r.ci_upper,
+                    ci_lower,
+                    ci_upper,
                     confidence_level: 0.95,
                     n_subjects,
                     n_raters,
                     method: alloc_string(&r.icc_type),
                     p_value: r.p_value,
-                    unified: TestSummaryFFI::from(&r.unified),
+                    unified,
                 };
                 true
             }
@@ -8930,6 +8940,7 @@ unsafe fn glmm_core_options(options: &GlmmOptionsFFI, observations: bool) -> Glm
             GlmmDdfFFI::Satterthwaite => Some(GlmmDdf::Satterthwaite),
         },
         observations,
+        n_agq: options.n_agq,
     }
 }
 
@@ -9468,6 +9479,7 @@ pub unsafe extern "C" fn anofox_ridge_augment(
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
             compute_loo: false,
+            conditioning: options.conditioning_pair(),
         };
         augment_entry("Ridge augment", out_result, out_error, || {
             augment_ridge(&y_vec, &x_vecs, &opts)
@@ -10779,3 +10791,23 @@ pub unsafe extern "C" fn anofox_ols_anova_table(
 // After alloc_inference_arrays! (macro_rules scope is textual).
 mod ls_state_ffi;
 pub use ls_state_ffi::*;
+
+// Percentile bootstrap CI of the mean (#294).
+mod bootstrap_ffi;
+pub use bootstrap_ffi::*;
+mod diagnostics_ffi;
+pub use diagnostics_ffi::*;
+// One-sample and paired t-tests (#299).
+mod ttest_ffi;
+pub use ttest_ffi::*;
+// Option pass-throughs (#305).
+mod passthrough_ffi;
+pub use passthrough_ffi::*;
+mod tost_ffi;
+pub use tost_ffi::*;
+// Partial / semi-partial correlation (#296).
+mod partial_cor_ffi;
+pub use partial_cor_ffi::*;
+// AUC null distribution and Tukey distribution functions (#304).
+mod null_distributions_ffi;
+pub use null_distributions_ffi::*;

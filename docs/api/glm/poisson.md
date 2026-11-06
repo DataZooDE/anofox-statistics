@@ -30,12 +30,14 @@ FROM range(200) r(i);
 
 ```text
 poisson_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
+poisson_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE [, options MAP]) -> STRUCT
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `y` | DOUBLE | Response; non-negative counts |
 | `x` | DOUBLE[] | Feature values for the row, same length on every row |
+| `weights` | DOUBLE | Optional prior (case) weight of the row, see [Prior weights](#prior-weights) |
 | `options` | MAP/STRUCT | Optional; must be a constant |
 
 **Options:**
@@ -114,6 +116,26 @@ FROM fit;
 SELECT poisson_fit_agg(qty, [promo, ln(shelf_facings)],
                        {'glm_lambda': 0.01, 'offset': 2}) AS fit
 FROM demand;
+```
+
+### Prior weights
+
+A numeric third argument is the row's prior (case) weight, as R's
+`glm(y ~ x, family = poisson, weights = w)` (and sklearn's `sample_weight`):
+each row's IRLS weight, deviance, log-likelihood and Pearson terms are
+multiplied by it, so an integer weight equals repeating the row. The weighted
+fit is anofox-regression's `PoissonRegressor` with `weights`; without a weights
+argument the fit is unchanged. All the options above apply, and the result has
+the same fields. Rows with a NULL (or non-finite) weight are left out, as in `wls_fit_agg`; a
+negative weight is an error; weight 0 keeps the row out of the residual degrees
+of freedom (R's `n.ok`). `glm_lambda` and explicit priors cannot be
+combined with weights (error). The `*_fit_predict_agg`, `*_augment_agg` and
+`*_by` macro forms are unweighted.
+
+```sql
+-- Each row stands for `shelf_facings` identical observations
+SELECT (fit).coefficients, (fit).std_errors
+FROM (SELECT poisson_fit_agg(qty, [promo], shelf_facings, {'compute_inference': true}) AS fit FROM demand);
 ```
 
 ## poisson_fit_predict_agg

@@ -20,6 +20,7 @@ The curves follow scikit-learn (`roc_curve`, `precision_recall_curve`,
 | `brier_agg(y_true, prob)` | Aggregate | `DOUBLE` |
 | `log_loss_agg(y_true, prob)` | Aggregate | `DOUBLE` |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | Table macro | the `curve` schema, one row per point |
+| `auc_null_quantile(p, n_pos, n_neg)`, `auc_null_p_value(auc, n_pos, n_neg)` | Scalar | `DOUBLE` (see [AUC of a random classifier](#auc-of-a-random-classifier)) |
 
 ## Inputs
 
@@ -101,4 +102,34 @@ combine with `UNION ALL`:
 SELECT * FROM roc_curve_by('scored', model, label, score)
 UNION ALL
 SELECT * FROM calibration_curve_by('scored', model, label, score, n_bins := 5);
+```
+
+## AUC of a random classifier
+
+```text
+auc_null_quantile(p DOUBLE, n_pos BIGINT, n_neg BIGINT) -> DOUBLE
+auc_null_p_value(auc DOUBLE, n_pos BIGINT, n_neg BIGINT) -> DOUBLE
+```
+
+With scores that do not depend on the labels, the AUC of `n_pos` positive and
+`n_neg` negative cases is `U / (n_pos · n_neg)`, `U` the Mann-Whitney statistic
+(#304). `auc_null_quantile` is the smallest AUC `a` with `P(AUC_random <= a) >= p`,
+R `qwilcox(p, n_pos, n_neg) / (n_pos * n_neg)`; `auc_null_p_value` is the one-sided
+p-value `P(AUC_random >= auc)`, R `pwilcox(ceiling(u) - 1, n_pos, n_neg, lower.tail =
+FALSE)` with `u = auc · n_pos · n_neg`. Both are exact up to `n_pos · n_neg = 10000`;
+beyond, they use the normal approximation (mean 0.5, variance
+`(n_pos + n_neg + 1) / (12 n_pos n_neg)`; the p-value with continuity correction, as
+`wilcox.test(exact = FALSE)`). The 95% quantile is the threshold that evidently's
+model-based drift detectors estimate by simulating random scores.
+
+A NULL argument gives NULL. `p` or `auc` outside [0, 1], or a class size that is
+zero or negative, is an error.
+
+```sql
+-- Is the AUC of 0.9 on 10 positives and 10 negatives better than chance?
+SELECT auc_null_quantile(0.95, 10, 10) AS auc_95, auc_null_p_value(0.9, 10, 10) AS p_value;
+
+SELECT model, auc_agg(label, score) AS auc,
+       auc_null_p_value(auc_agg(label, score), count(*) FILTER (WHERE label), count(*) FILTER (WHERE NOT label)) AS p_value
+FROM scored GROUP BY model;
 ```

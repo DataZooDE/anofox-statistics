@@ -15,5 +15,7 @@ pub use information_criteria::{compute_aic, compute_aic_bic, compute_bic};
 pub use jarque_bera::{jarque_bera, JarqueBeraResult};
 pub use mcmc::{ess_bulk, ess_tail, rhat};
 pub use residuals::{compute_residuals, ResidualType, ResidualsResult};
-pub use separation::{check_binary_separation_diagnostic, check_count_sparsity_diagnostic};
+pub use separation::{
+    check_binary_separation_diagnostic, check_count_sparsity_diagnostic, detect_linear_separation,
+};
 pub use vif::compute_vif;

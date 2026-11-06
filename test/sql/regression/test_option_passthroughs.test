@@ -1,0 +1,318 @@
+# name: test/sql/regression/test_option_passthroughs.test
+# description: option pass-throughs (#305): quantile L1 'alpha', Huber 'scale_method', GLM prior
+#              weights, GLMM 'n_agq', ridge conditioning-aware lambda. Defaults leave results
+#              unchanged; NULL handling, groups, the fit-predict / window / macro variants and
+#              invalid options. Reference values: test/sql/reference/option_passthroughs_*.test.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       i::DOUBLE / 4 AS x1,
+       ((i * 7) % 11)::DOUBLE AS x2,
+       (1 + 0.5 * i / 4 + ((i * 13) % 7) / 3.0 + CASE WHEN i % 10 = 0 THEN 9 ELSE 0 END)::DOUBLE AS y,
+       ((i * 3) % 5)::DOUBLE AS cnt,
+       (1 + (i % 4))::INTEGER AS w,
+       i % 5 AS g,
+       i % 2 AS grp
+FROM range(1, 61) t(i);
+
+# ---------------------------------------------------------------------------
+# Defaults are unchanged
+# ---------------------------------------------------------------------------
+
+query IIII
+SELECT quantile_fit_agg(y, [x1, x2]) = quantile_fit_agg(y, [x1, x2], {'alpha': 0}),
+       huber_fit_agg(y, [x1, x2]) = huber_fit_agg(y, [x1, x2], {'scale_method': 'mad'}),
+       ridge_fit_agg(y, [x1, x2], {'alpha': 2}) = ridge_fit_agg(y, [x1, x2], {'alpha': 2, 'conditioning': false}),
+       glmm_fit_agg(cnt, [x1], g, {'family': 'poisson'}) = glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'n_agq': 0})
+FROM d;
+----
+true	true	true	true
+
+# Unit weights reproduce the unweighted fit (to rounding: a different upstream solver)
+query III
+SELECT abs(poisson_fit_agg(cnt, [x1, x2], 1).coefficients[1] - poisson_fit_agg(cnt, [x1, x2]).coefficients[1]) < 1e-9,
+       abs(gamma_fit_agg(cnt + 1, [x1, x2], 1.0).deviance - gamma_fit_agg(cnt + 1, [x1, x2]).deviance) < 1e-9,
+       abs(tweedie_fit_agg(cnt, [x1, x2], 1, {'power': 1.4}).intercept - tweedie_fit_agg(cnt, [x1, x2], {'power': 1.4}).intercept) < 1e-9
+FROM d;
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# quantile 'alpha'
+# ---------------------------------------------------------------------------
+
+# A large L1 penalty removes every slope; the intercept is then a sample quantile
+query II
+SELECT list_max(list_transform(m.coefficients, lambda c: abs(c))) < 1e-9, m.tau
+FROM (SELECT quantile_fit_agg(y, [x1, x2], {'tau': 0.25, 'alpha': 100}) AS m FROM d);
+----
+true	0.25
+
+# fit-predict uses the same penalized fit
+query I
+WITH f AS (SELECT quantile_fit_agg(y, [x1, x2], {'alpha': 0.3}) AS m FROM d),
+     p AS (SELECT quantile_fit_predict_agg(y, [x1, x2], {'alpha': 0.3} ORDER BY i) AS p FROM d)
+SELECT abs(list_extract(p.p, 7).yhat - (f.m.intercept + f.m.coefficients[1] * 7 / 4.0 + f.m.coefficients[2] * 5)) < 1e-9
+FROM f, p;
+----
+true
+
+# per group, and the *_by macro passes the option through
+query I
+SELECT count(*) FROM (SELECT grp, quantile_fit_agg(y, [x1, x2], {'alpha': 0.1}) m FROM d GROUP BY grp) WHERE m IS NOT NULL;
+----
+2
+
+query I
+SELECT count(*) > 0 FROM quantile_fit_predict_by('d', grp, y, [x1, x2], options := {'alpha': 0.1});
+----
+true
+
+statement error
+SELECT quantile_fit_agg(y, [x1], {'alpha': -1}) FROM d;
+----
+alpha must be a finite number >= 0
+
+statement error
+SELECT quantile_fit_agg(y, [x1], {'alpha': 0.1, 'se': 'nid'}) FROM d;
+----
+not available with alpha > 0
+
+statement error
+SELECT quantile_fit_predict_agg(y, [x1], {'alpha': -0.5}) FROM d;
+----
+alpha must be a finite number >= 0
+
+# ---------------------------------------------------------------------------
+# Huber 'scale_method'
+# ---------------------------------------------------------------------------
+
+query III
+WITH a AS (SELECT huber_fit_agg(y, [x1, x2]) AS m FROM d),
+     b AS (SELECT huber_fit_agg(y, [x1, x2], {'scale_method': 'joint'}) AS m FROM d)
+SELECT a.m.coefficients <> b.m.coefficients, b.m.scale > 0, b.m.n_outliers >= 0
+FROM a, b;
+----
+true	true	true
+
+# alias 'scale', case-insensitive values; scalar / fit-predict / window agree
+query III
+WITH a AS (SELECT huber_fit_agg(y, [x1, x2], {'scale': 'JOINT'}) AS m FROM d),
+     p AS (SELECT huber_fit_predict_agg(y, [x1, x2], {'scale_method': 'joint'} ORDER BY i) AS p FROM d),
+     s AS (SELECT huber_fit(list(y ORDER BY i), [list(x1 ORDER BY i), list(x2 ORDER BY i)], {'scale_method': 'joint'}) AS m FROM d)
+SELECT abs(list_extract(p.p, 1).yhat - (a.m.intercept + a.m.coefficients[1] * 0.25 + a.m.coefficients[2] * 7)) < 1e-9,
+       s.m.coefficients = a.m.coefficients,
+       (SELECT count(*) FROM (SELECT huber_fit_predict(y, [x1, x2], {'scale_method': 'joint'}) OVER (ORDER BY i) AS r FROM d) WHERE r IS NOT NULL) > 0
+FROM a, p, s;
+----
+true	true	true
+
+query I
+SELECT count(*) > 0 FROM huber_fit_predict_by('d', grp, y, [x1, x2], options := {'scale_method': 'joint'});
+----
+true
+
+statement error
+SELECT huber_fit_agg(y, [x1], {'scale_method': 'iqr'}) FROM d;
+----
+scale_method must be 'mad' or 'joint'
+
+# ---------------------------------------------------------------------------
+# GLM prior weights
+# ---------------------------------------------------------------------------
+
+# (y, x, w) with an INTEGER, DOUBLE or DECIMAL weight column and (y, x, w, options)
+query III
+SELECT poisson_fit_agg(cnt, [x1, x2], w).coefficients = poisson_fit_agg(cnt, [x1, x2], w::DOUBLE).coefficients,
+       poisson_fit_agg(cnt, [x1, x2], w).coefficients = poisson_fit_agg(cnt, [x1, x2], w::DECIMAL(4, 1), MAP {}).coefficients,
+       poisson_fit_agg(cnt, [x1, x2], w).coefficients <> poisson_fit_agg(cnt, [x1, x2]).coefficients
+FROM d;
+----
+true	true	true
+
+# Weights with inference and the stable result shape
+query IIII
+SELECT m.std_errors[1] > 0, m.intercept_std_error > 0, m.family, m.link
+FROM (SELECT gamma_fit_agg(cnt + 1, [x1, x2], w, {'compute_inference': true}) AS m FROM d);
+----
+true	true	gamma	log
+
+# A NULL weight drops the row, like a NULL y
+query I
+WITH n AS (SELECT *, CASE WHEN i % 7 = 0 THEN NULL ELSE w END AS wn FROM d)
+SELECT poisson_fit_agg(cnt, [x1, x2], wn).coefficients
+     = poisson_fit_agg(cnt, [x1, x2], w) FILTER (WHERE i % 7 <> 0).coefficients
+FROM n;
+----
+true
+
+# Groups (one fit per group) and an empty group gives NULL
+query II
+SELECT count(*), count(m) FROM (
+  SELECT grp, tweedie_fit_agg(cnt, [x1, x2], w, {'power': 1.5}) FILTER (WHERE grp = 0) AS m FROM d GROUP BY grp);
+----
+2	1
+
+# All weights NULL: no usable rows, NULL result
+query I
+SELECT poisson_fit_agg(cnt, [x1], NULL::DOUBLE) IS NULL FROM d;
+----
+true
+
+# The weighted Tweedie fit has no closed-form likelihood for 1 < p < 2 (R: NA)
+query II
+SELECT m.aic IS NULL, m.deviance > 0 FROM (SELECT tweedie_fit_agg(cnt, [x1, x2], w, {'power': 1.5}) AS m FROM d);
+----
+true	true
+
+statement error
+SELECT poisson_fit_agg(cnt, [x1], w, {'glm_lambda': 0.5}) FROM d;
+----
+prior weights cannot be combined with a penalty
+
+statement error
+SELECT gamma_fit_agg(cnt + 1, [x1], w - 3) FROM d;
+----
+weight
+
+# ---------------------------------------------------------------------------
+# GLMM 'n_agq'
+# ---------------------------------------------------------------------------
+
+query III
+WITH a AS (SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson'}) AS m FROM d),
+     b AS (SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'n_agq': 1}) AS m FROM d),
+     c AS (SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'nagq': 7}) AS m FROM d)
+SELECT b.m.converged, c.m.converged, abs(b.m.intercept - a.m.intercept) < 0.1
+FROM a, b, c;
+----
+true	true	true
+
+# Ignored by the Gaussian family
+query I
+SELECT glmm_fit_agg(y, [x1], g) = glmm_fit_agg(y, [x1], g, {'n_agq': 5}) FROM d;
+----
+true
+
+query I
+SELECT count(*) FROM glmm_fit_by('d', g, cnt, [x1], options := {'family': 'poisson', 'n_agq': 1});
+----
+5
+
+# Quadrature needs a single scalar random intercept (upstream's check)
+statement error
+SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'n_agq': 3, 'random': [1]}) FROM d;
+----
+n_agq
+
+statement error
+SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'n_agq': 26}) FROM d;
+----
+n_agq must be in [0, 25]
+
+statement error
+SELECT glmm_fit_agg(cnt, [x1], g, {'family': 'poisson', 'n_agq': -1}) FROM d;
+----
+n_agq
+
+# ---------------------------------------------------------------------------
+# Ridge conditioning-aware lambda
+# ---------------------------------------------------------------------------
+
+# A huge threshold always uses lambda_small; lambda_small = 0 is then OLS
+query II
+WITH r AS (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 10, 'lambda_small': 0, 'cond_threshold': 1e300}) AS m FROM d),
+     o AS (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d)
+SELECT list_distance(r.m.coefficients, o.m.coefficients) < 1e-9, abs(r.m.intercept - o.m.intercept) < 1e-9
+FROM r, o;
+----
+true	true
+
+# lambda_small = 0 is OLS, so ridge_fit_agg reports OLS inference for it
+query I
+SELECT m.std_errors[1] IS NOT NULL
+FROM (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 10, 'lambda_small': 0, 'cond_threshold': 1e300, 'compute_inference': true}) AS m FROM d);
+----
+true
+
+# A tiny threshold never uses lambda_small: same as plain ridge
+query I
+SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 10, 'cond_threshold': 1e-300}).coefficients
+     = ridge_fit_agg(y, [x1, x2], {'alpha': 10}).coefficients
+FROM d;
+----
+true
+
+# fit-predict (aggregate and window), augment and the scalar agree with the fit
+query IIII
+WITH f AS (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 10, 'conditioning': true}) AS m FROM d),
+     p AS (SELECT ridge_fit_predict_agg(y, [x1, x2], {'alpha': 10, 'conditioning': true} ORDER BY i) AS p FROM d),
+     a AS (SELECT ridge_augment_agg(y, [x1, x2], {'alpha': 10, 'conditioning': true}) AS a FROM d),
+     s AS (SELECT ridge_fit(list(y ORDER BY i), [list(x1 ORDER BY i), list(x2 ORDER BY i)], {'alpha': 10, 'conditioning': true}) AS m FROM d)
+SELECT abs(list_extract(p.p, 3).yhat - (f.m.intercept + f.m.coefficients[1] * 0.75 + f.m.coefficients[2] * 10)) < 1e-9,
+       list_extract(p.p, 3).yhat_lower < list_extract(p.p, 3).yhat,
+       a.a IS NOT NULL,
+       s.m.coefficients = f.m.coefficients
+FROM f, p, a, s;
+----
+true	true	true	true
+
+query I
+SELECT count(*) > 0 FROM (SELECT ridge_fit_predict(y, [x1, x2], {'alpha': 10, 'conditioning': true}) OVER (ORDER BY i) AS r FROM d) WHERE r IS NOT NULL;
+----
+true
+
+query I
+SELECT count(*) > 0 FROM ridge_fit_predict_by('d', grp, y, [x1, x2], options := {'alpha': 10, 'conditioning': true});
+----
+true
+
+statement error
+SELECT ridge_fit_agg(y, [x1], {'lambda_small': -1}) FROM d;
+----
+lambda_small must be a finite number >= 0
+
+statement error
+SELECT ridge_fit_agg(y, [x1], {'cond_threshold': 0}) FROM d;
+----
+cond_threshold must be > 0
+
+statement error
+SELECT ridge_fit_agg(y, [x1], {'conditioning': false, 'lambda_small': 0.2}) FROM d;
+----
+'conditioning' is false
+
+# A sufficient-statistics state has no design to measure: not accepted there
+statement error
+SELECT ridge_fit_from_state(ls_state_agg(y, [x1]), {'alpha': 1, 'conditioning': true}) FROM d;
+----
+conditioning
+
+# ---------------------------------------------------------------------------
+# Parallel aggregation: the weighted fit (weights travel through Combine) is
+# the same whatever the thread count
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE big AS
+SELECT i, (i % 97)::DOUBLE / 10 AS x1, ((i * 7) % 13)::DOUBLE AS cnt, (1 + i % 5)::DOUBLE AS w
+FROM range(1, 200001) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT poisson_fit_agg(cnt, [x1], w) AS m, gamma_fit_agg(cnt + 1, [x1], w) AS g FROM big;
+
+statement ok
+SET threads = 8;
+
+query II
+SELECT b.m = o.m, b.g = o.g
+FROM (SELECT poisson_fit_agg(cnt, [x1], w) AS m, gamma_fit_agg(cnt + 1, [x1], w) AS g FROM big) b, one o;
+----
+true	true

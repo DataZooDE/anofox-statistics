@@ -344,6 +344,9 @@ pub unsafe extern "C" fn anofox_ridge_fit_from_state(
             solver: convert_solver_ffi(options.solver),
             lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
             compute_loo: options.compute_loo,
+            // Conditioning-aware λ needs the design matrix, which a state does
+            // not keep; ridge_fit_from_state does not accept the option.
+            conditioning: None,
         };
         write_fit_result(
             fit_ridge_from_state(b, &opts),

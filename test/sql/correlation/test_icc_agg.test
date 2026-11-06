@@ -112,6 +112,106 @@ SELECT (icc_agg(rating, subject, rater)).icc IS NOT NULL FROM icc_data;
 true
 
 # =============================================================================
+# TEST 6: All Shrout & Fleiss types (#298); values vs psych in
+#         test/sql/reference/icc_reference.test
+# =============================================================================
+
+query IIIIII
+SELECT (icc_agg(rating, subject, rater, {'type': 'icc1'})).method,
+       (icc_agg(rating, subject, rater, {'type': 'icc2'})).method,
+       (icc_agg(rating, subject, rater, {'type': 'icc3'})).method,
+       (icc_agg(rating, subject, rater, {'type': 'icc1k'})).method,
+       (icc_agg(rating, subject, rater, {'type': 'icc2k'})).method,
+       (icc_agg(rating, subject, rater, {'type': 'icc3k'})).method
+FROM icc_data;
+----
+ICC1	ICC2	ICC3	ICC1k	ICC2k	ICC3k
+
+# Type names are case-insensitive (psych spells them 'ICC2k').
+query I
+SELECT icc_agg(rating, subject, rater, {'type': 'ICC2k'}) = icc_agg(rating, subject, rater, {'type': 'icc2k'})
+FROM icc_data;
+----
+true
+
+# The two-way types share F = MS_R / MS_E with df (n-1, (n-1)(k-1)); the
+# one-way types share F = MS_R / MS_W. ICC3k = 1 - 1/F, ICC1k = 1 - 1/F.
+query IIII
+SELECT (icc_agg(rating, subject, rater, {'type': 'icc2'})).f_statistic
+         = (icc_agg(rating, subject, rater, {'type': 'icc3k'})).f_statistic,
+       (icc_agg(rating, subject, rater, {'type': 'icc2'})).p_value
+         = (icc_agg(rating, subject, rater, {'type': 'icc3'})).p_value,
+       abs((icc_agg(rating, subject, rater, {'type': 'icc3k'})).icc
+           - (1 - 1 / (icc_agg(rating, subject, rater, {'type': 'icc3'})).f_statistic)) < 1e-12,
+       abs((icc_agg(rating, subject, rater, {'type': 'icc1k'})).icc
+           - (1 - 1 / (icc_agg(rating, subject, rater, {'type': 'icc1'})).f_statistic)) < 1e-12
+FROM icc_data;
+----
+true	true	true	true
+
+# Every type has an interval (ICC2 / ICC2k: the absolute-agreement interval of
+# Shrout & Fleiss / McGraw & Wong, since anofox-statistics 0.8.0), and it
+# contains the estimate.
+query IIII
+SELECT (icc_agg(rating, subject, rater, {'type': 'icc2'})).ci_lower
+         <= (icc_agg(rating, subject, rater, {'type': 'icc2'})).icc,
+       (icc_agg(rating, subject, rater, {'type': 'icc2k'})).icc
+         <= (icc_agg(rating, subject, rater, {'type': 'icc2k'})).ci_upper,
+       (icc_agg(rating, subject, rater, {'type': 'icc3'})).ci_lower
+         <= (icc_agg(rating, subject, rater, {'type': 'icc3'})).icc,
+       (icc_agg(rating, subject, rater, {'type': 'icc3k'})).icc
+         <= (icc_agg(rating, subject, rater, {'type': 'icc3k'})).ci_upper
+FROM icc_data;
+----
+true	true	true	true
+
+# A NULL type keeps the default (ICC1).
+query I
+SELECT icc_agg(rating, subject, rater, {'type': NULL::VARCHAR}) = icc_agg(rating, subject, rater) FROM icc_data;
+----
+true
+
+statement error
+SELECT icc_agg(rating, subject, rater, {'type': 'icc4'}) FROM icc_data;
+----
+Invalid type: 'icc4'
+
+# Per group: a NULL rating is skipped, which leaves a missing cell, so that
+# group is NULL (a group with no rows does not appear at all).
+query IIII
+SELECT g, (r).method, (r).n_subjects, (r).icc IS NULL
+FROM (SELECT g, icc_agg(rating, subject, rater, {'type': 'icc3k'}) AS r
+      FROM (SELECT 1 AS g, rating, subject, rater FROM icc_data
+            UNION ALL
+            SELECT 2, CASE WHEN subject = 3 AND rater = 2 THEN NULL ELSE rating END, subject, rater FROM icc_data
+            UNION ALL
+            SELECT 3, rating, subject, rater FROM icc_data WHERE false)
+      GROUP BY g)
+ORDER BY g;
+----
+1	ICC3k	6	false
+2	NULL	NULL	true
+
+query I
+SELECT icc_agg(rating, subject, rater, {'type': 'icc2'}) IS NULL
+FROM (SELECT CASE WHEN subject = 3 AND rater = 2 THEN NULL ELSE rating END AS rating, subject, rater FROM icc_data);
+----
+true
+
+query I
+SELECT icc_agg(rating, subject, rater, {'type': 'icc2k'}) IS NULL FROM icc_data WHERE false;
+----
+true
+
+# Constant ratings: the two-way F is 0/0, so ICC2 has no defined value.
+query I
+SELECT (icc_agg(5.0, subject, rater, {'type': 'icc2'})).p_value IS NULL
+    OR isnan((icc_agg(5.0, subject, rater, {'type': 'icc2'})).p_value)
+FROM icc_data;
+----
+true
+
+# =============================================================================
 # CLEANUP
 # =============================================================================
 

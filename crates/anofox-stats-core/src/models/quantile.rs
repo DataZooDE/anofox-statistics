@@ -40,6 +40,10 @@ pub fn fit_quantile(
         });
     }
 
+    if !(options.alpha.is_finite() && options.alpha >= 0.0) {
+        return Err(StatsError::InvalidAlpha(options.alpha));
+    }
+
     let n_obs = y.len();
     let n_features = x.len();
 
@@ -84,6 +88,7 @@ pub fn fit_quantile(
     let fitted = QuantileRegressor::builder()
         .tau(options.tau)
         .with_intercept(options.fit_intercept)
+        .alpha(options.alpha)
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
@@ -237,6 +242,7 @@ mod tests {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            alpha: 0.0,
         };
 
         let result = fit_quantile(&y, &x, &options);
@@ -259,6 +265,7 @@ mod tests {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            alpha: 0.0,
         };
 
         let result = fit_quantile(&y, &x, &options);

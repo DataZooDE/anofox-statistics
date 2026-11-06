@@ -41,8 +41,14 @@ pub fn compute_condition_diagnostic(
     // Convert to faer matrix
     let x_mat = Mat::from_fn(n_obs, n_features, |i, j| x[j][i]);
 
-    // Use upstream condition_diagnostic
+    // Use upstream condition_diagnostic and the BKW variance decomposition
     let diag = condition_diagnostic(&x_mat, with_intercept);
+    // Upstream: row j = coefficient, column k = component. Reported
+    // component-major, aligned with `condition_indices`.
+    let pi = variance_decomposition_proportions(&x_mat, with_intercept);
+    let variance_proportions: Vec<Vec<f64>> = (0..pi.ncols())
+        .map(|k| (0..pi.nrows()).map(|j| pi[(j, k)]).collect())
+        .collect();
 
     let severity = match diag.severity {
         anofox_regression::diagnostics::ConditionSeverity::WellConditioned => {
@@ -60,6 +66,8 @@ pub fn compute_condition_diagnostic(
         condition_number_xtx: diag.condition_number_xtx,
         singular_values: diag.singular_values,
         condition_indices: diag.condition_indices,
+        scaled_condition_number: diag.scaled_condition_number,
+        variance_proportions,
         severity,
         warning: diag.warning,
     })
@@ -125,6 +133,25 @@ mod tests {
         let cond = compute_condition_number(&x, true).unwrap();
         assert!(cond > 0.0);
         assert!(cond.is_finite());
+    }
+
+    #[test]
+    fn test_condition_variance_proportions() {
+        let x = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+            vec![2.1, 3.9, 6.2, 8.1, 9.8, 12.2, 13.9, 16.1, 18.0, 20.2],
+        ];
+        let result = compute_condition_diagnostic(&x, true).unwrap();
+        // 3 components x 3 coefficients (intercept, x1, x2)
+        assert_eq!(result.variance_proportions.len(), 3);
+        for j in 0..3 {
+            let total: f64 = result.variance_proportions.iter().map(|row| row[j]).sum();
+            assert!((total - 1.0).abs() < 1e-10);
+        }
+        assert_eq!(
+            result.scaled_condition_number,
+            *result.condition_indices.last().unwrap()
+        );
     }
 
     #[test]

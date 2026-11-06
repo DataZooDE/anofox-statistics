@@ -247,8 +247,8 @@ order the rows arrive: pass `ORDER BY` inside the aggregate (for example
 They are `rls_fit_agg` / `rls_fit_predict_agg` / `rls_fit_predict`,
 `passive_aggressive_fit_agg` and its predict forms, `lm_dynamic_fit_agg` /
 `lm_dynamic_fit_predict_agg`, `aid_agg` / `aid_anomaly_agg`, `acf_agg`, `pacf_agg`,
-`ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `diebold_mariano_agg` and
-`clark_west_agg`. The per-row aggregates `*_augment_agg`, `*_partial_residuals_agg`,
+`ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `diebold_mariano_agg`,
+`clark_west_agg`, `spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg`. The per-row aggregates `*_augment_agg`, `*_partial_residuals_agg`,
 `glmm_augment_agg`, `residuals_diagnostics_agg` and `p_adjust_agg` return one value per
 input row in input order; give them an `ORDER BY` (as the `*_by` macros do) for a
 fixed result.

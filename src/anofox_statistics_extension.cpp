@@ -116,6 +116,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterEbShrinkAggregateFunction(loader);
     RegisterMediationAggregateFunction(loader);
     RegisterOlsAnovaAggregateFunction(loader);
+    RegisterCollinearitySeparationAggregateFunctions(loader);
     RegisterOlsAnovaTableAggregateFunction(loader);
     RegisterGlmmAggregateFunction(loader);
     RegisterAftScalarFunctions(loader);
@@ -137,8 +138,10 @@ void LoadInternal(ExtensionLoader &loader) {
     // Register statistical hypothesis testing aggregate functions
     RegisterShapiroWilkAggregateFunction(loader);
     RegisterTTestAggregateFunction(loader);
+    RegisterTTestOneSamplePairedAggregateFunctions(loader);
     RegisterPearsonAggregateFunction(loader);
     RegisterSpearmanAggregateFunction(loader);
+    RegisterPartialCorAggregateFunctions(loader);
     RegisterMannWhitneyAggregateFunction(loader);
     RegisterAnovaAggregateFunction(loader);
     RegisterPairwisePosthocAggregateFunctions(loader);
@@ -171,13 +174,16 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTimeSeriesDiagnosticsAggregateFunctions(loader);
     RegisterSurvivalAggregateFunctions(loader);
     RegisterClarkWestAggregateFunction(loader);
+    RegisterForecastComparisonAggregateFunctions(loader);
 
     // Resampling tests
     RegisterPermutationTTestAggregateFunction(loader);
+    RegisterBootstrapMeanCiAggregateFunction(loader);
 
     // TOST equivalence test variants
     RegisterTostPairedAggregateFunction(loader);
     RegisterTostCorrelationAggregateFunction(loader);
+    RegisterTostVariantAggregateFunctions(loader);
 
     // Categorical tests
     RegisterChisqGofAggregateFunction(loader);
@@ -234,6 +240,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterAicBicFunctions(loader);
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
+    RegisterNullDistributionFunctions(loader);
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);

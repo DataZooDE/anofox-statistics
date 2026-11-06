@@ -194,6 +194,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/eb_shrink_aggregate.cpp
     src/aggregate_functions/mediation_aggregate.cpp
     src/aggregate_functions/ols_anova_aggregate.cpp
+    src/aggregate_functions/collinearity_separation_aggregate.cpp
     src/aggregate_functions/ols_anova_table_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
@@ -210,10 +211,12 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/aid_aggregate.cpp
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
+    src/aggregate_functions/t_test_one_sample_paired_aggregate.cpp
     src/aggregate_functions/pairwise_posthoc_aggregate.cpp
     src/aggregate_functions/p_adjust_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp
     src/aggregate_functions/spearman_aggregate.cpp
+    src/aggregate_functions/partial_cor_aggregate.cpp
     src/aggregate_functions/mann_whitney_aggregate.cpp
     src/aggregate_functions/anova_aggregate.cpp
     src/aggregate_functions/kruskal_wallis_aggregate.cpp
@@ -232,9 +235,12 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/brown_forsythe_aggregate.cpp
     src/aggregate_functions/diebold_mariano_aggregate.cpp
     src/aggregate_functions/clark_west_aggregate.cpp
+    src/aggregate_functions/forecast_comparison_aggregates.cpp
     src/aggregate_functions/permutation_t_test_aggregate.cpp
+    src/aggregate_functions/bootstrap_mean_ci_aggregate.cpp
     src/aggregate_functions/tost_paired_aggregate.cpp
     src/aggregate_functions/tost_correlation_aggregate.cpp
+    src/aggregate_functions/tost_variants_aggregate.cpp
     src/aggregate_functions/chisq_gof_aggregate.cpp
     src/aggregate_functions/prop_test_one_aggregate.cpp
     src/aggregate_functions/prop_test_two_aggregate.cpp
@@ -254,6 +260,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
+    src/scalar_functions/null_distributions.cpp
     src/window_functions/ols_fit_predict.cpp
     src/window_functions/huber_fit_predict.cpp
     src/window_functions/ransac_fit_predict.cpp

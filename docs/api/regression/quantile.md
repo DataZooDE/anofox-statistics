@@ -23,8 +23,9 @@ quantile_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 ```
 
 Options: `tau` (alias `quantile`), `fit_intercept`, `max_iterations`,
-`tolerance`, and for inference `se`, `compute_inference`, `confidence_level`,
-`n_boot`, `seed` (see [Options](#options)).
+`tolerance`, `alpha` (L1 penalty, see [L1 penalty](#l1-penalty-alpha)), and for
+inference `se`, `compute_inference`, `confidence_level`, `n_boot`, `seed` (see
+[Options](#options)).
 
 **Returns:**
 
@@ -96,6 +97,27 @@ SELECT t.term, round(t.estimate, 3) AS estimate, round(t.std_error, 3) AS std_er
 FROM (SELECT unnest(tidy(quantile_fit_agg(y, [x], {'tau': 0.5, 'se': 'nid'}))) AS t FROM quantile_demo);
 ```
 
+### L1 penalty (`alpha`)
+
+`{'alpha': a}` (a >= 0, default 0) fits the L1-penalized quantile regression of
+scikit-learn's `QuantileRegressor(quantile = tau, alpha = a)`: it minimises
+`(1/n) Σ ρ_τ(yᵢ − b0 − xᵢ'β) + a ‖β‖₁` with the intercept unpenalized, solved
+exactly as a linear program by anofox-regression's `QuantileRegressor`, so a
+large enough penalty sets slopes to exactly 0. The default `alpha = 0` is the
+unpenalized `quantreg::rq` fit (note sklearn's own default is `alpha = 1`).
+There is no coefficient inference for the penalized fit: `alpha > 0` together
+with `se` or `compute_inference` is an error. `quantile_fit_predict_agg` and the
+`quantile_*_by` macros take the option too.
+
+```sql
+-- The penalty shrinks the slope, and removes it once alpha is large enough
+SELECT
+    round((quantile_fit_agg(y, [x], {'tau': 0.5})).coefficients[1], 4) AS unpenalized,
+    round((quantile_fit_agg(y, [x], {'tau': 0.5, 'alpha': 0.5})).coefficients[1], 4) AS alpha_0_5,
+    round((quantile_fit_agg(y, [x], {'tau': 0.5, 'alpha': 50})).coefficients[1], 4) AS alpha_50
+FROM quantile_demo;
+```
+
 ## quantile_process_agg
 
 **Signature:**
@@ -159,6 +181,7 @@ LIMIT 5;
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
 | `max_iterations` | INTEGER | `1000` | Maximum solver iterations |
 | `tolerance` | DOUBLE | `1e-6` | Convergence tolerance |
+| `alpha` | DOUBLE | `0` | L1 penalty on the slopes (sklearn `QuantileRegressor(alpha)`); no inference when > 0 |
 | `se` (alias `se_type`) | VARCHAR | - | `'iid'`, `'nid'` or `'boot'`; turns inference on |
 | `compute_inference` | BOOLEAN | `false` | Inference with `'nid'` standard errors |
 | `confidence_level` | DOUBLE | `0.95` | Level of `conf_low` / `conf_high` |

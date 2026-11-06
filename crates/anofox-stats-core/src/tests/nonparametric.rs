@@ -9,7 +9,9 @@ use super::{convert_error, filter_nan, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
     brunner_munzel as lib_brunner_munzel, kruskal_wallis as lib_kruskal_wallis,
-    mann_whitney_u as lib_mann_whitney_u, rank_biserial_from_u as lib_rank_biserial_from_u,
+    mann_whitney_u as lib_mann_whitney_u,
+    matched_pairs_rank_biserial as lib_matched_pairs_rank_biserial,
+    rank_biserial_from_u as lib_rank_biserial_from_u,
     wilcoxon_signed_rank as lib_wilcoxon_signed_rank, Alternative,
 };
 
@@ -170,11 +172,24 @@ pub fn wilcoxon_signed_rank(
     )
     .map_err(convert_error)?;
 
+    // Matched-pairs rank-biserial r = (T- - T+) / (T+ + T-) of d = x - y - mu:
+    // r > 0 when y tends to be larger than x (the mann_whitney_u sign
+    // convention; R effectsize::rank_biserial(paired = TRUE) has the opposite
+    // sign). NaN when every difference is zero.
+    let rank_biserial =
+        lib_matched_pairs_rank_biserial(&x_filtered, &y_filtered, options.mu).unwrap_or(f64::NAN);
+    let mut unified = super::UnifiedTestResult::from(&result)
+        .with_alternative(options.alternative)
+        .with_n(x_filtered.len());
+    if !rank_biserial.is_nan() {
+        unified = unified.with_effect_size("rank_biserial", rank_biserial);
+    }
+
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
-        effect_size: f64::NAN, // Not provided by library
+        effect_size: rank_biserial,
         ci_lower: result
             .conf_int
             .as_ref()
@@ -191,9 +206,7 @@ pub fn wilcoxon_signed_rank(
         n2: y_filtered.len(),
         alternative: options.alternative,
         method: "Wilcoxon signed-rank test".into(),
-        unified: super::UnifiedTestResult::from(&result)
-            .with_alternative(options.alternative)
-            .with_n(x_filtered.len()),
+        unified,
     })
 }
 

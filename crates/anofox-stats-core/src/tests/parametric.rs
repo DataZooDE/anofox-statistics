@@ -9,7 +9,8 @@ use super::{convert_error, filter_nan, AnovaResult, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
     brown_forsythe as lib_brown_forsythe, cohens_d as lib_cohens_d,
-    one_way_anova as lib_one_way_anova, t_test as lib_t_test, yuen_test as lib_yuen_test,
+    cohens_d_one_sample as lib_cohens_d_one_sample, one_way_anova as lib_one_way_anova,
+    t_test as lib_t_test, t_test_one_sample as lib_t_test_one_sample, yuen_test as lib_yuen_test,
     Alternative, AnovaKind, TTestKind,
 };
 
@@ -295,6 +296,118 @@ pub fn brown_forsythe(groups: &[Vec<f64>]) -> StatsResult<TestResult> {
     })
 }
 
+/// Build a [`TestResult`] from an upstream paired / one-sample t-test result.
+fn paired_like_result(
+    result: &anofox_tests::TTestResult,
+    cohens_d: f64,
+    n: usize,
+    n2: usize,
+    options: &TTestOptions,
+    method: &str,
+) -> TestResult {
+    let mut unified = super::UnifiedTestResult::from(result)
+        .with_method(method)
+        .with_alternative(options.alternative)
+        .with_n(n);
+    if !cohens_d.is_nan() {
+        unified = unified.with_effect_size("cohens_d", cohens_d);
+    }
+    TestResult {
+        statistic: result.statistic,
+        p_value: result.p_value,
+        df: result.df,
+        effect_size: cohens_d,
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
+        confidence_level: options.confidence_level.unwrap_or(0.95),
+        n,
+        n1: n,
+        n2,
+        alternative: options.alternative,
+        method: method.into(),
+        unified,
+    }
+}
+
+/// One-sample t-test of H0: mean(x) = `options.mu` (R `t.test(x, mu = mu)`),
+/// upstream `t_test_one_sample`.
+///
+/// `options.kind` is ignored. Cohen's d is upstream `cohens_d_one_sample`
+/// ((mean - mu) / sd). A one-sided alternative gives R's one-sided interval
+/// (one infinite bound).
+pub fn t_test_one_sample(x: &[f64], options: &TTestOptions) -> StatsResult<TestResult> {
+    let x = filter_nan(x);
+    if x.len() < 2 {
+        return Err(StatsError::InsufficientDataMsg(
+            "one-sample t-test requires at least 2 observations".into(),
+        ));
+    }
+    let result = lib_t_test_one_sample(
+        &x,
+        options.alternative,
+        options.mu,
+        options.confidence_level,
+    )
+    .map_err(convert_error)?;
+    let cohens_d = lib_cohens_d_one_sample(&x, options.mu).unwrap_or(f64::NAN);
+    Ok(paired_like_result(
+        &result,
+        cohens_d,
+        x.len(),
+        0,
+        options,
+        "One Sample t-test",
+    ))
+}
+
+/// Paired t-test of H0: mean(x - y) = `options.mu` (R `t.test(x, y, paired =
+/// TRUE)`). Pairs with a NaN in either sample are dropped; `options.kind` is
+/// ignored. Cohen's d is d_z = (mean(d) - mu) / sd(d) (upstream `cohens_d`).
+pub fn t_test_paired(x: &[f64], y: &[f64], options: &TTestOptions) -> StatsResult<TestResult> {
+    if x.len() != y.len() {
+        return Err(StatsError::DimensionMismatchMsg(
+            "paired t-test requires equal length samples".into(),
+        ));
+    }
+    let (xs, ys): (Vec<f64>, Vec<f64>) = x
+        .iter()
+        .zip(y.iter())
+        .filter(|(a, b)| !a.is_nan() && !b.is_nan())
+        .map(|(a, b)| (*a, *b))
+        .unzip();
+    if xs.len() < 2 {
+        return Err(StatsError::InsufficientDataMsg(
+            "paired t-test requires at least 2 valid pairs".into(),
+        ));
+    }
+    let result = lib_t_test(
+        &xs,
+        &ys,
+        TTestKind::Paired,
+        options.alternative,
+        options.mu,
+        options.confidence_level,
+    )
+    .map_err(convert_error)?;
+    let cohens_d = lib_cohens_d(&xs, &ys, TTestKind::Paired, options.mu).unwrap_or(f64::NAN);
+    Ok(paired_like_result(
+        &result,
+        cohens_d,
+        xs.len(),
+        ys.len(),
+        options,
+        "Paired t-test",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +436,53 @@ mod tests {
 
         assert!(result.f_statistic >= 0.0);
         assert!(result.p_value > 0.0 && result.p_value <= 1.0);
+    }
+
+    // R: t.test(c(5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1), mu = 5)
+    #[test]
+    fn test_t_test_one_sample_matches_r() {
+        let x = [5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1];
+        let opts = TTestOptions {
+            mu: 5.0,
+            ..Default::default()
+        };
+        let r = t_test_one_sample(&x, &opts).unwrap();
+        assert!((r.statistic - 3.562099364).abs() < 1e-8, "{}", r.statistic);
+        assert_eq!(r.df, 7.0);
+        assert_eq!(r.n, 8);
+        assert!(r.effect_size > 0.0);
+        assert!(t_test_one_sample(&[1.0], &opts).is_err());
+    }
+
+    // R: t.test(x, mu = 5, alternative = "greater" / "less")$conf.int
+    #[test]
+    fn test_t_test_one_sample_one_sided_ci_matches_r() {
+        let x = [5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1];
+        let greater = TTestOptions {
+            mu: 5.0,
+            alternative: Alternative::Greater,
+            ..Default::default()
+        };
+        let r = t_test_one_sample(&x, &greater).unwrap();
+        assert!((r.ci_lower - 5.28965460085684).abs() < 1e-10);
+        assert_eq!(r.ci_upper, f64::INFINITY);
+        assert!((r.p_value - 0.00459678543466782).abs() < 1e-12);
+        let less = TTestOptions {
+            alternative: Alternative::Less,
+            ..greater
+        };
+        let r = t_test_one_sample(&x, &less).unwrap();
+        assert_eq!(r.ci_lower, f64::NEG_INFINITY);
+        assert!((r.ci_upper - 5.94784539914316).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_t_test_paired_drops_nan_pairs() {
+        let x = [1.0, 2.0, f64::NAN, 4.0, 5.5];
+        let y = [1.5, 2.1, 3.0, 4.6, 5.0];
+        let r = t_test_paired(&x, &y, &TTestOptions::default()).unwrap();
+        assert_eq!(r.n, 4);
+        assert_eq!(r.df, 3.0);
+        assert!(t_test_paired(&x, &y[..4], &TTestOptions::default()).is_err());
     }
 }

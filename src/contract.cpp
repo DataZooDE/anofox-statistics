@@ -54,6 +54,7 @@ static const struct {
     {"one_way_anova_agg", "test"}, {"binom_test_agg", "test"}, {"brown_forsythe_agg", "test"},
     {"brunner_munzel_agg", "test"}, {"chisq_test_agg", "test"}, {"chisq_gof_agg", "test"},
     {"clark_west_agg", "test"}, {"cohen_kappa_agg", "test"}, {"dagostino_k2_agg", "test"},
+    {"spa_test_agg", "test"}, {"mspe_adjusted_spa_agg", "test"},
     {"diebold_mariano_agg", "test"}, {"distance_cor_agg", "test"}, {"energy_distance_agg", "test"},
     {"fisher_exact_agg", "test"}, {"g_test_agg", "test"}, {"icc_agg", "test"},
     {"jarque_bera_agg", "test"}, {"kendall_agg", "test"}, {"kruskal_wallis_agg", "test"},
@@ -61,7 +62,11 @@ static const struct {
     {"pearson_agg", "test"}, {"permutation_t_test_agg", "test"}, {"prop_test_one_agg", "test"},
     {"prop_test_two_agg", "test"}, {"shapiro_wilk_agg", "test"}, {"spearman_agg", "test"},
     {"tost_correlation_agg", "test"}, {"tost_paired_agg", "test"}, {"tost_t_test_agg", "test"},
-    {"t_test_agg", "test"}, {"wilcoxon_signed_rank_agg", "test"}, {"yuen_agg", "test"},
+    {"tost_one_sample_agg", "test"}, {"tost_prop_one_agg", "test"}, {"tost_prop_two_agg", "test"},
+    {"tost_wilcoxon_paired_agg", "test"}, {"tost_wilcoxon_agg", "test"}, {"tost_yuen_agg", "test"},
+    {"tost_bootstrap_agg", "test"},
+    {"t_test_agg", "test"}, {"t_test_one_sample_agg", "test"}, {"t_test_paired_agg", "test"},
+    {"wilcoxon_signed_rank_agg", "test"}, {"yuen_agg", "test"},
     {"ols_anova_agg", "test"}, {"ols_anova_by", "test"},
     {"ks_test_agg", "test"}, {"ad_test_agg", "test"}, {"cvm_test_agg", "test"}, {"epps_singleton_agg", "test"},
     {"wasserstein_agg", "test"}, {"psi_agg", "test"}, {"kl_divergence_agg", "test"}, {"jensen_shannon_agg", "test"},
@@ -90,6 +95,7 @@ static const struct {
     {"negbinom_effects_by", "prediction"}, {"gamma_effects_by", "prediction"}, {"tweedie_effects_by", "prediction"},
     {"ols_rolling_tidy_by", "terms"}, {"wls_rolling_tidy_by", "terms"}, {"ridge_rolling_tidy_by", "terms"},
     {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
+    {"partial_cor_agg", "test"}, {"semi_partial_cor_agg", "test"},
     {nullptr, nullptr}
 };
 // clang-format on

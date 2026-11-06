@@ -1,0 +1,303 @@
+# name: test/sql/forecast/test_forecast_comparison.test
+# description: #295 spa_test_agg, mspe_adjusted_spa_agg and model_confidence_set_agg: shape, options, NULL handling, groups and edge cases
+# group: [forecast]
+
+require anofox_statistics
+
+# Two groups of 60 time points: in group 'a' model 1 beats the benchmark, in
+# group 'b' no model does. Losses are deterministic.
+statement ok
+CREATE TABLE fc AS
+SELECT g, t,
+    2.0 + 0.5 * abs(sin(t * 0.7)) AS bench,
+    CASE WHEN g = 'a' THEN 1.0 ELSE 2.6 END + 0.3 * abs(sin(t * 0.7 + 1.0)) AS m1,
+    3.0 + 0.4 * abs(cos(t * 0.3)) AS m2,
+    1.0 + 0.3 * abs(sin(t * 0.7)) AS m3,
+    1.0 + 0.3 * abs(sin(t * 0.7)) + 0.05 * sin(t * 2.1) AS m4
+FROM (VALUES ('a'), ('b')) g(g), range(1, 61) r(t);
+
+# --- spa_test_agg ----------------------------------------------------------
+
+query IIIIIIIIII
+SELECT r.best_model, r.n_models, r.n, r.n_bootstrap, r.block_length, r.method, r.alternative,
+    r.p_value = r.p_value_consistent, r.p_value_upper <= 1, r.p_value_lower <= r.p_value_consistent
+FROM (SELECT spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'block_length': 4, 'seed': 1} ORDER BY t) AS r
+      FROM fc WHERE g = 'a');
+----
+1	2	60	199	4.0	Superior predictive ability test	greater	true	true	true
+
+# Per group: 'a' rejects H0 with every p-value. In 'b' no model is better
+# (T_SPA = max(0, ...) = 0), the upper (Reality Check) p-value does not reject;
+# the lower and consistent p-values are degenerate at T_SPA = 0 (see the docs).
+query IIIII
+SELECT g, (r).p_value < 0.05, (r).p_value_upper < 0.05, (r).statistic > 0,
+    (r).p_value_lower <= (r).p_value_consistent AND (r).p_value_consistent <= (r).p_value_upper
+FROM (SELECT g, spa_test_agg(bench, [m1, m2], {'n_bootstrap': 199, 'seed': 3} ORDER BY t) AS r FROM fc GROUP BY g)
+ORDER BY g;
+----
+a	true	true	true	true
+b	true	false	false	true
+
+# Default options: block length T^(1/3), 1000 bootstrap samples, fixed default seed.
+query III
+SELECT abs(r.block_length - pow(60, 1.0 / 3)) < 1e-12, r.n_bootstrap, r.best_model
+FROM (SELECT spa_test_agg(bench, [m1, m2] ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+true	1000	1
+
+# The default seed makes repeated calls reproducible; an explicit seed is honoured.
+query I
+SELECT (SELECT spa_test_agg(bench, [m2, m4] ORDER BY t) FROM fc WHERE g = 'b')
+     = (SELECT spa_test_agg(bench, [m2, m4] ORDER BY t) FROM fc WHERE g = 'b');
+----
+true
+
+query I
+SELECT (SELECT spa_test_agg(bench, [m2, m4], {'seed': 9, 'n_boot': 99} ORDER BY t) FROM fc WHERE g = 'b')
+     = (SELECT spa_test_agg(bench, [m2, m4], {'random_state': 9, 'n_bootstrap': 99} ORDER BY t) FROM fc WHERE g = 'b');
+----
+true
+
+# MAP options are accepted like STRUCT options.
+query I
+SELECT (spa_test_agg(bench, [m1], MAP {'n_bootstrap': '99', 'seed': '5'} ORDER BY t)).n_bootstrap FROM fc WHERE g = 'a';
+----
+99
+
+# Unified test fields (#159).
+query IIII
+SELECT r.statistic = r.statistic, r.n, r.df1 IS NULL, r.effect_name IS NULL
+FROM (SELECT spa_test_agg(bench, [m1] ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+true	60	true	true
+
+# NULL benchmark, NULL list, NULL element and NaN rows are skipped.
+query I
+SELECT (spa_test_agg(b, l ORDER BY t)).n FROM (VALUES
+    (1, 2.0, [1.0, 3.0]), (2, 2.1, [1.1, 3.1]), (3, NULL, [1.2, 3.2]), (4, 2.3, NULL),
+    (5, 2.4, [NULL, 3.4]), (6, 2.5, [1.5, 'nan'::DOUBLE]), (7, 2.6, [1.6, 3.5]), (8, 2.2, [1.4, 2.9])
+) v(t, b, l);
+----
+4
+
+# Fewer than 3 complete rows, all-NULL and empty input give NULL.
+query I
+SELECT spa_test_agg(b, l ORDER BY t) IS NULL FROM (VALUES (1, 2.0, [1.0]), (2, 2.5, [1.5])) v(t, b, l);
+----
+true
+
+query I
+SELECT spa_test_agg(NULL::DOUBLE, [1.0]) IS NULL FROM range(5);
+----
+true
+
+query I
+SELECT spa_test_agg(bench, [m1]) IS NULL FROM fc WHERE false;
+----
+true
+
+# Integer lists are cast to DOUBLE[].
+query I
+SELECT (spa_test_agg(t::DOUBLE, [t + 1, t * 2] ORDER BY t)).n_models FROM range(1, 20) r(t);
+----
+2
+
+# Invalid input.
+statement error
+SELECT spa_test_agg(b, l) FROM (VALUES (2.0, [1.0, 2.0]), (2.0, [1.0])) v(b, l);
+----
+same number of models
+
+statement error
+SELECT spa_test_agg(b, l) FROM (VALUES (2.0, []::DOUBLE[]), (2.0, []::DOUBLE[])) v(b, l);
+----
+list of models is empty
+
+statement error
+SELECT spa_test_agg(bench, [m1], {'n_bootstrap': 0}) FROM fc;
+----
+n_bootstrap must be positive
+
+statement error
+SELECT spa_test_agg(bench, [m1], {'alpha': 0.1}) FROM fc;
+----
+unknown option 'alpha'
+
+statement error
+SELECT spa_test_agg(bench, [m1], {'block_length': 'nan'::DOUBLE}) FROM fc;
+----
+block_length must be finite
+
+# The SPA bootstrap is always the stationary one.
+statement error
+SELECT spa_test_agg(bench, [m1], {'method': 'moving_block'}) FROM fc;
+----
+unknown option 'method'
+
+# --- mspe_adjusted_spa_agg -------------------------------------------------
+
+# Arguments are forecast errors: the benchmark error carries a signal the
+# alternative removes.
+query IIII
+SELECT r.best_model, r.n_models, r.method, r.p_value < 0.05
+FROM (SELECT mspe_adjusted_spa_agg(sin(t / 4.0) + 0.2 * cos(t * 1.3), [0.1 * sin(t / 4.0) + 0.2 * cos(t * 1.3), sin(t / 4.0) + 0.25 * cos(t * 1.3)],
+          {'n_bootstrap': 199, 'block_length': 3, 'seed': 11} ORDER BY t) AS r FROM range(1, 101) r(t));
+----
+1	2	MSPE-adjusted SPA test	true
+
+query I
+SELECT mspe_adjusted_spa_agg(b, l ORDER BY t) IS NULL FROM (VALUES (1, 0.5, [0.1]), (2, NULL, [0.2])) v(t, b, l);
+----
+true
+
+statement error
+SELECT mspe_adjusted_spa_agg(1.0, [1.0], {'statistic': 'max'}) FROM range(5);
+----
+unknown option 'statistic'
+
+# --- model_confidence_set_agg ---------------------------------------------
+
+# Elimination order as R MCS::MCSprocedure(L, statistic = "TR", k = 4) on these
+# losses: c (position 3) before b (position 2), by the bootstrap t-ratio.
+
+query IIIIIIIIII
+SELECT list_sort(r.included_models), r.eliminated_models, r.statistic_type, r.alpha, r.n_models, r.n, r.n_bootstrap,
+    r.block_length, r.bootstrap_method, r.method
+FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'block_length': 4, 'seed': 42} ORDER BY t) AS r
+      FROM fc WHERE g = 'b');
+----
+[1, 4]	[3, 2]	range	0.1	4	60	199	4.0	stationary	Model confidence set
+
+# The full elimination order ends with the best model (MCS p-value 1); every
+# model's MCS p-value is reported, and a model is in the set iff it is >= alpha.
+query IIIII
+SELECT len(r.elimination_order), r.elimination_order[1:2] = r.eliminated_models,
+    r.mcs_p_values[r.elimination_order[4]] = 1.0,
+    list_sort(r.included_models) = list_sort([i FOR i IN range(1, 5) IF r.mcs_p_values[i] >= r.alpha]),
+    list_bool_and([s.mcs_p_value >= s.p_value FOR s IN r.elimination_steps])
+FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'block_length': 4, 'seed': 42} ORDER BY t) AS r
+      FROM fc WHERE g = 'b');
+----
+4	true	true	true	true
+
+# Reproducible for a fixed seed with three or more models (anofox-statistics
+# >= 0.8.0; before, the pairwise bootstrap iterated a HashMap). The decision is
+# pinned; the p-values only to one decimal, because upstream's bootstrap draws
+# still differ between 64-bit and wasm32 builds (0.8858 vs 0.8978 here).
+query III
+SELECT r.elimination_order, [round(p, 1) FOR p IN r.mcs_p_values], r.included_models
+FROM (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
+          {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+[5, 4, 3, 1, 2]	[0.9, 1.0, 0.0, 0.0, 0.0]	[1, 2]
+
+# Same call twice in one process: identical results.
+query I
+SELECT a.r = b.r FROM
+    (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
+         {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a') a,
+    (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4, m2 - 1.5],
+         {'n_bootstrap': 499, 'block_length': 3, 'seed': 7, 'statistic': 'max'} ORDER BY t) AS r FROM fc WHERE g = 'a') b;
+----
+true
+
+query I
+SELECT (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4] ORDER BY t) FROM fc WHERE g = 'a')
+     = (SELECT model_confidence_set_agg([m3 + 0.02 * sin(t), m4, m3 + 0.03, m1 + 0.4] ORDER BY t) FROM fc WHERE g = 'a');
+----
+true
+
+# Bootstrap schemes: 'moving_block' is R MCS::MCSprocedure(k = block_length); a
+# fixed block length must be a whole number, the default is round(T^(1/3)).
+query IIIIII
+SELECT (model_confidence_set_agg([m1, m2], {'method': 'moving_block'} ORDER BY t)).block_length,
+       (model_confidence_set_agg([m1, m2], {'method': 'circular_block', 'block_length': 3} ORDER BY t)).bootstrap_method,
+       (model_confidence_set_agg([m1, m2], {'bootstrap_method': 'iid'} ORDER BY t)).block_length,
+       (model_confidence_set_agg([m1, m2], {'method': 'stationary', 'block_length': 2.5} ORDER BY t)).block_length,
+       abs((model_confidence_set_agg([m1, m2] ORDER BY t)).block_length - pow(60, 1.0 / 3)) < 1e-12,
+       (model_confidence_set_agg([m1, m2] ORDER BY t)).bootstrap_method
+FROM fc WHERE g = 'a';
+----
+4.0	circular_block	1.0	2.5	true	stationary
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'method': 'moving_block', 'block_length': 2.5}) FROM fc;
+----
+block_length must be a whole number
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'method': 'jackknife'}) FROM fc;
+----
+Invalid method
+
+# Elimination steps: every eliminated model appears with p_value < alpha, the
+# last step (if any) that stopped the procedure has p_value >= alpha.
+query III
+SELECT len(r.elimination_steps) >= len(r.eliminated_models),
+    list_bool_and([s.p_value < r.alpha FOR s IN r.elimination_steps IF s.eliminated]),
+    [s.model FOR s IN r.elimination_steps IF s.eliminated] = r.eliminated_models
+FROM (SELECT model_confidence_set_agg([m3, m2, m1, m4], {'n_bootstrap': 199, 'seed': 42} ORDER BY t) AS r FROM fc WHERE g = 'b');
+----
+true	true	true
+
+query II
+SELECT r.statistic_type, list_contains(r.included_models, 1)
+FROM (SELECT model_confidence_set_agg([m3, m2], MAP {'statistic': 'max', 'alpha': '0.05', 'n_bootstrap': '199'} ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+max	true
+
+# Per group.
+query II
+SELECT g, list_contains((r).included_models, 1)
+FROM (SELECT g, model_confidence_set_agg([m1, m2] ORDER BY t) AS r FROM fc GROUP BY g) ORDER BY g;
+----
+a	true
+b	true
+
+# A single model is trivially the confidence set.
+query III
+SELECT r.included_models, r.eliminated_models, r.mcs_p_value
+FROM (SELECT model_confidence_set_agg([m1] ORDER BY t) AS r FROM fc WHERE g = 'a');
+----
+[1]	[]	1.0
+
+# NULL handling and degenerate input.
+query I
+SELECT (model_confidence_set_agg(l ORDER BY t)).n FROM (VALUES
+    (1, [1.0, 3.0]), (2, [1.1, 3.1]), (3, NULL), (4, [NULL, 3.4]), (5, [1.6, 3.5]), (6, [1.4, 2.9])
+) v(t, l);
+----
+4
+
+query I
+SELECT model_confidence_set_agg(l) IS NULL FROM (VALUES ([1.0, 2.0]), ([1.5, 2.5])) v(l);
+----
+true
+
+query I
+SELECT model_confidence_set_agg(NULL::DOUBLE[]) IS NULL FROM range(5);
+----
+true
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'alpha': 1.5}) FROM fc;
+----
+alpha must be in (0, 1)
+
+statement error
+SELECT model_confidence_set_agg([m1, m2], {'statistic': 'median'}) FROM fc;
+----
+Invalid statistic
+
+statement error
+SELECT model_confidence_set_agg(l) FROM (VALUES ([1.0, 2.0]), ([1.0, 2.0, 3.0])) v(l);
+----
+same number of models
+
+# Window use: an expanding window keeps its frame.
+query I
+SELECT count(*) FROM (
+    SELECT t, (spa_test_agg(bench, [m1, m2], {'n_bootstrap': 49}) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).n AS n
+    FROM fc WHERE g = 'a') WHERE (t < 3 AND n IS NULL) OR n = t;
+----
+60

@@ -49,6 +49,8 @@ static LogicalType GetWilcoxonSignedRankAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
+    // Matched-pairs rank-biserial correlation (#299); r > 0 when y tends to be larger.
+    children.push_back(make_pair("rank_biserial", LogicalType::DOUBLE));
 
     AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
@@ -229,6 +231,14 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
         FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Wilcoxon signed-rank test");
         SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
+        {
+            auto &rb_vector = StructEntry(struct_entries[struct_idx++]);
+            if (std::isnan(test_result.effect_size)) {
+                FlatVector::SetNull(rb_vector, result_idx, true);
+            } else {
+                FlatDataMut<double>(rb_vector)[result_idx] = test_result.effect_size;
+            }
+        }
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);

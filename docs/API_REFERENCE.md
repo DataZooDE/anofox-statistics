@@ -131,18 +131,18 @@ fitted model struct).
 | Category | Functions | Page |
 |----------|-----------|------|
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Parametric | `t_test_agg`, `t_test_one_sample_agg`, `t_test_paired_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | ANOVA tables (OLS, type I / II) | `ols_anova_table_agg`, `ols_anova_table_by` | [OLS](api/regression/ols.md#per-term-anova-tables-ols_anova_table_agg--ols_anova_table_by) |
-| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg`, `bootstrap_mean_ci_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
-| Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
-| Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg`, `tost_one_sample_agg`, `tost_prop_one_agg`, `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg`, `tost_bootstrap_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Forecast comparison | `diebold_mariano_agg`, `clark_west_agg`, `spa_test_agg`, `mspe_adjusted_spa_agg`, `model_confidence_set_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | Survival | `log_rank_test_agg` | [Survival curves](api/survival/survival_curves.md) |
-| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `partial_cor_agg`, `semi_partial_cor_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
 | Multiple testing | `p_adjust_by`, `p_adjust_agg`, `p_adjust_list` | [Hypothesis tests](api/statistics/hypothesis.md#multiple-testing) |
@@ -168,6 +168,8 @@ fitted model struct).
 | `ridge_nested_cv_agg`, `elasticnet_nested_cv_agg`, `<model>_nested_cv_by` | Nested CV: lambda chosen by an inner CV on each outer training set, error on the outer test rows (`curve`, `curve_type = 'nested_cv'`) | [Regularisation paths](api/regression/paths.md#ridge_nested_cv_agg--elasticnet_nested_cv_agg) |
 | `quantile_process_agg`, `quantile_process_by` | Quantile process: one quantile fit per tau with inference (`terms`, `index_name = 'tau'`) | [Quantile](api/regression/quantile.md#quantile_process_agg) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `condition_diagnostic_agg` | BKW condition indices and variance-decomposition proportions | [Diagnostics](api/diagnostics/diagnostics.md#condition-indices) |
+| `detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg` | Separation of a binary response (exact LP / per predictor), count sparsity | [Diagnostics](api/diagnostics/diagnostics.md#separation) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -1170,6 +1172,8 @@ FROM reg_data;
 | Function | Signature | Options | Returns |
 |----------|-----------|---------|---------|
 | `t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative` ('two_sided'), `confidence_level` (0.95), `kind` ('welch'; or 'student', alias `var_equal`), `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `t_test_one_sample_agg` | `(x DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
+| `t_test_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n, method, alternative` |
 | `one_way_anova_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
 | `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `brown_forsythe_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
@@ -1189,9 +1193,10 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `mann_whitney_u_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level`, `continuity_correction` (alias `correction`) | `statistic, p_value, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `kruskal_wallis_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
-| `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
+| `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method, alternative, rank_biserial` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000), `seed` (42) | `statistic, p_value, n1, n2, method` |
+| `bootstrap_mean_ci_agg` | `(x DOUBLE [, options] [ORDER BY t])` | `method` ('iid' \| 'stationary' \| 'circular_block' \| 'moving_block'), `n_bootstrap` (10000), `block_length` (expected block length for 'stationary'), `confidence_level` (0.95), `seed` (42) | `estimate, std_error, conf_low, conf_high, conf_level, n, n_bootstrap, block_length, method` |
 
 ```sql
 SELECT (mann_whitney_u_agg(y, grp2, {'alternative': 'greater'})).p_value AS mw_p,
@@ -1248,6 +1253,13 @@ FROM reg_data;
 | `tost_t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `delta` (symmetric bound), `bound_lower`, `bound_upper`, `confidence_level`, `kind` | `t_lower, t_upper, p_lower, p_upper, p_value, df, estimate, ci_lower, ci_upper, bound_lower, bound_upper, equivalent, n, method` |
 | `tost_paired_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `delta`, `bound_lower` (-0.5), `bound_upper` (0.5), `alpha` (0.05) | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
 | `tost_correlation_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `rho_null` (0), `delta`, `bound_lower` (-0.1), `bound_upper` (0.1), `alpha`, `method` ('pearson' or 'spearman') | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
+| `tost_one_sample_agg` | `(value DOUBLE [, options])` | `mu` (0), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_one_agg` | `(success BIGINT [, options])` | `p0` (0.5), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_prop_two_agg` | `(success BIGINT, group_id BIGINT\|VARCHAR [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_paired_agg` | `(x DOUBLE, y DOUBLE [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_wilcoxon_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_yuen_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `trim` (0.2), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
+| `tost_bootstrap_agg` | `(value DOUBLE, group_id BIGINT\|VARCHAR [, options])` | `n_bootstrap` (10000), `seed` (42), `delta` or `bound_lower` + `bound_upper` (required), `alpha` | same STRUCT as `tost_t_test_agg` |
 
 ```sql
 SELECT (tost_t_test_agg(y, grp2, {'delta': 2.0})).equivalent AS equivalent_means,
@@ -1262,6 +1274,9 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `diebold_mariano_agg` **MAP** | `(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE [, options])` | `loss` (squared; `'absolute'`), `horizon` (1), `var_estimator` (`'bartlett'`), `alternative` | `statistic, p_value, n, method` |
 | `clark_west_agg` **MAP** | `(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE [, options])` | `horizon` (1) | `statistic, p_value, n, method` |
+| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t [, options])` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_lower, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
+| `mspe_adjusted_spa_agg` | `(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t [, options])` | as `spa_test_agg` | as `spa_test_agg` |
+| `model_confidence_set_agg` | `(model_losses DOUBLE[] ORDER BY t [, options])` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `method` (`'stationary'`; `'moving_block'` = R `MCSprocedure(k)`, `'circular_block'`, `'iid'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, mcs_p_values, elimination_order, elimination_steps, ...` |
 
 ```sql
 SELECT (diebold_mariano_agg(y, y + sin(id), y + 2 * cos(id))).p_value AS dm_p,
@@ -1276,8 +1291,10 @@ FROM reg_data;
 | `pearson_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` (0.95) | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `spearman_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `kendall_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level`, `variant` ('tau_a', 'tau_b', 'tau_c') | `tau, statistic, p_value, ci_lower, ci_upper, n, method` |
+| `partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
+| `semi_partial_cor_agg` | `(x DOUBLE, y DOUBLE, controls DOUBLE[] [, options])` | `method` ('pearson', 'spearman') | `r, statistic, p_value, df, n, n_controls, method` |
 | `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000), `seed` (42) | `dcor, statistic, p_value, n, method` |
-| `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('single' or 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
+| `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('icc1' default, 'icc2', 'icc3', 'icc1k', 'icc2k', 'icc3k'; aliases 'single' / 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
 
 ```sql
 SELECT (pearson_agg(x1, y)).r AS pearson_r,

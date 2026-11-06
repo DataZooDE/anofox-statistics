@@ -241,6 +241,8 @@ typedef struct {
 	uint32_t max_iterations;
 	/** Convergence tolerance */
 	double tolerance;
+	/** Joint coefficient / scale estimate (sklearn HuberRegressor, #305); false = MAD scale (MASS::rlm) */
+	bool joint_scale;
 } AnofoxHuberOptions;
 
 /**
@@ -428,6 +430,12 @@ typedef struct {
 	AnofoxLambdaScaling lambda_scaling;
 	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#235). Zero-initialise the struct. */
 	bool compute_loo;
+	/** Conditioning-aware lambda (#305): lambda_small when kappa(X'X) <= cond_threshold, alpha otherwise */
+	bool conditioning;
+	/** Lambda on a well-conditioned design; NaN = upstream default */
+	double lambda_small;
+	/** kappa(X'X) threshold; NaN = upstream default */
+	double cond_threshold;
 } AnofoxRidgeOptions;
 
 /**
@@ -1588,6 +1596,8 @@ typedef struct {
 	uint32_t max_iterations;
 	/** Convergence tolerance */
 	double tolerance;
+	/** L1 penalty on the slopes (sklearn QuantileRegressor(alpha), #305); 0 = unpenalized */
+	double alpha;
 } AnofoxQuantileOptions;
 
 /**
@@ -2035,6 +2045,20 @@ bool anofox_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTTestOp
                    AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
+ * One-sample t-test of H0: mean(x) = options.mu (#299); var_equal is ignored.
+ * effect_size is Cohen's d = (mean - mu) / sd.
+ */
+bool anofox_t_test_one_sample(AnofoxDataArray x, AnofoxTTestOptions options, AnofoxTestResult *out_result,
+                              AnofoxError *out_error);
+
+/**
+ * Paired t-test of H0: mean(x - y) = options.mu (#299); var_equal is ignored.
+ * effect_size is Cohen's d_z = (mean(d) - mu) / sd(d).
+ */
+bool anofox_t_test_paired(AnofoxDataArray x, AnofoxDataArray y, AnofoxTTestOptions options,
+                          AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
  * Shapiro-Wilk normality test
  */
 bool anofox_shapiro_wilk(AnofoxDataArray data, AnofoxTestResult *out_result, AnofoxError *out_error);
@@ -2149,6 +2173,47 @@ typedef enum {
 bool anofox_tost_correlation(AnofoxDataArray x, AnofoxDataArray y, double rho_null, double bound_lower,
                              double bound_upper, double alpha, AnofoxTostCorrelationMethod method,
                              AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
+ * Options of the TOST variants (#293); each kind reads only its own fields.
+ */
+typedef struct {
+	double bound_lower;
+	double bound_upper;
+	double alpha;
+	/** One-sample t: hypothesised mean. One proportion: hypothesised p0. */
+	double mu;
+	/** Yuen: proportion trimmed from each tail */
+	double trim;
+	/** Bootstrap: number of resamples */
+	size_t n_bootstrap;
+	uint64_t seed;
+	bool has_seed;
+} AnofoxTostVariantOptions;
+
+/** Kinds of anofox_tost_variant */
+typedef enum {
+	ANOFOX_TOST_ONE_SAMPLE = 0,
+	ANOFOX_TOST_WILCOXON_PAIRED = 1,
+	ANOFOX_TOST_WILCOXON_TWO_SAMPLE = 2,
+	ANOFOX_TOST_YUEN = 3,
+	ANOFOX_TOST_BOOTSTRAP = 4,
+} AnofoxTostVariantKind;
+
+/**
+ * TOST variant on samples (NaN entries dropped). One-sample t tests x against
+ * options.mu (y ignored); paired Wilcoxon pairs x and y; the others compare x
+ * (group 1) with y (group 2).
+ */
+bool anofox_tost_variant(int32_t kind, AnofoxDataArray x, AnofoxDataArray y, AnofoxTostVariantOptions options,
+                         AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
+ * TOST for one proportion (two_sample false: successes1 of trials1 against
+ * options.mu as p0) or for the difference of two proportions (group 1 - group 2).
+ */
+bool anofox_tost_prop(size_t successes1, size_t trials1, size_t successes2, size_t trials2, bool two_sample,
+                      AnofoxTostVariantOptions options, AnofoxTostResult *out_result, AnofoxError *out_error);
 
 /**
  * Wilcoxon signed-rank test options
@@ -2340,11 +2405,15 @@ bool anofox_distance_cor_test_seeded(AnofoxDataArray x, AnofoxDataArray y, size_
                                      bool has_seed, AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
- * ICC type codes
+ * ICC type codes (Shrout & Fleiss 1979; psych::ICC naming)
  */
 typedef enum {
-	ANOFOX_ICC_SINGLE = 0,
-	ANOFOX_ICC_AVERAGE = 1,
+	ANOFOX_ICC_SINGLE = 0,  /* ICC1: one-way random, single rater */
+	ANOFOX_ICC_AVERAGE = 1, /* ICC1k: one-way random, average of k raters */
+	ANOFOX_ICC_ICC2 = 2,    /* two-way random, absolute agreement, single rater */
+	ANOFOX_ICC_ICC3 = 3,    /* two-way mixed, consistency, single rater */
+	ANOFOX_ICC_ICC2K = 4,   /* two-way random, absolute agreement, average of k raters */
+	ANOFOX_ICC_ICC3K = 5,   /* two-way mixed, consistency, average of k raters */
 } AnofoxIccType;
 
 /**
@@ -2379,7 +2448,7 @@ typedef struct {
  * @param data Data matrix in row-major order (n_subjects x n_raters)
  * @param n_subjects Number of subjects
  * @param n_raters Number of raters/measurements per subject
- * @param icc_type ICC type (single or average)
+ * @param icc_type ICC type (ICC1, ICC1k, ICC2, ICC3, ICC2k, ICC3k)
  * @param out_result Output: ICC result
  * @param out_error Output: error information
  * @return true on success, false on error
@@ -2801,6 +2870,9 @@ typedef struct {
 	const size_t *random_slopes;
 	size_t random_slopes_len;
 	AnofoxGlmmDdf ddf;
+	/** lme4 nAGQ (#305): 0 = Laplace at the PIRLS fixed effects (default), 1 = joint Laplace,
+	    > 1 = adaptive Gauss-Hermite quadrature (scalar random intercept only) */
+	uint32_t n_agq;
 } AnofoxGlmmOptions;
 
 typedef struct {
@@ -3709,6 +3781,262 @@ bool anofox_ols_anova_table(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             const uint64_t *term_of_column, size_t n_terms, bool fit_intercept, int32_t anova_type,
                             AnofoxAnovaTerm *out_terms, AnofoxOlsAnovaTableResult *out_result,
                             AnofoxError *out_error);
+
+/**
+ * Result of anofox_bootstrap_mean_ci (#294). Must match BootstrapMeanResultFFI
+ * in crates/anofox-stats-ffi/src/bootstrap_ffi.rs.
+ */
+typedef struct {
+	double estimate;
+	double std_error;
+	double conf_low;
+	double conf_high;
+	double conf_level;
+	double block_length; /* (expected) block length, 0 for the IID bootstrap */
+	size_t n;
+	size_t n_bootstrap;
+} AnofoxBootstrapMeanResult;
+
+/**
+ * Percentile bootstrap confidence interval of the mean of data (NaN entries are
+ * dropped; for the block bootstrap the order of data is the series order).
+ * method: 0 IID, 1 circular block bootstrap (block_length >= 2), 2 stationary
+ * bootstrap (expected block length block_length >= 1), 3 moving block bootstrap
+ * (block_length >= 2). The fixed block lengths must be whole numbers.
+ */
+bool anofox_bootstrap_mean_ci(AnofoxDataArray data, int32_t method, size_t n_bootstrap, double confidence_level,
+                              double block_length, uint64_t seed, bool has_seed,
+                              AnofoxBootstrapMeanResult *out_result, AnofoxError *out_error);
+/* ===========================================================================
+ * Collinearity and separation diagnostics (#306). Must match
+ * crates/anofox-stats-ffi/src/diagnostics_ffi.rs.
+ * ======================================================================== */
+
+/** Result of anofox_condition_diagnostic; free with anofox_free_condition_diagnostic. */
+typedef struct {
+	double condition_number;
+	double condition_number_xtx;
+	double scaled_condition_number;
+	/** 0 well_conditioned, 1 moderate, 2 high, 3 severe */
+	int32_t severity;
+	double *singular_values;
+	double *condition_indices;
+	/** n_components * n_terms, component-major: [k * n_terms + j] */
+	double *variance_proportions;
+	size_t n_components;
+	size_t n_terms;
+	/** Warning text or NULL */
+	char *warning;
+} AnofoxConditionDiagnostic;
+
+/** Result of anofox_separation_check; free with anofox_free_separation_check. */
+typedef struct {
+	bool has_separation;
+	/** 0-based indices into x of the flagged predictors */
+	uint64_t *separated_predictors;
+	/** Per flagged predictor: 1 complete, 2 quasi, 3 monotonic_response */
+	int32_t *separation_types;
+	size_t n_separated;
+	char *warning;
+} AnofoxSeparationCheck;
+
+/** Result of anofox_detect_separation; free with anofox_free_linear_separation. */
+typedef struct {
+	bool separated;
+	/** n_terms values: +inf / -inf for diverging coefficients, 0 otherwise */
+	double *infinite;
+	double *direction;
+	size_t n_terms;
+} AnofoxLinearSeparation;
+
+/**
+ * Belsley-Kuh-Welsch collinearity diagnostics of [1, x] (fit_intercept) or x:
+ * kappa(X, exact = TRUE), condition indices and variance-decomposition
+ * proportions of the unit-column-length design (perturb::colldiag).
+ */
+bool anofox_condition_diagnostic(const AnofoxDataArray *x, size_t x_count, bool fit_intercept,
+                                 AnofoxConditionDiagnostic *out_result, AnofoxError *out_error);
+void anofox_free_condition_diagnostic(AnofoxConditionDiagnostic *result);
+
+/** Per-predictor separation check; kind 0: binary y (0/1), 1: count y (sparsity). */
+bool anofox_separation_check(int32_t kind, AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                             AnofoxSeparationCheck *out_result, AnofoxError *out_error);
+void anofox_free_separation_check(AnofoxSeparationCheck *result);
+
+/** Exact separation check of a binary y by the linear program of Konis (2007). */
+bool anofox_detect_separation(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, bool fit_intercept,
+                              AnofoxLinearSeparation *out_result, AnofoxError *out_error);
+void anofox_free_linear_separation(AnofoxLinearSeparation *result);
+/* ============================================================================
+ * Option pass-throughs -- issue #305
+ * ============================================================================ */
+
+/**
+ * The lambda anofox_ridge_fit uses on (y, x) with these options: options.alpha,
+ * or with options.conditioning upstream's conditioning-aware choice
+ * (lambda_small when kappa(X'X) <= cond_threshold) for the rows and columns the
+ * fit uses. Same scale as options.alpha.
+ */
+bool anofox_ridge_selected_lambda(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                  AnofoxRidgeOptions options, double *out_lambda, AnofoxError *out_error);
+
+/**
+ * Poisson / Tweedie / Gamma fits with prior (case) weights w, as R's
+ * glm(weights = w) (anofox-regression's PoissonRegressor / TweedieRegressor
+ * with weights). Same results as the unweighted anofox_*_fit; a row with a
+ * non-finite y, x or w is dropped. glm_lambda and priors are rejected.
+ */
+bool anofox_poisson_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                                 AnofoxPoissonOptions options, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_tweedie_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                                 AnofoxTweedieOptions options, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_gamma_fit_weighted(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray w,
+                               AnofoxGammaOptions options, AnofoxGlmFitResultCore *out_result,
+                               AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+/* ============================================================================
+ * Partial / semi-partial correlation -- issue #296
+ * ============================================================================ */
+
+/** Options of anofox_partial_cor. Must match PartialCorOptionsFFI. */
+typedef struct {
+	/** 0 partial (controls removed from x and y), 1 semi-partial (from y only) */
+	int32_t kind;
+	/** 0 pearson, 1 spearman */
+	int32_t method;
+} AnofoxPartialCorOptions;
+
+/** Result of anofox_partial_cor. Must match PartialCorResultFFI. */
+typedef struct {
+	double r;
+	double statistic;
+	double p_value;
+	double df;
+	size_t n;
+	size_t n_controls;
+	/** Unified test fields (#159), method name included; keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxPartialCorResult;
+
+/**
+ * Partial or semi-partial correlation of x and y controlling for
+ * controls[0..n_controls] (upstream correlation::partial_cor /
+ * semi_partial_cor, R ppcor::pcor.test / spcor.test). NaN entries drop their row.
+ */
+bool anofox_partial_cor(AnofoxDataArray x, AnofoxDataArray y, const AnofoxDataArray *controls, size_t n_controls,
+                        AnofoxPartialCorOptions options, AnofoxPartialCorResult *out_result, AnofoxError *out_error);
+/* ============================================================================
+ * AUC null distribution and studentized range distribution (#304)
+ * ============================================================================ */
+
+/** Quantile of the ROC AUC of a random classifier: qwilcox(p, n_pos, n_neg) / (n_pos n_neg). */
+bool anofox_auc_null_quantile(double p, int64_t n_pos, int64_t n_neg, double *out_value, AnofoxError *out_error);
+
+/** One-sided p-value P(AUC_random >= auc) of an observed AUC. */
+bool anofox_auc_null_p_value(double auc, int64_t n_pos, int64_t n_neg, double *out_value, AnofoxError *out_error);
+
+/** Studentized range distribution function (R ptukey). */
+bool anofox_ptukey(double q, double n_means, double df, double n_ranges, bool lower_tail, double *out_value,
+                   AnofoxError *out_error);
+
+/** Studentized range quantile function (R qtukey). */
+bool anofox_qtukey(double p, double n_means, double df, double n_ranges, bool lower_tail, double *out_value,
+                   AnofoxError *out_error);
+/* ============================================================================
+ * Multiple-model forecast comparison: SPA, MSPE-adjusted SPA, MCS (#295)
+ * ============================================================================ */
+
+/**
+ * Options of anofox_spa_test. Must match SpaOptionsFFI in
+ * crates/anofox-stats-ffi/src/forecast_ffi.rs.
+ */
+typedef struct {
+	size_t n_bootstrap;
+	/** Expected stationary-bootstrap block length; <= 0 for T^(1/3) */
+	double block_length;
+	uint64_t seed;
+	bool has_seed;
+} AnofoxSpaOptions;
+
+/**
+ * Result of anofox_spa_test. Must match SpaResultFFI.
+ */
+typedef struct {
+	double statistic;
+	double p_value_lower;
+	double p_value_consistent;
+	double p_value_upper;
+	/** Block length actually used */
+	double block_length;
+	/** 0-based index of the best competing model, -1 for none */
+	int64_t best_model;
+	size_t n_bootstrap;
+	size_t n;
+	size_t n_models;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxSpaResult;
+
+/**
+ * SPA-type test of n_models competing series against a benchmark. kind 0: the
+ * SPA test on losses; kind 1: the MSPE-adjusted SPA test on forecast errors.
+ */
+bool anofox_spa_test(int32_t kind, AnofoxDataArray benchmark, const AnofoxDataArray *models, size_t n_models,
+                     AnofoxSpaOptions options, AnofoxSpaResult *out_result, AnofoxError *out_error);
+
+/**
+ * Options of anofox_model_confidence_set. Must match McsOptionsFFI.
+ */
+typedef struct {
+	double alpha;
+	size_t n_bootstrap;
+	/** (Expected) block length; <= 0 for T^(1/3) (rounded for the fixed-block schemes) */
+	double block_length;
+	uint64_t seed;
+	/** 0 range (T_R), 1 max (T_max) */
+	int32_t statistic;
+	/** 0 stationary, 1 moving block (R MCSprocedure(k)), 2 circular block, 3 IID */
+	int32_t bootstrap;
+	bool has_seed;
+} AnofoxMcsOptions;
+
+/**
+ * One elimination step of the MCS. Must match McsStepFFI.
+ */
+typedef struct {
+	/** 0-based model index */
+	uint64_t model;
+	double p_value;
+	/** MCS p-value (running maximum of the step p-values) */
+	double mcs_p_value;
+	bool eliminated;
+} AnofoxMcsStep;
+
+/**
+ * Result of anofox_model_confidence_set. Must match McsResultFFI.
+ */
+typedef struct {
+	double mcs_p_value;
+	/** Block length actually used */
+	double block_length;
+	size_t n_bootstrap;
+	size_t n;
+	size_t n_models;
+	/** Entries written to out_included */
+	size_t n_included;
+	/** Entries written to out_steps */
+	size_t n_steps;
+} AnofoxMcsResult;
+
+/**
+ * Model Confidence Set of n_models loss series. out_included, out_steps,
+ * out_order (full elimination order, best model last) and out_mcs_p_values
+ * (indexed by model) must each hold n_models entries.
+ */
+bool anofox_model_confidence_set(const AnofoxDataArray *models, size_t n_models, AnofoxMcsOptions options,
+                                 uint64_t *out_included, AnofoxMcsStep *out_steps, uint64_t *out_order,
+                                 double *out_mcs_p_values, AnofoxMcsResult *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

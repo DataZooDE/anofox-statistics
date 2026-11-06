@@ -33,6 +33,7 @@ struct HuberAggregateState {
     bool compute_inference;
     double confidence_level;
     double epsilon;
+    bool joint_scale = false; // scale_method = joint (#305)
     double alpha;
     uint32_t max_iterations;
     double tolerance;
@@ -57,6 +58,7 @@ struct HuberAggregateBindData : public FunctionData {
     bool compute_inference = false;
     double confidence_level = 0.95;
     double epsilon = 1.35;
+    bool joint_scale = false; // scale_method = joint (#305)
     double alpha = 0.0001;
     uint32_t max_iterations = 100;
     double tolerance = 1e-5;
@@ -67,6 +69,7 @@ struct HuberAggregateBindData : public FunctionData {
         result->compute_inference = compute_inference;
         result->confidence_level = confidence_level;
         result->epsilon = epsilon;
+        result->joint_scale = joint_scale;
         result->alpha = alpha;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
@@ -76,7 +79,7 @@ struct HuberAggregateBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<HuberAggregateBindData>();
         return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level && epsilon == other.epsilon && alpha == other.alpha &&
+               confidence_level == other.confidence_level && epsilon == other.epsilon && joint_scale == other.joint_scale && alpha == other.alpha &&
                max_iterations == other.max_iterations && tolerance == other.tolerance;
     }
 };
@@ -154,6 +157,7 @@ static void HuberAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
         state.compute_inference = bind_data.compute_inference;
         state.confidence_level = bind_data.confidence_level;
         state.epsilon = bind_data.epsilon;
+        state.joint_scale = bind_data.joint_scale;
         state.alpha = bind_data.alpha;
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
@@ -220,6 +224,7 @@ static void HuberAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
             target.compute_inference = source.compute_inference;
             target.confidence_level = source.confidence_level;
             target.epsilon = source.epsilon;
+            target.joint_scale = source.joint_scale;
             target.alpha = source.alpha;
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
@@ -288,6 +293,7 @@ static void HuberAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
         AnofoxHuberOptions options;
         options.epsilon = state.epsilon;
+        options.joint_scale = state.joint_scale;
         options.alpha = state.alpha;
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = state.compute_inference;
@@ -347,7 +353,7 @@ static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateBi
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "huber_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon"});
+            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "scale_method"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -359,6 +365,9 @@ static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateBi
         }
         if (opts.epsilon.has_value()) {
             result->epsilon = opts.epsilon.value();
+        }
+        if (opts.huber_joint_scale.has_value()) {
+            result->joint_scale = opts.huber_joint_scale.value();
         }
         if (opts.alpha.has_value()) {
             result->alpha = opts.alpha.value();

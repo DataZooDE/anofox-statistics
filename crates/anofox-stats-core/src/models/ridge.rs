@@ -26,32 +26,60 @@ fn convert_lambda_scaling(scaling: LambdaScaling) -> anofox_regression::LambdaSc
     }
 }
 
+/// Upstream's default λ on a well-conditioned design (conditioning-aware λ, #305).
+pub const DEFAULT_LAMBDA_SMALL: f64 = anofox_regression::solvers::DEFAULT_LAMBDA_SMALL;
+/// Upstream's default κ(XᵀX) threshold (conditioning-aware λ, #305).
+pub const DEFAULT_COND_THRESHOLD: f64 = anofox_regression::solvers::DEFAULT_CONDITION_THRESHOLD;
+
 /// The upstream regressor for `options` (shared with `augment_ridge`).
 pub(crate) fn ridge_regressor(options: &RidgeOptions) -> RidgeRegressor {
-    RidgeRegressor::builder()
+    let builder = RidgeRegressor::builder()
         .with_intercept(options.fit_intercept)
         .lambda(options.alpha)
         .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
         .compute_inference(options.compute_inference)
         .confidence_level(options.confidence_level)
-        .solve_method(convert_solver(options.solver))
-        .build()
+        .solve_method(convert_solver(options.solver));
+    match options.conditioning {
+        Some((lambda_small, cond_threshold)) => {
+            builder.conditioning_aware(lambda_small, cond_threshold)
+        }
+        None => builder,
+    }
+    .build()
 }
 
-/// Fit a Ridge regression model
-///
-/// # Arguments
-/// * `y` - Response variable (n observations)
-/// * `x` - Feature matrix (n observations x p features)
-/// * `options` - Fitting options including alpha (L2 penalty)
-///
-/// # Returns
-/// * `FitResult` containing coefficients, R-squared, and optionally inference statistics
-pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResult<FitResult> {
+/// Reject an invalid conditioning-aware λ setting (#305).
+pub(crate) fn validate_conditioning(options: &RidgeOptions) -> StatsResult<()> {
+    if let Some((lambda_small, cond_threshold)) = options.conditioning {
+        if !(lambda_small.is_finite() && lambda_small >= 0.0) {
+            return Err(StatsError::InvalidValue {
+                field: "lambda_small",
+                message: format!("lambda_small must be a finite number >= 0, got {lambda_small}"),
+            });
+        }
+        if cond_threshold.is_nan() || cond_threshold <= 0.0 {
+            return Err(StatsError::InvalidValue {
+                field: "cond_threshold",
+                message: format!("cond_threshold must be > 0, got {cond_threshold}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The rows (finite `y` and features) and the estimable columns of a ridge
+/// fit of `(y, x)`, after validating the inputs and options.
+fn ridge_rows_and_columns(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &RidgeOptions,
+) -> StatsResult<(Vec<usize>, Vec<usize>)> {
     // Validate alpha parameter
     if options.alpha < 0.0 {
         return Err(StatsError::InvalidAlpha(options.alpha));
     }
+    validate_conditioning(options)?;
 
     // Validate inputs
     if y.is_empty() {
@@ -96,6 +124,22 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
             cols: n_features,
         });
     }
+    Ok((valid_indices, kept))
+}
+
+/// Fit a Ridge regression model
+///
+/// # Arguments
+/// * `y` - Response variable (n observations)
+/// * `x` - Feature matrix (n observations x p features)
+/// * `options` - Fitting options including alpha (L2 penalty)
+///
+/// # Returns
+/// * `FitResult` containing coefficients, R-squared, and optionally inference statistics
+pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResult<FitResult> {
+    let (valid_indices, kept) = ridge_rows_and_columns(y, x, options)?;
+    let n_valid = valid_indices.len();
+    let n_features = x.len();
     if kept.is_empty() && n_valid == 1 {
         // A single observation: the intercept is that value, its residual
         // variance is undefined (upstream needs two rows).
@@ -122,6 +166,9 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
     let result = fitted.result();
+    // The λ the fit used: `alpha`, or `lambda_small` on a well-conditioned
+    // design with conditioning-aware λ.
+    let unpenalized = fitted.lambda() == 0.0;
 
     // Scatter a reduced (kept-columns) vector back to full width, NaN elsewhere.
     let expand = |reduced: Option<&Col<f64>>| -> Vec<f64> {
@@ -156,15 +203,15 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         ci_lower: expand(result.conf_interval_lower.as_ref()),
         ci_upper: expand(result.conf_interval_upper.as_ref()),
         confidence_level: options.confidence_level,
-        f_statistic: (options.alpha == 0.0).then_some(result.f_statistic),
-        f_pvalue: (options.alpha == 0.0).then_some(result.f_pvalue),
+        f_statistic: unpenalized.then_some(result.f_statistic),
+        f_pvalue: unpenalized.then_some(result.f_pvalue),
     });
 
     // Intercept inference follows the coefficient inference: none for alpha > 0.
     let mut summary = ModelSummary::from_result(
         fitted.model_info(),
         result,
-        options.compute_inference && options.alpha == 0.0,
+        options.compute_inference && unpenalized,
     );
     // Exact leave-one-out statistics from the ridge hat matrix (#235); a fit
     // they cannot be computed for keeps them NaN.
@@ -180,6 +227,26 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         diagnostics: None,
         summary,
     })
+}
+
+/// The λ [`fit_ridge`] uses on `(y, x)` (#305): `options.alpha`, or with
+/// conditioning-aware λ upstream's choice
+/// (`RidgeRegressor::select_lambda`) for the same rows and columns the fit
+/// uses. Callers need it for the intervals and covariance computed from the
+/// fit's coefficients.
+pub fn ridge_selected_lambda(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &RidgeOptions,
+) -> StatsResult<f64> {
+    if options.conditioning.is_none() {
+        return Ok(options.alpha);
+    }
+    let (valid_indices, kept) = ridge_rows_and_columns(y, x, options)?;
+    let x_mat = Mat::from_fn(valid_indices.len(), kept.len(), |i, j| {
+        x[kept[j]][valid_indices[i]]
+    });
+    Ok(ridge_regressor(options).select_lambda(&x_mat))
 }
 
 #[cfg(test)]

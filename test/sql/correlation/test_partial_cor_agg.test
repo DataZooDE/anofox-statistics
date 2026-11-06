@@ -1,0 +1,124 @@
+# name: test/sql/correlation/test_partial_cor_agg.test
+# description: partial_cor_agg / semi_partial_cor_agg: shape, grouping, NULL handling, edge cases (#296)
+# group: [correlation]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i, (i % 2)::INTEGER AS g,
+    (sin(i * 1.3) + i * 0.2)::DOUBLE AS z1, (cos(i * 0.7))::DOUBLE AS z2,
+    (sin(i * 1.3) + i * 0.2 + cos(i * 2.1))::DOUBLE AS x,
+    (sin(i * 1.3) + i * 0.2 + cos(i * 0.7) + sin(i * 3.1) * 0.5)::DOUBLE AS y
+FROM range(40) t(i);
+
+# Result shape
+query I
+SELECT typeof(partial_cor_agg(x, y, [z1, z2])) LIKE 'STRUCT(r DOUBLE, statistic DOUBLE, p_value DOUBLE, df DOUBLE, n BIGINT, n_controls BIGINT, "method" VARCHAR, alternative VARCHAR, %' FROM d;
+----
+true
+
+# Controlling for the common driver lowers the correlation
+query I
+SELECT (partial_cor_agg(x, y, [z1])).r < (pearson_agg(x, y)).r FROM d;
+----
+true
+
+# Empty control list = Pearson
+query II
+SELECT abs((partial_cor_agg(x, y, []::DOUBLE[])).r - (pearson_agg(x, y)).r) < 1e-12,
+       abs((partial_cor_agg(x, y, []::DOUBLE[])).p_value - (pearson_agg(x, y)).p_value) < 1e-12
+FROM d;
+----
+true	true
+
+# Empty control list with spearman = Spearman's rho
+query I
+SELECT abs((partial_cor_agg(x, y, []::DOUBLE[], {'method': 'spearman'})).r - (spearman_agg(x, y)).r) < 1e-12 FROM d;
+----
+true
+
+# Partial correlation is symmetric in x and y; semi-partial is not
+query II
+SELECT abs((partial_cor_agg(x, y, [z1])).r - (partial_cor_agg(y, x, [z1])).r) < 1e-12,
+       abs((semi_partial_cor_agg(x, y, [z1])).r - (semi_partial_cor_agg(y, x, [z1])).r) > 1e-6
+FROM d;
+----
+true	true
+
+# GROUP BY: one result per group, df = n - 2 - k
+query III
+SELECT g, (partial_cor_agg(x, y, [z1, z2])).n, (partial_cor_agg(x, y, [z1, z2])).df FROM d GROUP BY g ORDER BY g;
+----
+0	20	16.0
+1	20	16.0
+
+# NULL x, y, control list or list element, and NaN, drop the row
+query II
+WITH n AS (
+    SELECT x, y, [z1] AS zs FROM d
+    UNION ALL SELECT NULL, 1.0, [1.0]
+    UNION ALL SELECT 1.0, NULL, [1.0]
+    UNION ALL SELECT 1.0, 1.0, NULL
+    UNION ALL SELECT 1.0, 1.0, [NULL::DOUBLE]
+    UNION ALL SELECT 'NaN'::DOUBLE, 1.0, [1.0]
+    UNION ALL SELECT 1.0, 1.0, ['NaN'::DOUBLE]
+)
+SELECT (partial_cor_agg(x, y, zs)).n, abs((partial_cor_agg(x, y, zs)).r - (SELECT (partial_cor_agg(x, y, [z1])).r FROM d)) < 1e-12 FROM n;
+----
+40	true
+
+# Empty input and all-NULL input: NULL
+query I
+SELECT partial_cor_agg(x, y, [z1]) IS NULL FROM d WHERE i < 0;
+----
+true
+
+query I
+SELECT semi_partial_cor_agg(NULL::DOUBLE, y, [z1]) IS NULL FROM d;
+----
+true
+
+# Too few rows (n < n_controls + 3): NULL
+query II
+SELECT partial_cor_agg(x, y, [z1, z2]) IS NULL, partial_cor_agg(x, y, [z1]) IS NULL FROM d WHERE i < 4;
+----
+true	false
+
+# A constant variable (x, y or a control): NULL
+query III
+SELECT partial_cor_agg(1.0, y, [z1]) IS NULL, partial_cor_agg(x, 2.0, [z1]) IS NULL,
+       partial_cor_agg(x, y, [3.0]) IS NULL FROM d;
+----
+true	true	true
+
+# Invalid options
+statement error
+SELECT partial_cor_agg(x, y, [z1], {'method': 'kendall'}) FROM d;
+----
+method
+
+statement error
+SELECT partial_cor_agg(x, y, [z1], {'confidence_level': 0.9}) FROM d;
+----
+unknown option 'confidence_level'
+
+# Semi-partial correlation takes several controls (jointly residualized)
+query II
+SELECT (semi_partial_cor_agg(x, y, [z1, z2])).n_controls, (semi_partial_cor_agg(x, y, [z1, z2])).df = 36
+FROM d;
+----
+2	true
+
+# Inconsistent control count across rows
+statement error
+SELECT partial_cor_agg(x, y, CASE WHEN i < 10 THEN [z1] ELSE [z1, z2] END) FROM d;
+----
+Inconsistent control count
+
+# Window form: the first three frames have fewer than n_controls + 3 rows
+query II
+SELECT count(*) FILTER (WHERE r IS NULL), count(*) FROM (
+    SELECT partial_cor_agg(x, y, [z1]) OVER (ORDER BY i ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS r FROM d
+);
+----
+3	40

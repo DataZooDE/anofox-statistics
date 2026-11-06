@@ -92,6 +92,12 @@ pub struct GlmmOptions {
     /// Also return the fitted values and residuals of every input row
     /// ([`GlmmResult::observations`]).
     pub observations: bool,
+    /// Integration of the random effects for the non-Gaussian families, as
+    /// lme4's `nAGQ` (#305): 0 (the default) Laplace at the PIRLS fixed
+    /// effects (`glmer(nAGQ = 0)`), 1 Laplace with the fixed effects optimised
+    /// jointly (`glmer`'s default), > 1 adaptive Gauss-Hermite quadrature
+    /// (scalar random intercept only). Ignored by the Gaussian family.
+    pub n_agq: u32,
 }
 
 impl Default for GlmmOptions {
@@ -108,6 +114,7 @@ impl Default for GlmmOptions {
             random_slopes: Vec::new(),
             ddf: None,
             observations: false,
+            n_agq: 0,
         }
     }
 }
@@ -395,6 +402,7 @@ pub fn fit_glmm(
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .reml(options.reml)
+        .n_agq(options.n_agq as usize)
         .satterthwaite(options.compute_inference && ddf == GlmmDdf::Satterthwaite);
     if let Some(o) = offset_col {
         builder = builder.offset(Col::from_fn(n, |r| x[o][rows[r]]));
@@ -577,6 +585,7 @@ pub fn fit_glmm_crossed(
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .reml(options.reml)
+        .n_agq(options.n_agq as usize)
         .satterthwaite(options.compute_inference && ddf == GlmmDdf::Satterthwaite);
     // Random slopes apply to the first (positional) grouping factor:
     // `(1 + x | group) + (1 | other) + ...`.

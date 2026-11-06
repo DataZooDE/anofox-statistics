@@ -72,6 +72,19 @@ Requires `survival` and `lmtest`. It (re)writes:
 | `timeseries_diagnostics.test` | `acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `breusch_pagan_agg`, `white_test_agg` | `acf`, `pacf`, `Box.test`, `lmtest::dwtest` (statistic), `lmtest::bptest` |
 | `survival_curves.test` | `kaplan_meier_agg` (log / log-log / plain), `kaplan_meier_by`, `log_rank_test_agg`, `aft_survival` | `survival::survfit`, `survdiff`, `survreg` + `psurvreg` |
 
+## `make_reference_collinearity_separation.R`
+
+```bash
+Rscript validation/generators/make_reference_collinearity_separation.R
+```
+
+Requires `detectseparation` (not in the default library; install it into a
+user library, e.g. `R_LIBS_USER=~/R/library`). It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `collinearity_separation.test` | `condition_diagnostic_agg` (longley, with / without intercept), `detect_separation_agg` (complete, combination, quasi, overlap, endometrial) | `kappa(X, exact = TRUE)` and the BKW condition indices / variance-decomposition proportions from `svd` of the unit-length design (the definition of `perturb::colldiag`, which is archived on CRAN), `detectseparation::detect_separation` |
+
 ## `make_reference_bayesian.py`
 
 ```bash
@@ -103,11 +116,40 @@ needs `greybox` and (re)writes `lowess_reference.test` (`lowess_agg`, `lowess_by
 against `stats::lowess`) and `lm_dynamic_reference.test` (`lm_dynamic_fit_agg`
 against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
 
+## `make_reference_option_passthroughs.py` and `make_reference_option_passthroughs.R`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_option_passthroughs.py
+Rscript validation/generators/make_reference_option_passthroughs.R
+```
+
+The option pass-throughs of #305. The first (re)writes
+`option_passthroughs_sklearn.test`: `quantile_fit_agg` / `quantile_fit_predict_agg`
+with `alpha` against `QuantileRegressor(alpha, solver="highs")`, and
+`huber_fit_agg` / `huber_fit` / `huber_fit_predict_agg` with
+`scale_method = 'joint'` against `HuberRegressor` (`coef_`, `intercept_`, `scale_`,
+`outliers_`). The second needs `statmod`, `lme4` and `tweedie` and (re)writes
+`option_passthroughs_r.test`: `poisson_fit_agg` / `gamma_fit_agg` /
+`tweedie_fit_agg` with prior weights against `glm(weights = w)` (Tweedie via
+`statmod::tweedie`), `glmm_fit_agg` with `n_agq` 1 and 5 against
+`glmer(nAGQ = k)`, and `ridge_fit_agg` with conditioning-aware lambda against
+closed-form ridge on the centred design.
+
 ## Other generators
 
 `make_reference_tests.R` / `make_reference_tests.py` produce the
 hypothesis-test, correlation, categorical and normality reference tests in the
 same directory; see the header of each script.
+
+`make_reference_icc.R` (needs `psych`) (re)writes `icc_reference.test`: `icc_agg`
+with all six Shrout & Fleiss types against `psych::ICC(lmer = FALSE)`, each ICC
+also recomputed from the two-way ANOVA mean squares in base R.
+`make_reference_tost.R` (base R only) prints the reference values of the TOST
+variants (#293) held by `tost_reference.test`; the test is written by hand from
+its output.
+`make_reference_partial_cor.R` prints the `ppcor::pcor.test` / `spcor.test` values
+of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_agg`,
+#296); it needs the `ppcor` package (`install.packages("ppcor", lib = "~/R/userlib")`).
 
 ## `generate_issue107_tests.R`
 
@@ -116,3 +158,31 @@ empirical-Bayes shrinkage (`metafor`). It writes JSON to `test/data/issue107/`,
 which no test consumes. Its AFT and GLMM parts are superseded by
 `make_reference_regression.R`; the priors and shrinkage parts remain until
 they are ported to the generated-test format.
+
+## `make_reference_bootstrap.R`
+
+```bash
+Rscript validation/generators/make_reference_bootstrap.R
+```
+
+Requires `boot`. Writes `bootstrap_mean_ci.test` (`bootstrap_mean_ci_agg`, #294):
+the exact bootstrap standard error of the mean (IID and circular block, closed
+form) and the percentile intervals of `boot::boot` / `boot::tsboot(sim = "fixed",
+endcorr = TRUE)` with 200000 replicates. R's generator differs from the
+extension's, so the intervals are compared within a Monte Carlo tolerance (see
+the script header).
+
+## `make_reference_forecast_comparison.R`
+
+```bash
+Rscript validation/generators/make_reference_forecast_comparison.R
+```
+
+Writes `test/sql/reference/forecast_comparison_reference.test` for
+`spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg` (#295).
+No SPA package is installed, so the SPA / MSPE-adjusted statistics and best
+models are computed in base R with the upstream crate's formula, on the fixture
+data of anofox-statistics `R/generate_refs.R` (same seeds). The MCS superior set
+and elimination order come from the R package `MCS` (`MCSprocedure`), installed
+into a user library (`install.packages("MCS", lib = "~/R/userlib")`). Bootstrap
+p-values are only checked for their decision.

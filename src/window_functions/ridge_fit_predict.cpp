@@ -12,6 +12,7 @@
 #include "../include/min_obs_guard.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ridge_conditioning.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -38,6 +39,7 @@ struct RidgeFitPredictState {
     NullPolicy null_policy;
     SolverType solver;
     LambdaScaling lambda_scaling;
+    RidgeConditioningOpt conditioning; // #305
 
     RidgeFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), saw_row(false), fit_intercept(true), confidence_level(0.95),
@@ -61,6 +63,7 @@ struct RidgeFitPredictBindData : public FunctionData {
     NullPolicy null_policy = NullPolicy::DROP;
     SolverType solver = SolverType::SVD;
     LambdaScaling lambda_scaling = LambdaScaling::RAW;
+    RidgeConditioningOpt conditioning; // conditioning-aware lambda (#305)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeFitPredictBindData>();
@@ -70,6 +73,7 @@ struct RidgeFitPredictBindData : public FunctionData {
         result->null_policy = null_policy;
         result->solver = solver;
         result->lambda_scaling = lambda_scaling;
+        result->conditioning = conditioning;
         return std::move(result);
     }
 
@@ -77,7 +81,7 @@ struct RidgeFitPredictBindData : public FunctionData {
         auto &other = other_p.Cast<RidgeFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
                alpha == other.alpha && null_policy == other.null_policy &&
-               solver == other.solver && lambda_scaling == other.lambda_scaling;
+               solver == other.solver && lambda_scaling == other.lambda_scaling && conditioning == other.conditioning;
     }
 };
 
@@ -130,6 +134,7 @@ static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.null_policy = bind_data.null_policy;
         state.solver = bind_data.solver;
         state.lambda_scaling = bind_data.lambda_scaling;
+        state.conditioning = bind_data.conditioning;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -218,6 +223,7 @@ static void RidgeFitPredictCombine(Vector &source_vector, Vector &target_vector,
             target.null_policy = source.null_policy;
             target.solver = source.solver;
             target.lambda_scaling = source.lambda_scaling;
+            target.conditioning = source.conditioning;
             continue;
         }
 
@@ -276,6 +282,7 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
+        state.conditioning.ToFFI(options);
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
@@ -289,9 +296,11 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
         }
 
         AnofoxPredictionResult pred_result;
+        // The lambda the fit used (conditioning-aware lambda, #305).
+        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict");
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
-                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha));
+                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? ridge_lambda * (double)core_result.n_observations : ridge_lambda));
         bool pred_success =
             intervals.Predict(state.current_x.data(), state.current_x.size(), state.confidence_level, pred_result);
 
@@ -317,7 +326,8 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ridge_fit_predict",
-            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+            RidgeConditioningOpt::WithKeys(
+                {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"}));
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())
@@ -331,6 +341,7 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
             result->solver = opts.solver.value();
         if (opts.lambda_scaling.has_value())
             result->lambda_scaling = opts.lambda_scaling.value();
+        result->conditioning.Apply(opts, "ridge_fit_predict");
     }
 
     SetReturnTypeOf(function, GetRidgeFitPredictResultType());
