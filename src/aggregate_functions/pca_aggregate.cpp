@@ -295,7 +295,7 @@ static unique_ptr<FunctionData> PcaTransformBind(ClientContext &context, ScalarB
 			data->loadings_idx = i;
 			type = LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE));
 		}
-		cast_children.push_back(MakeChild(name, type));
+		cast_children.push_back(MakeChild(NameString(name), type));
 	}
 	if (data->center_idx == DConstants::INVALID_INDEX || data->sdev_idx == DConstants::INVALID_INDEX ||
 	    data->loadings_idx == DConstants::INVALID_INDEX) {

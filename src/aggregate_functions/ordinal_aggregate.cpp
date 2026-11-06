@@ -703,7 +703,7 @@ unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFu
 			data->cohort_idx = i;
 			type = LogicalType::LIST(LogicalType::BIGINT);
 		}
-		cast_children.push_back(MakeChild(children[i].first, type));
+		cast_children.push_back(MakeChild(NameString(children[i].first), type));
 	}
 	data->continuation_ratio = data->intercepts_idx == DConstants::INVALID_INDEX;
 	if (data->coef_idx == DConstants::INVALID_INDEX) {
