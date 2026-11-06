@@ -10872,3 +10872,7 @@ pub use pentrace_ffi::*;
 // Resampling model validation and calibration (#318).
 mod model_validation_ffi;
 pub use model_validation_ffi::*;
+
+// Data reduction and transforms (#320)
+mod reduction_ffi;
+pub use reduction_ffi::*;

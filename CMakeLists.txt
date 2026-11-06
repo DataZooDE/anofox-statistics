@@ -269,6 +269,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/pca_aggregate.cpp
     src/aggregate_functions/multinomial_aggregate.cpp
     src/aggregate_functions/model_validation_aggregate.cpp
+    src/aggregate_functions/reduction_aggregates.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp
     src/scalar_functions/lr_test.cpp

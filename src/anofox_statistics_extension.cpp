@@ -255,6 +255,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterMultinomialFunctions(loader);
     // Resampling model validation and calibration (#318)
     RegisterModelValidationFunctions(loader);
+    // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
+    RegisterReductionFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

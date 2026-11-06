@@ -12,6 +12,7 @@ pub mod multinomial;
 pub mod multivariate;
 pub mod ordinal;
 pub mod splines;
+pub mod reduction;
 pub mod tests;
 pub mod types;
 mod validation;
