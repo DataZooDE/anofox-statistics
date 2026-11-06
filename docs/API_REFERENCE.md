@@ -119,7 +119,8 @@ fitted model struct).
 | Multinomial logistic (softmax, L1 / elastic net) | `multinomial_fit_agg` | `multinomial_predict`, `multinomial_fit_predict_by` | [Multinomial](api/glm/multinomial.md) |
 | Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
-| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
+| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) | [Ordinal](api/glm/ordinal.md) |
+| Ordinal (cumulative link, continuation ratio) | `ordinal_fit_agg`, `continuation_ratio_fit_agg` | `ordinal_predict`, `ordinal_fit_predict_by`, `continuation_ratio_fit_predict_by` | [Ordinal](api/glm/ordinal.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
 | Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_augment_agg` | `cox_fit_by`, `cox_tidy_by` (`terms`), `cox_glance_by` (`summary`), `cox_augment_by` (`obs`), scalar `cox_survival` | [Cox](api/survival/cox.md) |

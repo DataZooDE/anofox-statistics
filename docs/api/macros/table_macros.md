@@ -24,6 +24,7 @@ passed through and the prediction columns appended.
 | `gamma_fit_predict_by` | `gamma_fit_agg` + `predict` | one row per input row, no intervals |
 | `tweedie_fit_predict_by` | `tweedie_fit_agg` + `predict` | one row per input row, no intervals |
 | `multinomial_fit_predict_by` | `multinomial_fit_agg` + `multinomial_predict` | one row per input row: `yhat` (class) and `probabilities`, see [Multinomial](../glm/multinomial.md#multinomial_fit_predict_by) |
+| `ordinal_fit_predict_by`, `continuation_ratio_fit_predict_by` | `ordinal_fit_agg` / `continuation_ratio_fit_agg` + `ordinal_predict` | one row per input row: `yhat` (most probable level), `yhat_mean` and `probabilities`, see [Ordinal](../glm/ordinal.md#ordinal_fit_predict_by-and-continuation_ratio_fit_predict_by) |
 | `bayesian_ridge_fit_predict_by` | `bayesian_ridge_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `ard_fit_predict_by` | `ard_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `passive_aggressive_fit_predict_by` | `passive_aggressive_fit_predict_agg` | one row per input row in `order_by` order, no intervals |

@@ -268,3 +268,15 @@ data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
 `cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
 `survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
 on `survival::lung` and `survival::heart`.
+
+## `make_reference_ordinal.R`
+
+```bash
+Rscript validation/generators/make_reference_ordinal.R
+```
+
+Requires `rms`, `MASS` and `numDeriv`. It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `ordinal_reference.test` | `ordinal_fit_agg` (five links, case weights, offset, penalty, proportional-odds score test), `ordinal_predict` / `predict` (`prob`, `exceedance`, `mean`, `class`), `continuation_ratio_fit_agg` (equal and cohort-specific slopes, case weights) (#313) | `rms::orm`, `MASS::polr`, `predict.orm`, `predict.polr(type = "class")`, `rms::cr.setup` + `lrm`; the score test is `U' I^-1 U` of the partial proportional-odds log-likelihood by numDeriv, as upstream's validation |

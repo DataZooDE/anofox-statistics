@@ -138,6 +138,19 @@ Breaking changes are called out explicitly.
   values: a base-R Hansen (2005) SPA and `MCS::MCSprocedure`
   (`validation/generators/make_reference_forecast_comparison.R`; statistics and elimination
   order exact, p-values within Monte Carlo error).
+- **Ordinal regression (#313).** `ordinal_fit_agg(y, x [, weight] [, options])`: cumulative
+  link models from anofox-regression `OrdinalRegressor` (`rms::orm` / `MASS::polr`), links
+  `logistic`, `probit`, `loglog`, `cloglog`, `cauchit`, case weights, an `offset` column,
+  `orm`'s quadratic `penalty`; returns the levels, `orm`'s intercepts (`polr`'s
+  `zeta = -alpha`) with standard errors, slopes with Wald inference, log-likelihoods, the
+  model LR chi-square, AIC and the proportional-odds score test (`po_test_*`).
+  `continuation_ratio_fit_agg(y, x [, weight] [, {'cohort_specific': [...]}])`: the
+  continuation-ratio model (`ContinuationRatioRegressor`, `rms::cr.setup` + `lrm`).
+  `ordinal_predict(model, x [, {'type': 'class' | 'prob' | 'exceedance' | 'mean'}])` (also
+  `predict(model, x)`) and the `ordinal_fit_predict_by` / `continuation_ratio_fit_predict_by`
+  table macros. Reference values: `rms::orm`, `MASS::polr`, `cr.setup` + `lrm` and the
+  partial proportional-odds score by numDeriv
+  (`validation/generators/make_reference_ordinal.R`).
 
 ### Fixed
 

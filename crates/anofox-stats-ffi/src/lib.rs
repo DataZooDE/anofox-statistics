@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// Ordinal regression: cumulative link and continuation-ratio models (#313).
+mod ordinal_ffi;
+pub use ordinal_ffi::*;

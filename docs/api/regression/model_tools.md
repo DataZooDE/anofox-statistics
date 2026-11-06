@@ -65,6 +65,10 @@ How the prediction is computed depends on the model:
   field, so the default prediction is on the response scale (a rate, a
   probability, a mean). With `{'type': 'link'}` the linear predictor `η` itself
   is returned.
+- **Ordinal models** (`ordinal_fit_agg`, `continuation_ratio_fit_agg`): the most
+  probable level, or with `{'type': 'prob' | 'exceedance' | 'mean'}` the level
+  probabilities, the exceedance probabilities or the mean; see
+  [ordinal_predict](../glm/ordinal.md#ordinal_predict).
 - **Isotonic models** (`isotonic_fit_agg`): `x` holds a single value. The
   prediction interpolates linearly between the neighbouring knots and is
   clamped to the first/last fitted value outside the training range.

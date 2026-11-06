@@ -170,6 +170,10 @@ bool IsMultinomialModelType(const LogicalType &type);
 unique_ptr<FunctionData> MultinomialPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
                                                 vector<unique_ptr<Expression>> &arguments, const char *fn_name);
 
+// Ordinal models (#313) are predicted by ordinal_aggregate.cpp.
+bool IsOrdinalModelType(const LogicalType &type);
+unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFunction &bound_function,
+                                            vector<unique_ptr<Expression>> &arguments, const char *fn_name);
 namespace {
 
 enum class ModelKind : uint8_t { LINEAR, ISOTONIC };
@@ -244,6 +248,11 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunc
 	// A multinomial_fit_agg model: the class or, with {'type': 'prob'}, the class probabilities.
 	if (IsMultinomialModelType(ReturnTypeOf(*arguments[0]))) {
 		return MultinomialPredictBind(context, bound_function, arguments, "predict");
+	}
+	// An ordinal_fit_agg / continuation_ratio_fit_agg model: the most probable level or,
+	// with {'type': 'prob' | 'exceedance' | 'mean'}, the probabilities or the mean (#313).
+	if (IsOrdinalModelType(ReturnTypeOf(*arguments[0]))) {
+		return OrdinalPredictBind(context, bound_function, arguments, "predict");
 	}
 	// Numeric fields of a hand-written model literal (e.g. DECIMAL) are cast to DOUBLE.
 	{

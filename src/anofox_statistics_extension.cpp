@@ -243,6 +243,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterLmDynamicFunctions(loader);
     RegisterLowessFunction(loader);
     RegisterPathAggregateFunctions(loader);
+    // Ordinal regression: ordinal_fit_agg, continuation_ratio_fit_agg, ordinal_predict (#313)
+    RegisterOrdinalFunctions(loader);
     // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
     RegisterPcaFunctions(loader);
     // Multinomial logistic regression (#314)
