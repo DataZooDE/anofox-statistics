@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "anofox-stats-core"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "anofox-regression",
  "anofox-statistics",
@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "anofox_stats_ffi"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "anofox-statistics",
  "anofox-stats-core",

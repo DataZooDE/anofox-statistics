@@ -27,7 +27,7 @@ description: >
   glmm_tidy_by / glance_by / augment_by, ols_anova_by / ols_anova_table_by,
   mediation_by,
   p_adjust_by, ridge / elasticnet_nested_cv_by, the split := rule and order_by
-  := for rls_tidy_by. Since 0.15.0 also cox_fit_by / cox_tidy_by /
+  := for rls_tidy_by. Since 0.16.0 also cox_fit_by / cox_tidy_by /
   cox_glance_by / cox_augment_by, gls_fit_by / gls_tidy_by / gls_glance_by /
   gls_augment_by, aft_augment_by, ordinal_fit_predict_by,
   continuation_ratio_fit_predict_by, multinomial_fit_predict_by,
@@ -37,17 +37,17 @@ description: >
   pca_by and dataset_drift_by. Use when the task is "fit one model per group" at scale,
   or "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
-version: 0.15.0
+version: 0.16.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0
 
 > **New in 0.15.0:** contract `*_by` outputs end with `row_order BIGINT` (display order per group). For incremental per-partition fits, store `ls_state_agg` states and refit with `*_fit_from_state(ls_state_combine_agg(state))`.
 >
-> **New since 0.15.0:** per-group Cox (`cox_*_by`), GLS (`gls_*_by`), AFT residuals (`aft_augment_by`), ordinal / continuation-ratio / multinomial and P-spline `*_fit_predict_by`, `predict_grid_by`, rms validation (`validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by`), `pentrace_by` / `penalized_ols_fit_by`, `glm_score_test_by`, `areg_impute_by`, `pca_by`, `dataset_drift_by` (Pattern 1, 1b, 1c). Behaviour changes that reach the `_by` outputs: with `hc_type`, the OLS / WLS `vcov` (and so the `predict(model, x, {'se_fit': true})` intervals) is now the HC covariance; `wls_*` with `hc_type` now uses the weights.
+> **New in 0.16.0:** per-group Cox (`cox_*_by`), GLS (`gls_*_by`), AFT residuals (`aft_augment_by`), ordinal / continuation-ratio / multinomial and P-spline `*_fit_predict_by`, `predict_grid_by`, rms validation (`validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by`), `pentrace_by` / `penalized_ols_fit_by`, `glm_score_test_by`, `areg_impute_by`, `pca_by`, `dataset_drift_by` (Pattern 1, 1b, 1c). Behaviour changes that reach the `_by` outputs: with `hc_type`, the OLS / WLS `vcov` (and so the `predict(model, x, {'se_fit': true})` intervals) is now the HC covariance; `wls_*` with `hc_type` now uses the weights.
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
@@ -82,7 +82,7 @@ Available macros: `ols_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_pred
 `tweedie_fit_predict_by`. Related grouped macros: `glmm_fit_by(source, group_col, y_col, x_cols[, options])`,
 `eb_shrink_by(source, estimate_col, se_col[, options])`, `aid_by`, `aid_anomaly_by`.
 
-New since 0.15.0 (same `(source, group_col, y_col, x_cols, options := NULL, split := NULL)` shape, no `order_by`, no interval columns):
+New in 0.16.0 (same `(source, group_col, y_col, x_cols, options := NULL, split := NULL)` shape, no `order_by`, no interval columns):
 
 | Macro | Purpose / added columns |
 |---|---|
@@ -263,7 +263,7 @@ FROM gls_fit_by('visits', clinic, score, [dose, week::DOUBLE], patient, week, op
 ORDER BY clinic;
 ```
 
-## Pattern 1c — per-group validation, penalization, imputation, drift (new since 0.15.0)
+## Pattern 1c — per-group validation, penalization, imputation, drift (new in 0.16.0)
 
 Same `source`-string convention; one row per group and result element.
 

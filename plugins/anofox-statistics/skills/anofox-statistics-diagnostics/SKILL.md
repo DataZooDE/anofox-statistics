@@ -35,17 +35,17 @@ description: >
   discrimination / calibration of a prediction, when screening or clustering
   predictors before modelling, or classifying a series' demand regime before
   choosing a model.
-version: 0.15.0
+version: 0.16.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 
-> **New since 0.15.0:** `gvif_agg`, `condition_diagnostic_agg`, the separation checks (`detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg`), the accuracy indexes (`somers2_agg`, `concordance_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures`), `pca_agg` with `{'scale': true}`, data reduction (`spearman2_agg`, `hoeffding_d_agg`, `varclus_agg`, `redun_agg`, `box_cox_agg`), Cox / AFT / GLS residual tables. **Behaviour changes:** `vif` / `vif_agg` now come from anofox-regression — a VIF above 10^4 is its finite value (was `inf`), and `inf` marks only the *aliased* columns (constant column, exact linear dependency; every column when rows <= columns) while the others keep a finite VIF (`car::vif` on the design without them); `vif_agg` drops a row with a NaN as a whole (was a dimension-mismatch error). `val_prob_agg` with probabilities of exactly 0 / 1 now gives `u`, `u_p`, `q` as `rms::val.prob` (e.g. `u = inf`) instead of NULL.
+> **New in 0.16.0:** `gvif_agg`, `condition_diagnostic_agg`, the separation checks (`detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg`), the accuracy indexes (`somers2_agg`, `concordance_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures`), `pca_agg` with `{'scale': true}`, data reduction (`spearman2_agg`, `hoeffding_d_agg`, `varclus_agg`, `redun_agg`, `box_cox_agg`), Cox / AFT / GLS residual tables. **Behaviour changes:** `vif` / `vif_agg` now come from anofox-regression — a VIF above 10^4 is its finite value (was `inf`), and `inf` marks only the *aliased* columns (constant column, exact linear dependency; every column when rows <= columns) while the others keep a finite VIF (`car::vif` on the design without them); `vif_agg` drops a row with a NaN as a whole (was a dimension-mismatch error). `val_prob_agg` with probabilities of exactly 0 / 1 now gives `u`, `u_p`, `q` as `rms::val.prob` (e.g. `u = inf`) instead of NULL.
 
 ## Functions
 
