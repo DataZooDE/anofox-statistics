@@ -10892,3 +10892,7 @@ pub use imputation_ffi::*;
 // AFT residuals, extended survfit / survdiff (#322)
 mod survival_extras_ffi;
 pub use survival_extras_ffi::*;
+
+// PCA reconstruction-error drift and reference-band alert thresholds (#366, #367).
+mod reconstruction_ffi;
+pub use reconstruction_ffi::*;

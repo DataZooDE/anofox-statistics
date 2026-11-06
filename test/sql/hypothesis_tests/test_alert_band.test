@@ -1,0 +1,124 @@
+# name: test/sql/hypothesis_tests/test_alert_band.test
+# description: alert_band_agg / alert_band_by (#367): methods, limits, NULLs and errors
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE m AS SELECT * FROM (VALUES
+    (1, 0.91), (2, 0.93), (3, 0.92), (4, 0.95), (5, 0.90), (6, 0.80), (7, 0.99), (8, NULL), (9, 'NaN'::DOUBLE))
+    t(chunk, acc);
+
+# Default: mean -+ 3 population sd of the reference values
+query I
+SELECT abs((alert_band_agg(acc)).lower_threshold - (avg(acc) - 3 * stddev_pop(acc))) < 1e-12
+       AND abs((alert_band_agg(acc)).upper_threshold - (avg(acc) + 3 * stddev_pop(acc))) < 1e-12
+FROM m WHERE chunk <= 5;
+----
+true
+
+# 'k' sets both sides, NULL disables one
+query II
+SELECT (alert_band_agg(acc, {'k': 1})).upper_threshold > 0.93, (alert_band_agg(acc, {'upper': NULL})).upper_threshold
+FROM m WHERE chunk <= 5;
+----
+true	NULL
+
+# Relative: mean -+ share * |mean|
+query II
+SELECT round((b).lower_threshold, 10), round((b).upper_threshold, 10)
+FROM (SELECT alert_band_agg(acc, {'method': 'relative', 'lower': 0.1, 'upper': 0.05}) AS b FROM m WHERE chunk <= 5);
+----
+0.8298	0.9681
+
+# Constant ignores the reference values, and works without any
+query II
+SELECT (b).lower_threshold, (b).upper_threshold
+FROM (SELECT alert_band_agg(acc, {'method': 'constant', 'lower': 0.85, 'upper': 0.97}) AS b FROM m WHERE false);
+----
+0.85	0.97
+
+# std / relative without reference values: NULL
+query I
+SELECT alert_band_agg(acc) IS NULL FROM m WHERE false;
+----
+true
+
+# Limits clamp (default) or drop (override_with_none)
+query II
+SELECT (alert_band_agg(acc, {'lower_limit': 0.9, 'upper_limit': 0.96})).lower_threshold,
+       (alert_band_agg(acc, {'lower_limit': 0.9, 'upper_limit': 0.96, 'override_with_none': true})).lower_threshold
+FROM m WHERE chunk <= 5;
+----
+0.9	NULL
+
+# MAP options work too
+query I
+SELECT (alert_band_agg(acc, MAP {'method': 'fixed', 'upper': '1'})).upper_threshold FROM m;
+----
+1.0
+
+# alert_band_by: every row, reference first; NULL value -> NULL alert, NaN never alerts
+query IIIII
+SELECT chunk, value, is_reference, lower_threshold < upper_threshold, alert
+FROM alert_band_by('m', chunk, acc, chunk <= 5);
+----
+1	0.91	true	true	false
+2	0.93	true	true	false
+3	0.92	true	true	false
+4	0.95	true	true	false
+5	0.9	true	true	false
+6	0.8	false	true	true
+7	0.99	false	true	true
+8	NULL	false	true	NULL
+9	nan	false	true	false
+
+# Options pass through; a NULL reference flag is not reference
+query III
+SELECT count(*), count(*) FILTER (WHERE is_reference), bool_and(lower_threshold = 0.85)
+FROM alert_band_by('m', chunk, acc, CASE WHEN chunk <= 2 THEN true END,
+                   options := {'method': 'constant', 'lower': 0.85, 'upper': 0.97});
+----
+9	2	true
+
+# No reference rows: NULL thresholds, no alerts
+query II
+SELECT count(lower_threshold), bool_or(alert) FROM alert_band_by('m', chunk, acc, false);
+----
+0	false
+
+# Errors
+statement error
+SELECT alert_band_agg(acc, {'method': 'bogus'}) FROM m;
+----
+'std', 'constant' or 'relative'
+
+statement error
+SELECT alert_band_agg(acc, {'method': 'constant', 'lower': 1, 'upper': 0.5}) FROM m;
+----
+must be less than upper
+
+statement error
+SELECT alert_band_agg(acc, {'method': 'constant', 'k': 2}) FROM m;
+----
+'k' applies
+
+statement error
+SELECT alert_band_agg(acc, {'k': -1}) FROM m;
+----
+non-negative
+
+statement error
+SELECT alert_band_agg(acc, {'bogus': 1}) FROM m;
+----
+unknown option 'bogus'
+
+statement error
+SELECT alert_band_agg(acc, {'k': NULL}) FROM m;
+----
+not NULL
+
+statement error
+SELECT alert_band_agg(x) FROM (VALUES (1.0), ('inf'::DOUBLE)) t(x);
+----
+infinite

@@ -198,6 +198,8 @@ void RegisterModelValidationFunctions(ExtensionLoader &loader);
 // Data reduction and transforms: spearman2_agg, hoeffding_d_agg, box_cox_agg,
 // box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
 void RegisterReductionFunctions(ExtensionLoader &loader);
+// PCA reconstruction-error drift and alert bands: pca_reconstruction_*, alert_band_agg, alert_band_by (#366, #367)
+void RegisterReconstructionFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

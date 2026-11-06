@@ -18,6 +18,7 @@ pub mod null_distributions;
 pub mod parametric;
 pub mod partial_correlation;
 pub mod posthoc;
+pub mod reconstruction;
 pub mod resampling;
 pub mod survival;
 pub mod timeseries;

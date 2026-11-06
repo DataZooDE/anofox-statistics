@@ -10,6 +10,18 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- Multivariate drift by PCA reconstruction error, as NannyML's `DataReconstructionDriftCalculator`
+  (#366): `pca_reconstruction_fit_agg` (the model STRUCT; options `variance` / `n_components`,
+  `scale`, `impute_nan`), `pca_reconstruction_error`, `pca_reconstruction_chunk_agg`,
+  `pca_reconstruction_threshold_agg` and the `pca_reconstruction_drift_by` table macro (one row per
+  chunk: error, sampling error, confidence band, thresholds, alert). From upstream
+  anofox-statistics 0.10 `monitoring`; checked against NannyML 0.13.1 on its car-loan dataset.
+- Reference-band alert thresholds for chunked metrics (#367): `alert_band_agg` (methods `std`,
+  `constant` / `fixed`, `relative`; value limits with clamping or `override_with_none`, as
+  NannyML's `calculate_threshold_values`) and the `alert_band_by` table macro.
+
 ## [0.16.0] - 2026-11-06
 
 This release closes about 31 issues (#293–#323) that expose the remaining functionality of
