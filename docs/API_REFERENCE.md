@@ -121,7 +121,7 @@ fitted model struct).
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
 | Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
-| AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
+| AFT survival | `aft_fit_agg`, `aft_augment_agg` | `aft_augment_by` (`obs`), scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
 | Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_augment_agg` | `cox_fit_by`, `cox_tidy_by` (`terms`), `cox_glance_by` (`summary`), `cox_augment_by` (`obs`), scalar `cox_survival` | [Cox](api/survival/cox.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |

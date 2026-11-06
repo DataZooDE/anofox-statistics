@@ -268,3 +268,17 @@ data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
 `cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
 `survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
 on `survival::lung` and `survival::heart`.
+
+## `make_reference_survival_extras.R`
+
+```bash
+Rscript validation/generators/make_reference_survival_extras.R
+```
+
+Requires `survival`. It (re)writes `test/sql/reference/survival_extras.test` (#322):
+`aft_augment_by` (linear predictor, standardized and Cox-Snell residuals, score
+contributions for the four AFT distributions) against `survreg`, `psurvreg` and
+`residuals(fit, type = "matrix")`; `kaplan_meier_agg` with options (weights, entry
+times, `cluster`, `robust`, `ctype`, `conf.type`) against `survfit`; and
+`log_rank_test_agg` with `rho` / `strata` against `survdiff`, on `survival::lung`
+and `survival::heart`.

@@ -79,9 +79,9 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | Tweedie | `tweedie_fit_agg`, `tweedie_fit_predict_by` | GLM for zero-inflated positive-skew outcomes | [tweedie](docs/api/glm/tweedie.md) |
 | GLM priors | `prior` option | Normal / Laplace priors on GLM coefficients | [priors](docs/api/glm/priors.md) |
 | ALM | `alm_fit_agg`, `alm_fit_predict_agg`, `alm_fit_predict_by` | Augmented Linear Model with 25 error distributions | [alm](docs/api/glm/alm.md) |
-| AFT survival | `aft_fit_agg`, `aft_cdf`, `aft_quantile`, `aft_survival` | Accelerated failure time models with right censoring; CDF, quantile and survival-curve helpers | [aft](docs/api/survival/aft.md) |
+| AFT survival | `aft_fit_agg`, `aft_cdf`, `aft_quantile`, `aft_survival`, `aft_augment_agg`, `aft_augment_by` | Accelerated failure time models with right censoring; CDF, quantile and survival-curve helpers; standardized / Cox-Snell residuals and score contributions | [aft](docs/api/survival/aft.md) |
 | Cox PH | `cox_fit_agg`, `cox_zph_agg`, `cox_survival`, `cox_augment_agg`, `cox_fit_by`, `cox_tidy_by`, `cox_glance_by`, `cox_augment_by` | Cox proportional hazards (Efron / Breslow ties, weights, strata, counting-process data, ridge, robust variance), proportional-hazards test, predicted survival, residuals | [cox](docs/api/survival/cox.md) |
-| Survival curves | `kaplan_meier_agg`, `kaplan_meier_by`, `log_rank_test_agg` | Kaplan-Meier curves with confidence bands per stratum, log-rank test | [survival_curves](docs/api/survival/survival_curves.md) |
+| Survival curves | `kaplan_meier_agg`, `kaplan_meier_by`, `log_rank_test_agg` | Kaplan-Meier curves with confidence bands per stratum (case weights, left truncation, robust SEs, cumulative hazard), log-rank / Peto-Peto test with strata | [survival_curves](docs/api/survival/survival_curves.md) |
 | GLM results | `family`, `link` fields | Every GLM result struct ends with its `family` and `link`, so `predict` returns response-scale predictions | [model_tools](docs/api/regression/model_tools.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_fit_by` | Random intercepts / slopes over grouping factors | [glmm](docs/api/glm/glmm.md) |
 | EB shrinkage | `eb_shrink_agg`, `eb_shrink_by` | Empirical-Bayes partial pooling of per-group estimates | [eb_shrink](docs/api/glm/eb_shrink.md) |

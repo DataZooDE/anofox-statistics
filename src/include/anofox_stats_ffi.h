@@ -4824,6 +4824,68 @@ bool anofox_cox_survival(const double *coefficients, size_t n_coefficients, cons
                          const double *base_cumhaz, size_t n_baseline, const double *x, const double *times,
                          size_t n_times, double *out_survival);
 
+/* ---- AFT residuals, extended survfit / survdiff (#322) ---- */
+
+/** Per-input-row results of an AFT fit (NaN for rows left out); score_mat is n_rows * n_params, row-major
+ *  (intercept, coefficients, log(scale)). */
+typedef struct {
+	double *linear_predictor;
+	double *standardized_residual;
+	double *cox_snell_residual;
+	double *score_mat;
+	bool *is_training;
+	size_t n_rows;
+	size_t n_params;
+} AnofoxAftAugmentResult;
+
+bool anofox_aft_augment(AnofoxDataArray time, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray event,
+                        AnofoxAftOptions options, AnofoxAftAugmentResult *out_result, AnofoxError *out_error);
+void anofox_free_aft_augment_result(AnofoxAftAugmentResult *result);
+
+/** conf_type: 0 log, 1 log-log, 2 plain; hazard: 0 Nelson-Aalen, 1 Fleming-Harrington;
+ *  robust: -1 survfit's default, 0 Greenwood, 1 infinitesimal jackknife. */
+typedef struct {
+	double conf_level;
+	int32_t conf_type;
+	int32_t hazard;
+	int32_t robust;
+	bool timefix;
+} AnofoxSurvfitOptions;
+
+/** time / event (non-zero = event) required; entry, weights, cluster NULL when absent. */
+typedef struct {
+	const double *time;
+	const double *event;
+	const double *entry;
+	const double *weights;
+	const double *cluster;
+	size_t n_rows;
+} AnofoxSurvfitData;
+
+/** One curve, len distinct times; counts are weighted sums; NaN where R gives NA. */
+typedef struct {
+	double *time;
+	double *n_risk;
+	double *n_event;
+	double *n_censor;
+	double *surv;
+	double *std_err;
+	double *conf_low;
+	double *conf_high;
+	double *cumhaz;
+	double *std_chaz;
+	size_t len;
+	size_t n;
+} AnofoxSurvfitResult;
+
+bool anofox_survfit(const AnofoxSurvfitData *data, AnofoxSurvfitOptions options, AnofoxSurvfitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_survfit_result(AnofoxSurvfitResult *result);
+
+/** G-rho test (survdiff(rho)); strata NULL or time.len values. */
+bool anofox_survdiff(AnofoxDataArray time, AnofoxDataArray event, const uint64_t *groups, const double *strata,
+                     double rho, AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

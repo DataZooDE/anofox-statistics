@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// AFT residuals, extended survfit / survdiff (#322)
+mod survival_extras_ffi;
+pub use survival_extras_ffi::*;

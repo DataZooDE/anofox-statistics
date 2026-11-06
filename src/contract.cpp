@@ -45,7 +45,7 @@ static const struct {
     {"gamma_tidy_by", "terms"}, {"gamma_glance_by", "summary"},
     {"tweedie_tidy_by", "terms"}, {"tweedie_glance_by", "summary"},
     {"alm_tidy_by", "terms"}, {"alm_glance_by", "summary"},
-    {"aft_tidy_by", "terms"}, {"aft_glance_by", "summary"},
+    {"aft_tidy_by", "terms"}, {"aft_glance_by", "summary"}, {"aft_augment_by", "obs"},
     {"cox_tidy_by", "terms"}, {"cox_glance_by", "summary"}, {"cox_augment_by", "obs"},
     {"glmm_tidy_by", "terms"}, {"glmm_glance_by", "summary"}, {"glmm_augment_by", "obs"},
     {"ols_augment_by", "obs"}, {"wls_augment_by", "obs"}, {"ridge_augment_by", "obs"},

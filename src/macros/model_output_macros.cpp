@@ -721,6 +721,35 @@ static void RegisterCoxOutputMacros(ExtensionLoader &loader) {
 	loader.RegisterFunction(*augment);
 }
 
+// aft_augment_by (#322, contract `obs`): per-row residuals of aft_augment_agg.
+const char *const AFT_AUGMENT_SQL =
+    "SELECT * EXCLUDE (_aug, _rn, _anofox_rid), 'aft' AS model_id, 'aft' AS model_name, _anofox_rid AS row_id, "
+    "(_aug[_rn]).linear_predictor AS fitted, (_aug[_rn]).cox_snell_residual AS residual, "
+    "'cox_snell' AS resid_type, (_aug[_rn]).standardized_residual AS std_residual, NULL::DOUBLE AS stud_residual, "
+    "NULL::DOUBLE AS leverage, NULL::DOUBLE AS cooks_d, NULL::DOUBLE AS dffits, 1.0::DOUBLE AS weight, "
+    "(_aug[_rn]).is_training AS is_training, NULL::INTEGER AS n_params, "
+    "(_aug[_rn]).score_contributions AS score_contributions "
+    "FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+    "PRECEDING AND UNBOUNDED FOLLOWING) AS _rn, aft_augment_agg(time_col::DOUBLE, x_cols, event_col::DOUBLE, "
+    "options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND "
+    "UNBOUNDED FOLLOWING) AS _aug "
+    "FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))) "
+    "ORDER BY group_col, row_id";
+
+static void RegisterAftAugmentMacro(ExtensionLoader &loader) {
+	auto augment = CreateTableMacro(
+	    "aft_augment_by", {"source", "group_col", "time_col", "x_cols", "event_col"},
+	    {{"options", "NULL"}, {"order_by", "NULL"}}, AFT_AUGMENT_SQL,
+	    "Table macro: fits an AFT survival model (aft_augment_agg, same options as aft_fit_agg) per group of source "
+	    "and returns every source row with its per-observation results (the integration contract's `obs` schema): "
+	    "all source columns, model_id and model_name ('aft'), row_id, fitted (the linear predictor of log T), "
+	    "residual (Cox-Snell, -log S(t | x)), resid_type ('cox_snell'), std_residual ((log t - fitted) / scale), "
+	    "stud_residual, leverage, cooks_d, dffits (NULL), weight (1), is_training, n_params (NULL), then "
+	    "score_contributions (intercept, coefficients, log(scale)). Rows the fit could not use get NULLs.",
+	    "aft_augment_by('po_lines', supplier, days, [rating, qty], delivered)", {"survival", "regression", "table-macro"});
+	loader.RegisterFunction(*augment);
+}
+
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
@@ -811,6 +840,7 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	}
 	RegisterGlmmOutputMacros(loader);
 	RegisterCoxOutputMacros(loader);
+	RegisterAftAugmentMacro(loader);
 }
 
 void RegisterPathMacros(ExtensionLoader &loader) {

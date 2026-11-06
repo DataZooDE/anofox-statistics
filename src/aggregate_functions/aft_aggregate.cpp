@@ -22,6 +22,10 @@
 
 namespace duckdb {
 
+// Must match AftAugmentResultFFI (crates/anofox-stats-ffi/src/survival_extras_ffi.rs): five pointers, two sizes.
+static_assert(offsetof(AnofoxAftAugmentResult, n_rows) == 5 * sizeof(double *),
+              "AnofoxAftAugmentResult must match AftAugmentResultFFI");
+
 //===--------------------------------------------------------------------===//
 // AFT (accelerated failure time) survival regression with right censoring.
 //
@@ -346,13 +350,13 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 	}
 }
 
-static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateBindFunction &function,
-                                           vector<unique_ptr<Expression>> &arguments) {
+static unique_ptr<AftAggregateBindData> AftParseBind(ClientContext &context,
+                                                     vector<unique_ptr<Expression>> &arguments, const char *name) {
 	auto result = make_uniq<AftAggregateBindData>();
 
 	if (arguments.size() >= 4) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
-            context, *arguments[3], "aft_fit_agg",
+            context, *arguments[3], name,
             {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.aft_dist.has_value()) {
@@ -374,9 +378,227 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateBind
 			result->tolerance = opts.tolerance.value();
 		}
 	}
+	return result;
+}
 
+static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateBindFunction &function,
+                                           vector<unique_ptr<Expression>> &arguments) {
+	auto result = AftParseBind(context, arguments, "aft_fit_agg");
 	SetReturnTypeOf(function, GetAftAggResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall("aft_fit_agg");
+	return std::move(result);
+}
+
+//===--------------------------------------------------------------------===//
+// aft_augment_agg (#322): one STRUCT per input row, in frame order
+//
+//   aft_augment_agg(time DOUBLE, x LIST(DOUBLE), event DOUBLE [, options])
+//
+// Fits the same model as aft_fit_agg over the window frame and returns, per
+// row, the linear predictor, the standardized residual (log t - eta) / sigma,
+// the Cox-Snell residual -log S(t | x) and the score contributions
+// (FittedAft::{standardized_residuals, cox_snell_residuals,
+// score_contributions} of anofox-regression). Rows the fit left out get NULLs.
+//===--------------------------------------------------------------------===//
+struct AftAugmentState {
+	vector<double> time;           // NaN for a NULL
+	vector<double> event;          // NaN for a NULL
+	vector<vector<double>> x_rows; // empty for a NULL x list
+	idx_t n_features = 0;
+	bool initialized = false;
+};
+
+static void AftAugmentInitialize(data_ptr_t state_p) {
+	new (state_p) AftAugmentState();
+}
+
+static void AftAugmentDestroy(Vector &state_vector, AggregateInputData &, idx_t count) {
+	UnifiedVectorFormat sdata;
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto states = (AftAugmentState **)sdata.data;
+	for (idx_t i = 0; i < count; i++) {
+		states[sdata.sel->get_index(i)]->~AftAugmentState();
+	}
+}
+
+static void AftAugmentUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
+	UnifiedVectorFormat time_data, x_data, event_data, sdata;
+	inputs[0].ToUnifiedFormat(count, time_data);
+	inputs[1].ToUnifiedFormat(count, x_data);
+	inputs[2].ToUnifiedFormat(count, event_data);
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto times = UnifiedVectorFormat::GetData<double>(time_data);
+	auto events = UnifiedVectorFormat::GetData<double>(event_data);
+	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
+	auto &x_child = ListVector::GetEntry(inputs[1]);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
+	auto states = (AftAugmentState **)sdata.data;
+	const double nan = std::numeric_limits<double>::quiet_NaN();
+	for (idx_t i = 0; i < count; i++) {
+		auto &state = *states[sdata.sel->get_index(i)];
+		auto t_idx = time_data.sel->get_index(i);
+		auto e_idx = event_data.sel->get_index(i);
+		auto x_idx = x_data.sel->get_index(i);
+		vector<double> x_row;
+		if (x_data.validity.RowIsValid(x_idx)) {
+			auto entry = x_list_data[x_idx];
+			if (!state.initialized) {
+				state.n_features = entry.length;
+				state.initialized = true;
+			} else if (entry.length != state.n_features) {
+				throw InvalidInputException("aft_augment_agg: inconsistent feature count: expected %llu, got %llu",
+				                            (unsigned long long)state.n_features, (unsigned long long)entry.length);
+			}
+			x_row.resize(entry.length);
+			for (idx_t j = 0; j < entry.length; j++) {
+				auto c = entry.offset + j;
+				// A NULL element makes the row non-finite: it is left out of the fit.
+				x_row[j] = x_child_validity.RowIsValid(c) ? x_child_data[c] : nan;
+			}
+		}
+		state.time.push_back(time_data.validity.RowIsValid(t_idx) ? times[t_idx] : nan);
+		state.event.push_back(event_data.validity.RowIsValid(e_idx) ? events[e_idx] : nan);
+		state.x_rows.push_back(std::move(x_row));
+	}
+}
+
+static void AftAugmentCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+	UnifiedVectorFormat source_data, target_data;
+	source_vector.ToUnifiedFormat(count, source_data);
+	target_vector.ToUnifiedFormat(count, target_data);
+	auto sources = (AftAugmentState **)source_data.data;
+	auto targets = (AftAugmentState **)target_data.data;
+	for (idx_t i = 0; i < count; i++) {
+		auto &source = *sources[source_data.sel->get_index(i)];
+		auto &target = *targets[target_data.sel->get_index(i)];
+		if (source.initialized && target.initialized && source.n_features != target.n_features) {
+			throw InvalidInputException("Inconsistent feature count during combine");
+		}
+		if (source.initialized && !target.initialized) {
+			target.n_features = source.n_features;
+			target.initialized = true;
+		}
+		// Appended in order (the window frame order).
+		target.time.insert(target.time.end(), source.time.begin(), source.time.end());
+		target.event.insert(target.event.end(), source.event.begin(), source.event.end());
+		for (auto &row : source.x_rows) {
+			target.x_rows.push_back(row);
+		}
+	}
+}
+
+static LogicalType AftAugmentResultType() {
+	child_list_t<LogicalType> c;
+	c.push_back(make_pair("linear_predictor", LogicalType::DOUBLE));
+	c.push_back(make_pair("standardized_residual", LogicalType::DOUBLE));
+	c.push_back(make_pair("cox_snell_residual", LogicalType::DOUBLE));
+	c.push_back(make_pair("score_contributions", LogicalType::LIST(LogicalType::DOUBLE)));
+	c.push_back(make_pair("is_training", LogicalType::BOOLEAN));
+	return LogicalType::LIST(LogicalType::STRUCT(std::move(c)));
+}
+
+static void SetAugmentDouble(Vector &v, idx_t row, double value) {
+	if (std::isfinite(value)) {
+		FlatDataMut<double>(v)[row] = value;
+	} else {
+		FlatVector::SetNull(v, row, true);
+	}
+}
+
+static void AftAugmentFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                               idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<AftAggregateBindData>();
+	UnifiedVectorFormat sdata;
+	state_vector.ToUnifiedFormat(count, sdata);
+	auto states = (AftAugmentState **)sdata.data;
+	const double nan = std::numeric_limits<double>::quiet_NaN();
+	for (idx_t i = 0; i < count; i++) {
+		auto &state = *states[sdata.sel->get_index(i)];
+		const idx_t row = i + offset;
+		if (!state.initialized || state.time.empty()) {
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		const idx_t n = state.time.size();
+		const idx_t p = state.n_features;
+		vector<vector<double>> columns(p, vector<double>(n));
+		for (idx_t r = 0; r < n; r++) {
+			for (idx_t j = 0; j < p; j++) {
+				columns[j][r] = state.x_rows[r].empty() ? nan : state.x_rows[r][j];
+			}
+		}
+		vector<double> time = state.time;
+		vector<double> event = state.event;
+		// Canonical row order: bitwise-identical results whatever the thread count (#226).
+		auto order = CanonicalRows().Keys(columns).Key(time).Key(event).Sort();
+
+		AnofoxDataArray time_array {time.data(), nullptr, static_cast<size_t>(n)};
+		AnofoxDataArray event_array {event.data(), nullptr, static_cast<size_t>(n)};
+		vector<AnofoxDataArray> x_arrays;
+		for (idx_t j = 0; j < p; j++) {
+			x_arrays.push_back(AnofoxDataArray {columns[j].data(), nullptr, static_cast<size_t>(n)});
+		}
+		GlmPriorState priors;
+		priors.Materialize(bind.prior_opts, p, bind.fit_intercept);
+		AnofoxAftOptions options {};
+		options.dist = bind.dist;
+		options.fit_intercept = bind.fit_intercept;
+		options.max_iterations = bind.max_iterations;
+		options.tolerance = bind.tolerance;
+		options.compute_inference = false;
+		options.confidence_level = bind.confidence_level;
+		priors.Apply(options);
+
+		AnofoxAftAugmentResult aug {};
+		AnofoxError error;
+		if (!anofox_aft_augment(time_array, x_arrays.data(), x_arrays.size(), event_array, options, &aug, &error)) {
+			ThrowUnlessDegenerate("aft_augment_agg", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		if (aug.n_rows != n) {
+			anofox_free_aft_augment_result(&aug);
+			throw InternalException("aft_augment_agg: returned %llu rows for %llu inputs", (uint64_t)aug.n_rows,
+			                        (uint64_t)n);
+		}
+		const idx_t k = aug.n_params;
+		auto list_offset = ListVector::GetListSize(result);
+		ListVector::Reserve(result, list_offset + n);
+		ListVector::SetListSize(result, list_offset + n);
+		FlatDataMut<list_entry_t>(result)[row] = list_entry_t(list_offset, n);
+		auto &e = StructVector::GetEntries(ListVector::GetEntry(result));
+		auto &score = StructEntry(e[3]);
+		for (idx_t r = 0; r < n; r++) {
+			// Sorted row r belongs to input (frame) row order[r].
+			const idx_t out = list_offset + (order.empty() ? r : order[r]);
+			SetAugmentDouble(StructEntry(e[0]), out, aug.linear_predictor[r]);
+			SetAugmentDouble(StructEntry(e[1]), out, aug.standardized_residual[r]);
+			SetAugmentDouble(StructEntry(e[2]), out, aug.cox_snell_residual[r]);
+			if (!aug.is_training[r]) {
+				FlatVector::SetNull(score, out, true);
+				FlatDataMut<list_entry_t>(score)[out] = list_entry_t(ListVector::GetListSize(score), 0);
+			} else {
+				auto score_offset = ListVector::GetListSize(score);
+				ListVector::Reserve(score, score_offset + k);
+				auto &child = ListVector::GetEntry(score);
+				for (idx_t j = 0; j < k; j++) {
+					SetAugmentDouble(child, score_offset + j, aug.score_mat[r * k + j]);
+				}
+				ListVector::SetListSize(score, score_offset + k);
+				FlatDataMut<list_entry_t>(score)[out] = list_entry_t(score_offset, k);
+			}
+			FlatDataMut<bool>(StructEntry(e[4]))[out] = aug.is_training[r];
+		}
+		anofox_free_aft_augment_result(&aug);
+	}
+}
+
+static unique_ptr<FunctionData> AftAugmentBind(ClientContext &context, AggregateBindFunction &function,
+                                               vector<unique_ptr<Expression>> &arguments) {
+	auto result = AftParseBind(context, arguments, "aft_augment_agg");
+	SetReturnTypeOf(function, AftAugmentResultType());
+	PostHogTelemetry::Instance().RecordFunctionCall("aft_augment_agg");
 	return std::move(result);
 }
 
@@ -413,6 +635,38 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(info);
 
+	AggregateFunctionSet augment_set("aft_augment_agg");
+	auto dlist = LogicalType::LIST(LogicalType::DOUBLE);
+	for (bool with_options : {false, true}) {
+		vector<LogicalType> args = {LogicalType::DOUBLE, dlist, LogicalType::DOUBLE};
+		if (with_options) {
+			args.push_back(LogicalType::ANY);
+		}
+		augment_set.AddFunction(AggregateFunction(
+		    "aft_augment_agg", args, LogicalType::ANY, AggregateFunction::StateSize<AftAugmentState>,
+		    ANOFOX_AGG_INIT(AftAugmentInitialize),
+		    ANOFOX_GUARDED_UPDATE(AftAugmentUpdate, AftAugmentDestroy, AftAugmentInitialize), AftAugmentCombine,
+		    ANOFOX_GUARDED_FINALIZE(AftAugmentFinalize, AftAugmentDestroy, AftAugmentInitialize), nullptr,
+		    ANOFOX_AGG_BIND(AftAugmentBind), AftAugmentDestroy));
+	}
+	CreateAggregateFunctionInfo augment_info(augment_set);
+	FunctionDescription a1;
+	a1.description = "Window aggregate: fits the same AFT model as aft_fit_agg over the frame and returns one STRUCT "
+	                 "per input row (in frame order): linear_predictor, standardized_residual ((log t - eta) / "
+	                 "scale), cox_snell_residual (-log S(t | x)), score_contributions (intercept, coefficients, "
+	                 "log(scale)) and is_training. Use it over a whole partition, as aft_augment_by does.";
+	a1.examples = {"aft_augment_agg(duration, [x1, x2], event) OVER ()"};
+	a1.categories = {"survival", "regression"};
+	a1.parameter_names = {"time", "x", "event"};
+	a1.parameter_types = {LogicalType::DOUBLE, dlist, LogicalType::DOUBLE};
+	augment_info.descriptions.push_back(a1);
+	FunctionDescription a2 = a1;
+	a2.description = a1.description + " With the options of aft_fit_agg.";
+	a2.examples = {"aft_augment_agg(duration, [x1, x2], event, {'distribution': 'lognormal'}) OVER ()"};
+	a2.parameter_names = {"time", "x", "event", "options"};
+	a2.parameter_types = {LogicalType::DOUBLE, dlist, LogicalType::DOUBLE, LogicalType::ANY};
+	augment_info.descriptions.push_back(a2);
+	loader.RegisterFunction(augment_info);
 }
 
 //===--------------------------------------------------------------------===//

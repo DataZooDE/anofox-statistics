@@ -12,6 +12,21 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **AFT residuals and survfit / survdiff options (#322).** `aft_augment_agg(time, x, event
+  [, options])` (window aggregate) and `aft_augment_by` (contract `obs`): per row the linear
+  predictor, the standardized residual `(log t - eta) / scale`, the Cox-Snell residual
+  `-log S(t | x)` and the score contributions, from anofox-regression `FittedAft`.
+  `kaplan_meier_agg(time, event, [columns,] options)`: case weights, entry times (left
+  truncation), cluster ids, `robust` standard errors, the Nelson-Aalen / Fleming-Harrington
+  cumulative hazard (`hazard`; new fields `cumhaz`, `std_chaz`) and `timefix`, through
+  anofox-regression's `survival::survfit`; per-row weights / entry / cluster are columns of
+  `columns` named by position, as `cox_fit_agg`'s strata / entry. `log_rank_test_agg(time,
+  event, group, [columns,] options)`: `rho` (Peto-Peto at 1) and `strata`, through
+  `survival::survdiff`. The original positional forms are unchanged (anofox-statistics);
+  `log_rank_test_agg` only leaves it for `rho != 0` or strata. Validated against R
+  `survreg` / `residuals.survreg`, `survfit` (weights, `Surv(start, stop)`, `cluster`,
+  `robust`, `ctype`) and `survdiff(rho)`. The AFT cluster-robust covariance follows with
+  anofox-regression 0.12.
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,
