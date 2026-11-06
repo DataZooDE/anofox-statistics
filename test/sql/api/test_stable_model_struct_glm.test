@@ -70,13 +70,19 @@ FROM (SELECT poisson_fit_agg(cnt, [x, z], {'compute_inference': true}) m FROM d)
 ----
 -146.929163	299.858326	306.141359	0.11373	12.321	1.178364	1.624177	0.95
 
-# Logistic vs R: glm(yb ~ x + z, family = binomial)
+# Logistic vs R, fitted to convergence:
+#    m <- glm(yb ~ x + z, family = binomial, control = glm.control(epsilon = 1e-14))
+#    logLik, AIC, BIC; summary(m)$coef[1, c(2, 4)]; confint.default(m)[1, ]
+# R's default epsilon = 1e-8 stops after 4 IRLS iterations, one short of convergence, and its
+# intercept SE (0.601251) and conf limits (0.665818, 3.022678) are off in the 5th digit; the
+# converged fit (5 iterations) agrees with the extension. The Poisson record above and the AFT
+# record below are unchanged at their rounding by epsilon = 1e-14 / rel.tolerance = 1e-14.
 query IIIIIII
 SELECT round(m.log_likelihood, 6), round(m.aic, 6), round(m.bic, 6), round(m.intercept_std_error, 6),
        round(m.intercept_p_value, 6), round(m.intercept_conf_low, 6), round(m.intercept_conf_high, 6)
 FROM (SELECT logistic_fit_agg(yb, [x, z], {'compute_inference': true}) m FROM d)
 ----
--29.466698	64.933395	71.216429	0.601251	0.00216	0.665818	3.022678
+-29.466698	64.933395	71.216429	0.601265	0.00216	0.66579	3.022706
 
 # AFT vs R: survreg(Surv(tt, ev) ~ x + z, dist = "weibull"); sqrt(vcov(m)[1, 1])
 query IIII
