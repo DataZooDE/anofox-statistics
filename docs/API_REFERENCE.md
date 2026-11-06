@@ -132,6 +132,7 @@ fitted model struct).
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 | Likelihood-ratio / score tests, profile CIs | `lr_test` (scalar), `glm_score_test_agg`, `profile_ci` option on the GLM fits | `glm_score_test_by` | [Likelihood tests](api/glm/likelihood.md) |
 | Wald ANOVA (chunk tests), fast backward step-down | `wald_anova`, `fastbw` (scalars on any model STRUCT with `vcov`) | - | [Wald ANOVA](api/regression/wald_anova.md) |
+| Penalized ML a la rms (penalty trace, penalized OLS) | `pentrace_agg`, `penalized_ols_fit_agg` | `pentrace_by`, `penalized_ols_fit_by` | [Pentrace](api/regression/pentrace.md) |
 
 ### Statistical Tests
 

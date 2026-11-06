@@ -10864,3 +10864,7 @@ pub use splines_ffi::*;
 // Effects, contrasts, effect grids and nomograms (#319).
 mod effects_ffi;
 pub use effects_ffi::*;
+
+// Penalized ML a la rms: pentrace and penalized OLS (#323).
+mod pentrace_ffi;
+pub use pentrace_ffi::*;

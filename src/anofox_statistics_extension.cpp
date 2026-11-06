@@ -123,6 +123,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterGlsFunctions(loader);
     RegisterAftScalarFunctions(loader);
     RegisterCoxFunctions(loader);
+    RegisterPentraceAggregateFunctions(loader);
     RegisterBinomialAggregateFunction(loader);
     RegisterNegBinomAggregateFunction(loader);
     RegisterTweedieAggregateFunction(loader);

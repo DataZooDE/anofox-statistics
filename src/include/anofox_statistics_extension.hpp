@@ -84,6 +84,7 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader);
 void RegisterGlsFunctions(ExtensionLoader &loader);
 void RegisterAftScalarFunctions(ExtensionLoader &loader);
 void RegisterCoxFunctions(ExtensionLoader &loader);
+void RegisterPentraceAggregateFunctions(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
 void RegisterNegBinomAggregateFunction(ExtensionLoader &loader);
 void RegisterTweedieAggregateFunction(ExtensionLoader &loader);

@@ -28,6 +28,7 @@ mod ols_anova;
 mod ols_anova_table;
 mod passive_aggressive;
 mod path;
+mod pentrace;
 mod pls;
 mod predict;
 mod predict_se;
@@ -45,6 +46,7 @@ pub use aft::{
 };
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
+pub use anofox_regression::solvers::{OrdinalLink, PentraceCriterion};
 pub use augment::{
     augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
     augment_poisson, augment_ridge, augment_tweedie, augment_wls, partial_residuals_binomial,
@@ -107,6 +109,10 @@ pub use passive_aggressive::{
 pub use path::{
     cv_reg_path, cv_reg_path_strategy, fit_reg_path, lars_path, nested_cv_reg_path, CvPathResult,
     CvSpec, CvStrategy, NestedCvResult, RegPathOptions, RegPathResult,
+};
+pub use pentrace::{
+    penalized_ols, pentrace, PenalizedOlsResult, Penalty, PenaltyGrid, PenaltyTerms, PentraceModel,
+    PentraceResult, PentraceRowResult,
 };
 pub use pls::fit_pls;
 pub use predict::predict;

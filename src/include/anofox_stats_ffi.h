@@ -5235,6 +5235,103 @@ bool anofox_effects_nomogram(const AnofoxEffectsInput *input, const double *lp, 
 /** Free the arrays of a nomogram. */
 void anofox_free_nomogram(AnofoxNomogramResult *result);
 
+/* ---------------------------------------------------------------------------
+ * Penalized maximum likelihood a la rms (#323): rms::pentrace and
+ * rms::ols(penalty = ). Must match crates/anofox-stats-ffi/src/pentrace_ffi.rs.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Term specification of the columns: term_of_column[j] is the 0-based term of
+ * column j (every column needs one; NULL: every column its own linear term);
+ * term_names: n_terms names; interaction_factors (NULL: none): two 0-based
+ * main-effect terms per term, negative for a main effect; nonlinear (NULL: all
+ * linear): one flag per column; categorical (NULL: none): one flag per term.
+ */
+typedef struct {
+	const int64_t *term_of_column;
+	const bool *nonlinear;
+	const char *const *term_names;
+	size_t n_terms;
+	const int64_t *interaction_factors;
+	const bool *categorical;
+} AnofoxPenaltyTerms;
+
+/** The penalties to trace: every combination (rms complex.more); an empty component falls back as in rms. */
+typedef struct {
+	const double *simple;
+	size_t n_simple;
+	const double *nonlinear;
+	size_t n_nonlinear;
+	const double *interaction;
+	size_t n_interaction;
+	const double *nonlinear_interaction;
+	size_t n_nonlinear_interaction;
+} AnofoxPenaltyGrid;
+
+/** One row of anofox_pentrace; the penalty components are resolved. */
+typedef struct {
+	double simple;
+	double nonlinear;
+	double interaction;
+	double nonlinear_interaction;
+	double df;
+	double lr_chisq;
+	double aic;
+	double bic;
+	double aic_c;
+} AnofoxPentraceRow;
+
+/** Result of anofox_pentrace; free with anofox_free_pentrace. */
+typedef struct {
+	AnofoxPentraceRow *rows;
+	size_t n_rows;
+	size_t best; /* 0-based index of the best row */
+	size_t n_observations;
+} AnofoxPentraceResult;
+
+/**
+ * Result of anofox_penalized_ols; free with anofox_free_penalized_ols. vcov and
+ * vcov_sandwich are row-major (n_features + 1)^2, intercept first;
+ * effective_df_diagonal has n_features + 1 entries (intercept first),
+ * effective_df_by_term n_terms.
+ */
+typedef struct {
+	double *coefficients;
+	size_t n_features;
+	double intercept;
+	double *vcov;
+	double *vcov_sandwich;
+	double *effective_df_diagonal;
+	double *effective_df_by_term;
+	size_t n_terms;
+	double sigma;
+	double r_squared;
+	double lr_chisq;
+	double effective_df;
+	double simple;
+	double nonlinear;
+	double interaction;
+	double nonlinear_interaction;
+	size_t n_observations;
+} AnofoxPenalizedOlsResult;
+
+/**
+ * rms::pentrace. model 0: least squares (ols), 1: binary logistic, 2: ordinal
+ * (link 0 logistic, 1 probit, 2 loglog, 3 cloglog, 4 cauchit); criterion 0:
+ * corrected AIC, 1: AIC, 2: BIC. terms may be NULL.
+ */
+bool anofox_pentrace(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const AnofoxPenaltyTerms *terms,
+                     AnofoxPenaltyGrid grid, int32_t model, int32_t link, int32_t criterion,
+                     AnofoxPentraceResult *out_result, AnofoxError *out_error);
+void anofox_free_pentrace(AnofoxPentraceResult *result);
+
+/** rms::ols(penalty = list(simple, nonlinear, interaction, nonlinear.interaction)); NaN: rms fallback. */
+bool anofox_penalized_ols(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                          const AnofoxPenaltyTerms *terms, double simple, double nonlinear, double interaction,
+                          double nonlinear_interaction, AnofoxPenalizedOlsResult *out_result,
+                          AnofoxError *out_error);
+void anofox_free_penalized_ols(AnofoxPenalizedOlsResult *result);
+
 #ifdef __cplusplus
 }
 #endif

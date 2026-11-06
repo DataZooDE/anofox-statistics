@@ -22,6 +22,20 @@ Breaking changes are called out explicitly.
   (`interval`, `confidence_level`) and extend the smooth linearly beyond the data. Upstream does
   not expose the fitted basis, so prediction at new `x` goes through the fit-predict forms.
 
+- **`pentrace_agg(y, x, options)`, `penalized_ols_fit_agg(y, x [, options])`, `pentrace_by`
+  and `penalized_ols_fit_by` (#323).** Penalized maximum likelihood a la rms from
+  anofox-regression `solvers::pentrace`. `pentrace_agg` is `rms::pentrace`: it fits the model
+  (`'model'`: `'ols'`, binary `'logistic'` or `'ordinal'` with a cumulative `link`) at every
+  penalty of `penalties` (a list, or lists by type `simple`, `nonlinear`, `interaction`,
+  `nonlinear_interaction`, combined as rms with `complex.more`) and returns one row per penalty
+  with the effective d.f., the LR chi-square, AIC, BIC, corrected AIC and the best row by
+  `criterion` (`'aic_c'`, `'aic'`, `'bic'`). `penalized_ols_fit_agg` is `rms::ols(penalty = )`:
+  coefficients, the `'simple'` or `'sandwich'` covariance, `Sigma`, R², `Model L.R.` and the
+  effective d.f. in total, per coefficient and per term. The penalty acts on standardised
+  coefficients with rms's penalty matrix; the column types come from `terms`, `nonlinear`,
+  `interactions` (as `wald_anova`) and `categorical` (dummy blocks `I - 1/(L+1)`). Reference
+  values: rms `pentrace`, `ols(penalty = )`, `lrm` and `orm(family = "probit", penalty = )`
+  (`validation/generators/make_reference_pentrace.R`).
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,
