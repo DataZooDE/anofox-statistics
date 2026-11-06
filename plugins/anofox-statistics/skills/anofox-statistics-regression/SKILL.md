@@ -32,17 +32,17 @@ description: >
   SQL. For per-group long tables see the batch skill; for VIF / condition
   indexes / separation / accuracy indexes the diagnostics skill; for t / TOST
   / ANOVA / Kaplan-Meier style tests the tests skill.
-version: 0.15.0
+version: 0.16.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Regression Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.15.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.6 / v2.0 | **API:** unprefixed, MAP-style options
+**Extension:** `anofox_statistics` v0.16.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.6 / v2.0 | **API:** unprefixed, MAP-style options
 
 > **New in 0.15.0:** `ls_state_agg(y, x[, weight])` / `ls_state_combine_agg(state)` keep a compact, mergeable least-squares state; `ols_fit_from_state` / `wls_fit_from_state` / `ridge_fit_from_state` fit from it without the rows (incremental refits, one state for any ridge `alpha`; no `hc_type` / `compute_loo`). Options may be `MAP(VARCHAR, VARIANT)` and prepared-statement parameters.
 >
-> **New since 0.15.0:** Cox PH, ordinal / continuation-ratio, multinomial, GLS, P-splines, `areg`, rms penalized OLS / `pentrace`, cluster-robust GLM / AFT `vcov`, `lr_test` / score tests / `profile_ci`, `wald_anova` / `fastbw`, spline bases + effects, `validate` / `calibrate` / `bootcov`, `areg_impute` + `pool_rubin` (sections below). **Behaviour changes:** with `hc_type` the `vcov` of `ols_fit_agg` / `wls_fit_agg` is the HC covariance (was classical), so `predict(..., {'se_fit': true})` is robust too; `wls_fit_agg` + `hc_type` now honours the weights (`vcovHC(lm(weights = w))`); `aft_cdf` / `aft_quantile` / `aft_survival` give NaN for pieces that are not a model (e.g. `exponential` with scale ≠ 1).
+> **New in 0.16.0:** Cox PH, ordinal / continuation-ratio, multinomial, GLS, P-splines, `areg`, rms penalized OLS / `pentrace`, cluster-robust GLM / AFT `vcov`, `lr_test` / score tests / `profile_ci`, `wald_anova` / `fastbw`, spline bases + effects, `validate` / `calibrate` / `bootcov`, `areg_impute` + `pool_rubin` (sections below). **Behaviour changes:** with `hc_type` the `vcov` of `ols_fit_agg` / `wls_fit_agg` is the HC covariance (was classical), so `predict(..., {'se_fit': true})` is robust too; `wls_fit_agg` + `hc_type` now honours the weights (`vcovHC(lm(weights = w))`); `aft_cdf` / `aft_quantile` / `aft_survival` give NaN for pieces that are not a model (e.g. `exponential` with scale ≠ 1).
 
 Regression families expose up to five call surfaces:
 

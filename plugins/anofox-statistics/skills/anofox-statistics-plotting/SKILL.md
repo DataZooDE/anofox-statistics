@@ -15,7 +15,7 @@ description: >
   and CV curves, quantile process, ROC / PR / calibration curves, Kaplan-Meier
   curves, ACF / PACF and post-hoc test tables. Also GLMM tables (glmm_tidy_by
   ran_vals for caterpillar plots), mediation_by, ols_anova_by, nested-CV
-  curves and LOO columns, and the producers added since 0.15.0: rms effect
+  curves and LOO columns, and the producers added in 0.16.0: rms effect
   curves (predict_grid_by), P-spline smooths (pspline_prediction_by),
   bootstrap-corrected calibration curves (calibrate_by), bootstrap
   coefficients (bootcov_by), Cox PH and GLS tidy / glance / augment tables
@@ -24,17 +24,17 @@ description: >
   result plottable, asks "which table do I need for this chart", wants long /
   tidy tables instead of STRUCTs, or wants to combine several models or groups
   into one plot.
-version: 0.15.0
+version: 0.16.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.15.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 > **New in 0.15.0:** every contract producer `*_by` macro ends with `row_order BIGINT` (1..n per group in display order); collect rows with `list(t ORDER BY t.row_order)` instead of sorting by the struct.
 >
-> **New since 0.15.0:** `predict_grid_by`, `pspline_prediction_by` (`prediction`); `calibrate_by` (`curve`, `curve_type = 'calibrate'`); `bootcov_by`, `cox_tidy_by`, `gls_tidy_by` (`terms`); `cox_glance_by`, `gls_glance_by` (`summary`); `cox_augment_by`, `gls_augment_by`, `aft_augment_by` (`obs`); `glm_score_test_by` (`test`). Fitting details are in **anofox-statistics-regression**, residual meaning in **anofox-statistics-diagnostics**.
+> **New in 0.16.0:** `predict_grid_by`, `pspline_prediction_by` (`prediction`); `calibrate_by` (`curve`, `curve_type = 'calibrate'`); `bootcov_by`, `cox_tidy_by`, `gls_tidy_by` (`terms`); `cox_glance_by`, `gls_glance_by` (`summary`); `cox_augment_by`, `gls_augment_by`, `aft_augment_by` (`obs`); `glm_score_test_by` (`test`). Fitting details are in **anofox-statistics-regression**, residual meaning in **anofox-statistics-diagnostics**.
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 
@@ -158,7 +158,7 @@ FROM tukey_hsd_by('plot_demo', grp, y, x2::BIGINT) ORDER BY grp, test_id LIMIT 4
 ```
 
 ```sql
--- New producers since 0.15.0 (same plot_demo table)
+-- New producers in 0.16.0 (same plot_demo table)
 -- prediction: P-spline smooth of y on x1 with a 90% band
 SELECT id, round(x, 1) AS x1, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
 FROM pspline_prediction_by('plot_demo', grp, x1, y, level := 0.9) WHERE x <= 4 ORDER BY id, x;

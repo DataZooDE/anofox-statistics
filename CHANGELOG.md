@@ -10,6 +10,48 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-06
+
+This release closes about 31 issues (#293–#323) that expose the remaining functionality of
+anofox-regression 0.12 and anofox-statistics 0.9 in SQL. Tests and inference: the remaining TOST
+equivalence tests, bootstrap confidence intervals of the mean, one-sample and paired t-tests,
+two-way and repeated-measures ANOVA, partial and semi-partial correlation, all six ICC types,
+SPA / MCS forecast comparison, evidently data and embedding drift, and PCA. Models: Cox
+proportional hazards, ordinal (cumulative link and continuation-ratio), multinomial logistic,
+GLS (`nlme::gls`), P-splines and `areg`. rms / Hmisc workflow: cluster-robust and HC
+covariances, LR / score tests and profile-likelihood intervals, Wald ANOVA and `fastbw`,
+`pentrace`, `validate` / `calibrate` / `bootcov`, regression-spline bases, effects, contrasts
+and nomograms, data reduction (`spearman2`, `hoeffd`, `varclus`, `redun`, Box–Cox),
+`aregImpute` with Rubin pooling, predictive accuracy indexes, condition / separation
+diagnostics, and VIF / GVIF.
+
+**Behaviour changes** (details in the entries below):
+
+- One-sided t-test confidence intervals (`t_test_agg`, `t_test_one_sample_agg`,
+  `t_test_paired_agg` with `'alternative': 'less'` / `'greater'`) are now one-sided, as R's
+  `t.test`; before, the two-sided interval was returned.
+- `ols_fit_agg` / `wls_fit_agg` with `hc_type`: `vcov` is now the HC covariance (it was the
+  classical one), so `predict(..., {'se_fit': true})` is heteroskedasticity-consistent too; and
+  the HC standard errors of `wls_fit_agg` / `wls_fit` now use the weights (a fix: they came from
+  the unweighted residuals).
+- `mmd_test_agg`'s gaussian kernel defaults to the median-heuristic bandwidth; pass
+  `{'bandwidth': 1.0}` for the previous statistic.
+- Upstream fixes that move results toward R: SPA / MCS p-values (all three SPA p-values are 1
+  when no model beats the benchmark), ICC2 / ICC2k intervals, the semi-partial correlation with
+  several controls, the Huynh–Feldt correction and Mauchly's p-value, VIF / GVIF of aliased
+  designs (`inf` only for the aliased columns), `val_prob_agg` with probabilities of exactly
+  0 or 1, and `kaplan_meier_agg` plain limits (NULL once the survival reaches 0).
+- `aft_cdf` / `aft_quantile` / `aft_survival` return NaN for pieces that are not a valid model;
+  `wilcoxon_signed_rank_agg` has a new `rank_biserial` field (positional STRUCT readers see one
+  more field).
+- `varclus_agg` (new in this release) returns its similarity matrix as `similarity_matrix`
+  (renamed from `similarity` during development: `similarity` is a keyword in DuckDB 2.0).
+- The new TOST variants require explicit equivalence bounds (`delta` or `bound_lower` /
+  `bound_upper`); there is no default, unlike the older TOST aggregates.
+
+Also: no telemetry from CI (detected CI environments send no events unless
+`DATAZOO_TELEMETRY_IN_CI=1`).
+
 - **Docs: options before `ORDER BY` in the forecast-comparison examples.** The `duckdb_functions()`
   examples of `spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg` wrote
   `f(a, [b, c] ORDER BY t, {...})`. DuckDB parses a STRUCT after the `ORDER BY` as a second sort
@@ -1838,7 +1880,8 @@ Breaking changes are called out explicitly.
 - Initial release: OLS, Ridge, WLS, RLS and Elastic Net regression as scalar
   and aggregate functions, plus diagnostics.
 
-[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.2...v0.13.0
