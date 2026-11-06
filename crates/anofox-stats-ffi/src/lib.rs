@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// Multiple imputation (aregImpute) and Rubin pooling (#321).
+mod imputation_ffi;
+pub use imputation_ffi::*;

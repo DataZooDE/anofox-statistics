@@ -12,6 +12,18 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **`areg_impute_agg(id, x [, options])`, `areg_impute_by` and `pool_rubin_agg(model [, options])`
+  (#321).** Multiple imputation by additive regression, bootstrapping and predictive mean
+  matching from anofox-regression `imputation::areg_impute` (`Hmisc::aregImpute`; with the same
+  `seed` the imputations replay R's exactly): options `n_impute`, `nk`, `tlinear`, `burnin`,
+  `match` (`weighted` / `closest`), `fweighted`, `seed`, `categorical` and `linear` (1-based
+  positions in `x`); the result is the completed copies `LIST(STRUCT(imputation, id, x))`, rows in
+  `id` order. `pool_rubin_agg` combines one model STRUCT per imputation (any fit with
+  `coefficients` and `vcov` or `std_errors`) by Rubin's rules from `inference::pool`: pooled
+  coefficients, total standard errors, Barnard-Rubin d.f. (complete-data d.f. from the models'
+  `df_residual` or `df_complete`), p-values, intervals, `riv`, `lambda`, `fmi`, the pooled `vcov`
+  and the D1 Wald test of all slopes with Reiter's d.f.; `tidy()` lists the pooled terms.
+  Validated against `Hmisc::aregImpute`, `mice::pool` and `mice::D1`.
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,

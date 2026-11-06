@@ -4824,6 +4824,76 @@ bool anofox_cox_survival(const double *coefficients, size_t n_coefficients, cons
                          const double *base_cumhaz, size_t n_baseline, const double *x, const double *times,
                          size_t n_times, double *out_survival);
 
+/* ============================================================================
+ * Multiple imputation (aregImpute) and Rubin pooling (#321)
+ * ============================================================================ */
+
+/**
+ * Options of anofox_areg_impute (Hmisc::aregImpute names in brackets). Must match
+ * AregImputeOptionsFFI in crates/anofox-stats-ffi/src/imputation_ffi.rs.
+ */
+typedef struct {
+	/** Tricube scale of weighted donor matching (fweighted) */
+	double fweighted;
+	/** Iterations before the first kept imputation (burnin); negative: Hmisc's default */
+	int64_t burnin;
+	/** Number of imputations (n.impute) */
+	uint64_t n_impute;
+	/** Spline knots (nk) */
+	uint64_t nk;
+	/** Seed of R's generator (set.seed) */
+	int32_t seed;
+	/** Non-zero: match = "closest"; zero: "weighted" */
+	int32_t closest;
+	/** Non-zero: tlinear = TRUE */
+	int32_t tlinear;
+	int32_t reserved;
+} AnofoxAregImputeOptions;
+
+/** One pooled coefficient. Must match PooledTermFFI. */
+typedef struct {
+	double estimate;
+	double std_error;
+	double statistic;
+	double df;
+	double p_value;
+	double conf_low;
+	double conf_high;
+	double riv;
+	double lambda;
+	double fmi;
+} AnofoxPooledTerm;
+
+/** The D1 pooled Wald test (NaN when not computed). Must match PooledWaldFFI. */
+typedef struct {
+	double f;
+	double df1;
+	double df2;
+	double p_value;
+	double riv;
+} AnofoxPooledWald;
+
+/**
+ * Hmisc::aregImpute of n_rows rows of n_cols values (row-major, NaN = missing).
+ * kinds: one per column, 0 numeric (spline), 1 linear, 2 categorical. Writes the
+ * completed data sets (n_impute * n_rows * n_cols, imputation-major then row-major)
+ * to out_completed and each column's last imputation-model R^2 (NaN for complete
+ * columns) to out_r_squared (n_cols).
+ */
+bool anofox_areg_impute(const double *data, size_t n_rows, size_t n_cols, const int32_t *kinds,
+                        AnofoxAregImputeOptions options, double *out_completed, double *out_r_squared,
+                        AnofoxError *out_error);
+
+/**
+ * Rubin's rules over m fits with dim coefficients: estimates (m * dim) and vcovs
+ * (m * dim * dim, each row-major). df_complete NaN: Rubin's d.f., else Barnard-Rubin.
+ * The D1 Wald test covers coefficients wald_from..dim. Writes dim terms, the pooled
+ * covariance (dim * dim) and the test.
+ */
+bool anofox_pool_rubin(const double *estimates, const double *vcovs, size_t m, size_t dim, double df_complete,
+                       double confidence_level, size_t wald_from, AnofoxPooledTerm *out_terms, double *out_vcov,
+                       AnofoxPooledWald *out_wald, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

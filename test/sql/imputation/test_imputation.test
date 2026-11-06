@@ -1,0 +1,362 @@
+# name: test/sql/imputation/test_imputation.test
+# description: areg_impute_agg / areg_impute_by / pool_rubin_agg (#321): shapes, NULL handling, options, edge cases
+# group: [imputation]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS
+SELECT
+    i AS id,
+    sin(i * 0.7) * 2 + i * 0.05 AS y,
+    CASE WHEN i % 5 = 0 THEN NULL ELSE cos(i * 1.3) + i * 0.1 END AS x1,
+    CASE WHEN i % 7 = 3 THEN 'NaN'::DOUBLE ELSE sqrt(i) + sin(i * 2.1) END AS x2,
+    CASE WHEN i % 9 = 4 THEN NULL ELSE (i % 3 + 1)::DOUBLE END AS g,
+    CASE WHEN i <= 30 THEN 'a' ELSE 'b' END AS grp
+FROM range(1, 61) r(i);
+
+# --- areg_impute_agg ---------------------------------------------------------
+
+# n_impute copies of every row, no missing value left, observed values kept
+query IIII
+SELECT count(*), count(DISTINCT r.imputation), count(DISTINCT r.id),
+       sum(CASE WHEN list_bool_and(list_transform(r.x, lambda v: isfinite(v))) THEN 1 ELSE 0 END)
+FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2, g], {'categorical': [4], 'n_impute': 3})) AS r FROM t);
+----
+180	3	60	180
+
+query I
+SELECT count(*) FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2, g], {'categorical': [4]})) AS r FROM t) s
+JOIN t ON t.id = s.r.id
+WHERE s.r.x[1] <> t.y OR (t.x1 IS NOT NULL AND s.r.x[2] <> t.x1) OR (NOT isnan(t.x2) AND s.r.x[3] <> t.x2)
+   OR (t.g IS NOT NULL AND s.r.x[4] <> t.g);
+----
+0
+
+# default: 5 imputations, ordered by imputation then id
+query III
+SELECT len(l), l[1].imputation = 1 AND l[1].id = 1 AND l[60].id = 60 AND l[61].imputation = 2, l[300].imputation
+FROM (SELECT areg_impute_agg(id, [y, x1, x2]) AS l FROM t);
+----
+300	true	5
+
+# a categorical variable gets an existing level code
+query I
+SELECT bool_and(r.x[4] IN (1, 2, 3))
+FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2, g], {'categorical': [4]})) AS r FROM t);
+----
+true
+
+# the result does not depend on the order the rows arrive in, and the same seed gives the same draws
+query I
+SELECT (SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 3}) FROM (SELECT * FROM t ORDER BY id DESC))
+     = (SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 3}) FROM (SELECT * FROM t ORDER BY random()));
+----
+true
+
+query I
+SELECT (SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 3}) FROM t) = (SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 4}) FROM t);
+----
+false
+
+# MAP options work like STRUCT options
+query I
+SELECT (SELECT areg_impute_agg(id, [y, x1, x2], MAP {'seed': 3, 'n_impute': 2}) FROM t)
+     = (SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 3, 'n_impute': 2}) FROM t);
+----
+true
+
+# any id type is kept: VARCHAR ids, ordered as VARCHAR
+query III
+SELECT typeof(l[1].id), l[1].id, l[2].id FROM (SELECT areg_impute_agg(id::VARCHAR, [y, x1, x2], {'n_impute': 1}) AS l FROM t);
+----
+VARCHAR	1	10
+
+# closest matching, nk = 0 (all linear), tlinear = false, burnin, fweighted, linear
+query I
+SELECT bool_and(len(l) = 120) FROM (
+    SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'match': 'closest'}) AS l FROM t
+    UNION ALL SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'nk': 0}) FROM t
+    UNION ALL SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'tlinear': false}) FROM t
+    UNION ALL SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'burnin': 0, 'fweighted': 0.5}) FROM t
+    UNION ALL SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'linear': [2, 3]}) FROM t
+    UNION ALL SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2, 'linear': 2}) FROM t);
+----
+true
+
+# GROUP BY: one result per group
+query II
+SELECT grp, len(areg_impute_agg(id, [y, x1, x2], {'n_impute': 2})) FROM t GROUP BY grp ORDER BY grp;
+----
+a	60
+b	60
+
+# --- NULL handling and degenerate data ----------------------------------------
+
+# rows with a NULL id or a NULL x are left out
+query I
+SELECT len(areg_impute_agg(CASE WHEN id = 1 THEN NULL ELSE id END, CASE WHEN id = 2 THEN NULL ELSE [y, x1, x2] END, {'n_impute': 1})) FROM t;
+----
+58
+
+# no rows: NULL
+query I
+SELECT areg_impute_agg(id, [y, x1, x2]) IS NULL FROM t WHERE false;
+----
+true
+
+# a constant or an entirely missing variable cannot be imputed: NULL
+query I
+SELECT areg_impute_agg(id, [y, 1.0, x2]) IS NULL FROM t;
+----
+true
+
+query I
+SELECT areg_impute_agg(id, [y, NULL::DOUBLE, x2]) IS NULL FROM t;
+----
+true
+
+# complete data: every copy is the data
+query I
+SELECT bool_and(r.x[1] = t.y) FROM (SELECT unnest(areg_impute_agg(id, [y, id::DOUBLE])) AS r FROM t) s JOIN t ON t.id = s.r.id;
+----
+true
+
+# --- errors ---------------------------------------------------------------------
+
+statement error
+SELECT areg_impute_agg(id, [y]) FROM t;
+----
+two or more variables
+
+statement error
+SELECT areg_impute_agg(id, CASE WHEN id = 3 THEN [y, x1] ELSE [y, x1, x2] END) FROM t;
+----
+inconsistent number of variables
+
+statement error
+SELECT areg_impute_agg(id % 10, [y, x1, x2]) FROM t;
+----
+duplicate id
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, CASE WHEN id = 4 THEN 'inf'::DOUBLE ELSE x2 END]) FROM t;
+----
+finite
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 0}) FROM t;
+----
+n_impute
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'nk': 2}) FROM t;
+----
+at least 3 knots
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'match': 'nearest'}) FROM t;
+----
+unknown match
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'fweighted': 0}) FROM t;
+----
+fweighted
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'seed': 1.5}) FROM t;
+----
+seed
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'categorical': [4]}) FROM t;
+----
+beyond the 3 variables
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'categorical': [0]}) FROM t;
+----
+categorical
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'categorical': [2], 'linear': [2]}) FROM t;
+----
+both categorical and linear
+
+statement error
+SELECT areg_impute_agg(id, [y, x1, x2], {'n_imputations': 3}) FROM t;
+----
+unknown option
+
+# --- areg_impute_by -------------------------------------------------------------
+
+query IIII
+SELECT grp, count(*), count(DISTINCT imputation), min(id) FROM areg_impute_by('t', grp, id, [y, x1, x2], options := {'n_impute': 2}) GROUP BY grp ORDER BY grp;
+----
+a	60	2	1
+b	60	2	31
+
+# per group the same as the aggregate
+query I
+SELECT list(struct_pack(imputation := imputation, id := id, x := x) ORDER BY imputation, id)
+     = (SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2}) FROM t WHERE grp = 'b')
+FROM areg_impute_by('t', grp, id, [y, x1, x2], options := {'n_impute': 2}) WHERE grp = 'b';
+----
+true
+
+# without options
+query I
+SELECT count(*) FROM areg_impute_by('t', 1, id, [y, x1, x2]);
+----
+300
+
+# --- pool_rubin_agg ---------------------------------------------------------------
+
+statement ok
+CREATE TABLE fits AS
+SELECT r.imputation, ols_fit_agg(r.x[1], [r.x[2], r.x[3]], {'compute_inference': true}) AS fit
+FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2], {'n_impute': 5, 'seed': 11})) AS r FROM t)
+GROUP BY r.imputation;
+
+# the pooled estimate is the mean of the estimates; T >= mean within-variance
+query IIIII
+SELECT abs(p.intercept - (SELECT avg(fit.intercept) FROM fits)) < 1e-12,
+       abs(p.coefficients[1] - (SELECT avg(fit.coefficients[1]) FROM fits)) < 1e-12,
+       p.std_errors[1] >= (SELECT sqrt(avg(fit.std_errors[1] ^ 2)) FROM fits) - 1e-12,
+       p.n_imputations, p.df_complete
+FROM (SELECT pool_rubin_agg(fit) AS p FROM fits);
+----
+true	true	true	5	57.0
+
+# order of the models does not matter
+query I
+SELECT (SELECT pool_rubin_agg(fit) FROM (SELECT * FROM fits ORDER BY imputation))
+     = (SELECT pool_rubin_agg(fit) FROM (SELECT * FROM fits ORDER BY imputation DESC));
+----
+true
+
+# tidy() lists the pooled terms
+query II
+SELECT count(*), bool_and(t.std_error > 0 AND t.conf_low < t.estimate AND t.estimate < t.conf_high)
+FROM (SELECT unnest(tidy(pool_rubin_agg(fit))) AS t FROM fits);
+----
+3	true
+
+# NULL models and models with NULL coefficients are left out; fewer than two models: NULL
+query I
+SELECT (SELECT pool_rubin_agg(fit) FROM fits)
+     = (SELECT pool_rubin_agg(f) FROM (SELECT fit AS f FROM fits UNION ALL SELECT NULL));
+----
+true
+
+query II
+SELECT (SELECT pool_rubin_agg(fit) IS NULL FROM fits WHERE imputation = 1),
+       (SELECT pool_rubin_agg(fit) IS NULL FROM fits WHERE false);
+----
+true	true
+
+# confidence_level, df_complete, small_sample
+query IIII
+SELECT p90.conf_level, p90.conf_high[1] - p90.conf_low[1] < p95.conf_high[1] - p95.conf_low[1],
+       pdf.df_complete, prubin.df_complete IS NULL
+FROM (SELECT pool_rubin_agg(fit, {'confidence_level': 0.9}) AS p90, pool_rubin_agg(fit) AS p95,
+             pool_rubin_agg(fit, {'df_complete': 20}) AS pdf, pool_rubin_agg(fit, {'small_sample': false}) AS prubin FROM fits);
+----
+0.9	true	20.0	true
+
+# a model with only standard errors (no vcov) and no intercept: Rubin's rules per coefficient
+# (Qbar = 1.1, Ubar = 0.0425, B = 0.02, T = Ubar + 1.5 B = 0.0725, Rubin d.f. = (m - 1)(1 + 1/r)^2, r = 0.03 / 0.0425)
+query IIII
+SELECT abs(p.coefficients[1] - 1.1) < 1e-12, abs(p.std_errors[1] - sqrt(0.0725)) < 1e-12,
+       abs(p.df[1] - (1 + 0.0425 / 0.03) ^ 2) < 1e-9, p.intercept IS NULL AND p.f_df1 = 1
+FROM (SELECT pool_rubin_agg(m) AS p FROM (VALUES ({'coefficients': [1.0], 'std_errors': [0.2]}),
+                                                 ({'coefficients': [1.2], 'std_errors': [0.21213203435596426]})) v(m));
+----
+true	true	true	true
+
+# identical imputations (no missing data): B = 0, the d.f. is infinite and the p-value / interval undefined (NULL)
+query III
+SELECT p.riv[1], p.p_values[1] IS NULL, abs(p.std_errors[1] - (SELECT fit.std_errors[1] FROM fits WHERE imputation = 1)) > 1e-12
+FROM (SELECT pool_rubin_agg(f, {'small_sample': false}) AS p FROM (SELECT fit AS f FROM fits WHERE imputation = 1 UNION ALL SELECT fit FROM fits WHERE imputation = 1));
+----
+0.0	true	false
+
+# a GLM pools the same way
+query II
+SELECT p.n_imputations, len(p.coefficients) FROM (
+    SELECT pool_rubin_agg(f) AS p FROM (
+        SELECT r.imputation, logistic_fit_agg((r.x[1] > 0)::DOUBLE, [r.x[2], r.x[3]], {'compute_inference': true}) AS f
+        FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2], {'n_impute': 3})) AS r FROM t) GROUP BY r.imputation));
+----
+3	2
+
+# errors
+statement error
+SELECT pool_rubin_agg(42) FROM fits;
+----
+must be the STRUCT
+
+statement error
+SELECT pool_rubin_agg({'intercept': 1.0}) FROM fits;
+----
+no 'coefficients' field
+
+statement error
+SELECT pool_rubin_agg({'coefficients': [1.0]}) FROM fits;
+----
+neither a covariance
+
+statement error
+SELECT pool_rubin_agg(f) FROM (SELECT ols_fit_agg(r.x[1], [r.x[2]]) AS f FROM (SELECT unnest(areg_impute_agg(id, [y, x1, x2])) AS r FROM t) GROUP BY r.imputation);
+----
+compute_inference
+
+statement error
+SELECT pool_rubin_agg(m) FROM (VALUES ({'coefficients': [1.0], 'std_errors': [0.2]}), ({'coefficients': [1.0, 2.0], 'std_errors': [0.2, 0.1]})) v(m);
+----
+same coefficients
+
+statement error
+SELECT pool_rubin_agg(m) FROM (VALUES ({'coefficients': [1.0, NULL], 'std_errors': [0.2, 0.1]})) v(m);
+----
+aliased
+
+statement error
+SELECT pool_rubin_agg(fit, {'confidence_level': 1.5}) FROM fits;
+----
+confidence_level
+
+statement error
+SELECT pool_rubin_agg(fit, {'df_complete': -1}) FROM fits;
+----
+df_complete
+
+statement error
+SELECT pool_rubin_agg(fit, {'method': 'rubin'}) FROM fits;
+----
+unknown option
+
+# --- parallel combine: the same result on 1 and 8 threads, with an ORDER BY in the call ---
+
+statement ok
+CREATE TABLE big AS
+SELECT i AS id, sin(i * 0.7) * 2 + i * 0.001 AS y,
+       CASE WHEN i % 5 = 0 THEN NULL ELSE cos(i * 1.3) + i * 0.002 END AS x1,
+       sqrt(i) + sin(i * 2.1) AS x2
+FROM range(1, 3001) r(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2}) AS l FROM big;
+
+statement ok
+SET threads = 8;
+
+query II
+SELECT (SELECT l FROM one) = (SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2}) FROM big),
+       (SELECT l FROM one) = (SELECT areg_impute_agg(id, [y, x1, x2], {'n_impute': 2} ORDER BY id) FROM big);
+----
+true	true

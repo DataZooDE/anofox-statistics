@@ -157,6 +157,7 @@ fitted model struct).
 | Predictive accuracy (rms) | `concordance_agg`, `somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures` | [Accuracy indexes](api/statistics/accuracy.md) |
 | Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
 | Principal components | `pca_agg`, `pca_transform`, `pca_by` (R's `prcomp` / `predict.prcomp`) | [Multivariate](api/statistics/multivariate.md) |
+| Multiple imputation, Rubin pooling | `areg_impute_agg`, `areg_impute_by` (`Hmisc::aregImpute`), `pool_rubin_agg` (`mice::pool`, `mice::D1`) | [Imputation](api/statistics/imputation.md) |
 
 ### Diagnostics and Utilities
 
