@@ -2,14 +2,25 @@
 name: anofox-statistics-diagnostics
 description: >
   Model diagnostics, residual analysis, influence, multicollinearity,
-  model-selection criteria, residual autocorrelation / heteroskedasticity
-  checks, and demand-pattern classification in the anofox_statistics DuckDB
-  extension. Covers per-row influence tables (ols_augment_by, wls_augment_by,
+  separation, predictive-accuracy indexes, data reduction, model-selection
+  criteria, residual autocorrelation / heteroskedasticity checks, and
+  demand-pattern classification in the anofox_statistics DuckDB extension.
+  Covers per-row influence tables (ols_augment_by, wls_augment_by,
   poisson/binomial/logistic/negbinom/gamma/tweedie_augment_by: fitted,
   residual, std / studentized residuals, leverage, Cook's distance, DFFITS),
   partial residuals and added-variable data (<model>_partial_residuals_by,
-  car::crPlots / avPlots), Variance Inflation Factor (vif / vif_agg), AIC /
-  BIC, residual diagnostics (residuals_diagnostics /
+  car::crPlots / avPlots), Variance Inflation Factor (vif / vif_agg) and
+  generalized VIF for multi-column terms (gvif_agg, car::vif GVIF^(1/(2df))),
+  Belsley-Kuh-Welsch condition indexes and variance-decomposition proportions
+  (condition_diagnostic_agg, perturb::colldiag), separation of logistic /
+  count fits (detect_separation_agg, separation_check_agg,
+  count_sparsity_agg), rms / Hmisc accuracy indexes (somers2_agg,
+  concordance_agg, rcorr_cens_agg, lrm_stats_agg, val_prob_agg, gini_md_agg,
+  r2_measures), PCA (pca_agg with scale, pca_transform, pca_by), Harrell-style
+  data reduction (spearman2_agg, hoeffding_d_agg, varclus_agg, redun_agg,
+  box_cox_agg / box_cox_transform / box_cox_inverse), survival and GLS
+  residuals (cox_zph_agg, cox_augment_by, aft_augment_by, gls_augment_by),
+  AIC / BIC, residual diagnostics (residuals_diagnostics /
   residuals_diagnostics_agg), residual ACF / PACF with the white-noise band
   (acf_agg, pacf_agg, acf_by, pacf_by), Ljung-Box / Box-Pierce, Durbin-Watson
   (with p-value), Breusch-Pagan and White heteroskedasticity tests, AID
@@ -19,8 +30,11 @@ description: >
   ols / wls / ridge_augment_by (ridge leverage), PRESS, press_rmse and
   loo_r_squared in glance_by (compute_loo), one-step approx_loo_fitted for GLMs.
   Use when checking whether a fitted regression is sound — influential points,
-  outliers, nonlinearity, multicollinearity, autocorrelated or heteroskedastic
-  residuals — or classifying a series' demand regime before choosing a model.
+  outliers, nonlinearity, multicollinearity, separation, autocorrelated or
+  heteroskedastic residuals, proportional hazards — when measuring
+  discrimination / calibration of a prediction, when screening or clustering
+  predictors before modelling, or classifying a series' demand regime before
+  choosing a model.
 version: 0.15.0
 user-invocable: false
 ---
@@ -31,17 +45,26 @@ user-invocable: false
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 
+> **New since 0.15.0:** `gvif_agg`, `condition_diagnostic_agg`, the separation checks (`detect_separation_agg`, `separation_check_agg`, `count_sparsity_agg`), the accuracy indexes (`somers2_agg`, `concordance_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures`), `pca_agg` with `{'scale': true}`, data reduction (`spearman2_agg`, `hoeffding_d_agg`, `varclus_agg`, `redun_agg`, `box_cox_agg`), Cox / AFT / GLS residual tables. **Behaviour changes:** `vif` / `vif_agg` now come from anofox-regression — a VIF above 10^4 is its finite value (was `inf`), and `inf` marks only the *aliased* columns (constant column, exact linear dependency; every column when rows <= columns) while the others keep a finite VIF (`car::vif` on the design without them); `vif_agg` drops a row with a NaN as a whole (was a dimension-mismatch error). `val_prob_agg` with probabilities of exactly 0 / 1 now gives `u`, `u_p`, `q` as `rms::val.prob` (e.g. `u = inf`) instead of NULL.
+
 ## Functions
 
 | Function | Type | Purpose |
 |---|---|---|
 | `vif`, `vif_agg` | scalar / aggregate | Variance Inflation Factor per predictor — detect multicollinearity |
+| `gvif_agg(x[, {'terms': [...]}])` | aggregate | Generalized VIF per term (`car::vif` for factor / spline terms): `LIST<STRUCT(term, df, gvif, gvif_adj, n_observations)>`; columns with the same `terms` label form one term, `gvif_adj = GVIF^(1/(2·df))` |
+| `condition_diagnostic_agg(x[, {'fit_intercept'}])` | aggregate | Belsley-Kuh-Welsch (`perturb::colldiag`): `condition_indices`, `variance_proportions` (one list per component, intercept first), `scaled_condition_number`, `condition_number` (`kappa(X, exact = TRUE)`, unscaled), `severity`, `warning` |
+| `detect_separation_agg(y, x[, {'fit_intercept'}])` | aggregate | Exact LP check (`detectseparation`): `separated`, `infinite` (±inf per diverging coefficient, intercept first), `direction`; `y` must be 0/1 |
+| `separation_check_agg(y, x)`, `count_sparsity_agg(y, x)` | aggregate | Per-predictor heuristics (binary `y`; count `y` with > 90% zeros): `has_separation`, `separated_predictors` (1-based), `separation_types` (`complete` / `quasi` / `monotonic_response`), `warning` |
 | `aic(rss, n, k)` | scalar | Akaike Information Criterion for model selection |
 | `bic(rss, n, k)` | scalar | Bayesian Information Criterion for model selection |
 | `jarque_bera(values[])`, `jarque_bera_agg(value)` | scalar / aggregate | Jarque-Bera normality test (`statistic`, `p_value`, `skewness`, `kurtosis`, `n`) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | scalar / aggregate | Residual analysis: `raw`, `standardized`, `studentized`, `leverage` arrays |
 | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | table macro | broom `augment`: every source row + `model_id` / `model_name` (the method; no `id`, the group column is among the source columns), `row_id`, `fitted`, `residual`, `resid_type`, `std_residual` (R `rstandard`), `stud_residual` (`rstudent`), `leverage` (`hatvalues`), `cooks_d`, `dffits`, `weight`, `is_training`, `n_params` (`obs` schema); OLS / WLS also `loo_residual` (`residual / (1 − leverage)`, the PRESS residual) and `loo_fitted` (prediction without the row), NULL where leverage = 1; GLMs instead `approx_loo_fitted` / `approx_loo_residual` (one-step approximation, R `influence()$coefficients`) |
 | `ridge_augment_by` | table macro | Same `obs` columns for Ridge: `leverage` = ridge hat diagonal (sums to effective df), exact `loo_residual` / `loo_fitted` at the same `alpha`; `std_residual`, `stud_residual`, `cooks_d`, `dffits` NULL |
+| `cox_augment_by(source, group_col, time_col, x_cols, event_col)` | table macro | `obs` rows: `residual` = martingale (`resid_type = 'martingale'`), then `deviance_residual`, `score_residuals`, `dfbeta`, `dfbetas`, `schoenfeld_residuals`, `scaled_schoenfeld_residuals` (`residuals.coxph`) |
+| `cox_zph_agg(time, x, event[, weight][, options])` | aggregate | Grambsch-Therneau proportional-hazards test (`cox.zph`): `LIST<STRUCT(term, statistic, df, p_value)>`, per covariate and `GLOBAL` |
+| `aft_augment_by(source, group_col, time_col, x_cols, event_col)`, `gls_augment_by(...)` | table macro | `obs` rows for AFT (`standardized_residual`, `cox_snell_residual`, score contributions) and GLS (Pearson `std_residual`, `normalized_residual`, `se_fit`) — signatures in **anofox-statistics-regression** |
 | `<model>_partial_residuals_by` | table macro | `ols`, `wls`, six GLMs: one row per source row and term — `term_index`, `term`, `x`, `component`, `partial_residual` (crPlots), `x_residual`, `y_residual` (avPlots; NULL for GLMs) |
 | `acf_agg(x[, max_lag] ORDER BY t)`, `pacf_agg(…)` | aggregate | `LIST<STRUCT(lag, acf\|pacf, conf_low, conf_high)>`; band = ±qnorm(0.975)/√n; `max_lag` default `floor(10·log10(n))` |
 | `acf_by`, `pacf_by` `(source, group_col, value_col, order_col[, max_lag := …])` | table macro | One ACF / PACF curve per group (`curve` schema, `curve_type` `'acf'` / `'pacf'`, `x` = lag, `y_low`/`y_high` = band) |
@@ -53,9 +76,43 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 | `aid_agg`, `aid_by` | aggregate / table macro | Demand classification: `demand_type` is `regular` or `intermittent`, plus distribution, zero proportion, stockout / new / obsolete product and outlier counts |
 | `aid_anomaly_agg`, `aid_anomaly_by` | aggregate / table macro | Per-observation flags: `stockout`, `new_product`, `obsolete_product`, `high_outlier`, `low_outlier` |
 
+## Accuracy indexes (rms / Hmisc)
+
+Aggregates over each row's outcome and prediction, so they score **any** model (this extension's or an external one), per `GROUP BY` group or window. For resampling-corrected (optimism) versions use `validate_agg` / `calibrate_agg` (**anofox-statistics-regression**); ROC / PR curves and `auc_agg` / `brier_agg` are in **anofox-statistics-tests**.
+
+| Function | Returns | R |
+|---|---|---|
+| `somers2_agg(y01, prob[, weight])` | `c` (ROC area), `dxy`, `n` | `Hmisc::somers2` |
+| `concordance_agg(y, x[, weight])` | pair counts, `c`, `dxy`, `gamma`, `tau_a` (ordinal / continuous `y`) | `survival::concordance` |
+| `rcorr_cens_agg(time, event, x)` | Harrell's `c`, `dxy`, `sd`, pair counts — larger `x` = longer survival, so pass the **negated** risk score / Cox `lp` | `Hmisc::rcorr.cens` |
+| `lrm_stats_agg(y01, lp, df[, weight])` | the `lrm()$stats` vector from a logistic linear predictor: `model_lr`, `p_value`, `c`, `dxy`, `r2` (Nagelkerke), `r2_n`, `r2_adj_n`, `ess`, `brier`, `g`, `gr`, `gp` | `rms::lrm` |
+| `val_prob_agg(y01, prob)` | external validation: `c`, `dxy`, `d`, `u` (+ chi-square / p), `q`, `brier`, calibration `intercept` / `slope`, `emax`, `e90`, `eavg`, Spiegelhalter `s_z` / `s_p` | `rms::val.prob` |
+| `gini_md_agg(x)`, `r2_measures(lr, p, n[, ess])` | Gini mean difference (the g-index of an `lp`); Maddala R² and its d.f.-adjusted versions | `Hmisc::GiniMd`, `R2Measures` |
+
+`y01` is BOOLEAN or numeric 0/1 (anything else is an error); `df` is the constant number of non-intercept coefficients. Get `lp` with `predict(model, x, {'type': 'link'})`.
+
+## Data reduction, transforms and PCA (before looking at the outcome)
+
+| Function | Purpose | Key options / fields |
+|---|---|---|
+| `spearman2_agg(y, x[, {'p': 1\|2}])` | Generalized Spearman ρ² of `y` with one predictor (`p = 2` adds squared ranks: non-monotone; VARCHAR `x` = categorical) — screen where to spend d.f. (`Hmisc::spearman2`) | `rho2`, `adjusted_rho2`, `df1`, `p_value` + unified test fields |
+| `hoeffding_d_agg(x, y)` | Hoeffding's D (×30, any form of dependence) with p-value (`Hmisc::hoeffd`); O(n²) | `d`, `p_value` |
+| `varclus_agg(x[], options)` | Variable clustering (`Hmisc::varclus`, R `hclust` conventions) | `similarity` (`'spearman'` default, `'pearson'`, `'hoeffding'`), `trans` (`'square'` / `'abs'` / `'none'`), `method` (`'complete'`, `'average'`, `'ward.d2'`, …), `cut_height`, `feature_names` → `variables`, `similarity_matrix`, `merges`, `height`, `dendrogram_order`, `clusters` (NULL without `cut_height`) |
+| `redun_agg(x[], options)` | Redundancy analysis: drop features predictable (spline / dummy expansions) from the others (`Hmisc::redun`) | `r2` (0.9), `type` (`'ordinary'` / `'adjusted'`), `nk` (3), `types` per feature (`'spline'`, `'linear'`, `'categorical'`), `feature_names` → `kept`, `removed`, `r_squared`, `r_squared_first` |
+| `box_cox_agg(y[, x[][, options]])` | Box-Cox profile likelihood of λ for positive `y` on `x` (`MASS::boxcox`) | `lambdas` grid (`seq(-2,2,0.1)`), `confidence_level` → `lambda_hat`, `ci_lower`, `ci_upper`, `log_likelihood`; apply with `box_cox_transform(y, λ)` / back with `box_cox_inverse(z, λ)` (a back-transformed fit is a median) |
+| `pca_agg(x[][, {'n_components', 'scale'}])`, `pca_transform(model, x)`, `pca_by(source, group_col, x_cols[, options := …])` | PCA as `prcomp` (centred; `'scale': true` = correlation PCA, `prcomp(scale. = TRUE)`, stores column sds in `scale` and `pca_transform` applies them) | `sdev`, `proportion_of_variance`, `loadings[k]` (component k), `center`, `scale`; sign fixed so the largest loading is positive |
+
+All skip rows with NULL / non-finite values and return NULL when the data cannot support a result (too few rows, constant variable). `varclus_agg` uses complete rows (Hmisc uses pairwise-complete correlations). The STRUCT field is `similarity_matrix` (`similarity` is a keyword on DuckDB 2.0).
+
 ## Interpretation guidance
 
 - **VIF:** > 5 warns of multicollinearity, > 10 is severe — consider dropping/combining collinear predictors or switching to Ridge/Elastic Net.
+- **GVIF:** compare `gvif_adj²` with the VIF thresholds (a 1-df term has `gvif_adj² = VIF`); pass `terms` so the dummies of a factor or the columns of an `rcs` basis form one term — their per-column VIFs are high by construction.
+- **Condition indexes:** a component with condition index > 30 on which **two or more** coefficients have `variance_proportions` > 0.5 is a near dependency among those coefficients (intercept counts: index 1). `severity` buckets `scaled_condition_number` (< 30 well conditioned, < 100 moderate, < 1000 high). `condition_number` is in the data's units — use the scaled one.
+- **Separation:** check `detect_separation_agg(...).separated` before reading a logistic fit; huge coefficients / SEs are the symptom. `separation_check_agg` only sees single predictors. Remedy: drop / merge the level, or a penalized / prior fit (`glm_lambda`, `prior`; see **anofox-statistics-regression**). For Poisson / NB use `count_sparsity_agg`.
+- **Accuracy:** `c` = 0.5 is chance, `dxy = 2(c − 0.5)`. Calibration `slope` < 1 ⇒ overfitting (predictions too extreme); `intercept` ≠ 0 ⇒ miscalibration in the large; small `u_p` ⇒ unreliable probabilities. Apparent indexes on the training rows are optimistic — validate.
+- **Data reduction:** screen and cluster predictors with `spearman2_agg` / `varclus_agg` / `redun_agg` **blind to the outcome's form**, then combine a cluster into one score (e.g. its first PC with `pca_agg`, scaled when units differ). Box-Cox: round λ to an interpretable value (0 = log, 0.5, 1) inside the interval.
+- **Cox PH:** small `cox_zph_agg` p-value (per covariate or `GLOBAL`) ⇒ proportional hazards violated (stratify or add a time interaction); a trend in the martingale `residual` of `cox_augment_by` against a covariate ⇒ non-linear effect. AFT: `cox_snell_residual` should look Exp(1).
 - **AIC / BIC:** lower is better; compare *nested or same-data* models. BIC penalizes complexity harder than AIC. GLM result structs already carry an `aic` field; AFT and ALM results carry both `aic` and `bic`.
 - **Residuals:** `standardized`/`studentized` residuals with |value| > 2–3 flag potential outliers; high `leverage` flags influential x-positions. Structure in residuals ⇒ mis-specified model.
 - **`tidy` inference columns** are NULL when the model has no inference (fit without `compute_inference`, or PLS/LARS; quantile only with its `se` option). The intercept row (first) carries its own inference. Per group use `<model>_tidy_by` (batch skill).
@@ -139,6 +196,83 @@ FROM resid_tbl GROUP BY grp ORDER BY grp;
 -- ACF with the white-noise band, one curve per group (curve schema)
 SELECT model_id, x AS lag, round(y, 3) AS acf, round(y_high, 3) AS band
 FROM acf_by('resid_tbl', grp, resid, id, max_lag := 4);
+```
+
+```sql
+-- Collinearity: condition indexes / variance proportions, and GVIF with a 2-column factor term
+CREATE OR REPLACE TABLE coll_demo AS
+SELECT i AS id, i::DOUBLE AS x1, 2.0 * i + (i % 3) * 0.1 AS x2, ((i * 7) % 5)::DOUBLE AS x3,
+       (i % 3 = 1)::DOUBLE AS region_b, (i % 3 = 2)::DOUBLE AS region_c,
+       (sin(0.9 * i) + 0.6 * cos(1.7 * i) + 0.3 > 0)::INTEGER AS y01,
+       round(1 / (1 + exp(-(0.2 + 1.1 * sin(0.9 * i)))), 2) AS prob
+FROM range(1, 41) t(i);
+SELECT r.severity, round(r.scaled_condition_number, 1) AS kappa_scaled,
+       list_transform(r.variance_proportions[len(r.variance_proportions)], lambda v: round(v, 3)) AS worst_component
+FROM (SELECT condition_diagnostic_agg([x1, x2, x3]) AS r FROM coll_demo);
+SELECT e.term, e.df, round(e.gvif, 3) AS gvif, round(e.gvif_adj, 3) AS gvif_adj
+FROM (SELECT unnest(gvif_agg([x1, x3, region_b, region_c],
+                             {'terms': ['x1', 'x3', 'region', 'region']})) AS e FROM coll_demo);
+
+-- Separation: y = 1 exactly when x1 + x2 > 5 (only the exact check sees the combination)
+SELECT (detect_separation_agg(y, [x1, x2])).separated AS separated,
+       (separation_check_agg(y, [x1, x2])).has_separation AS single_predictor_flag
+FROM (VALUES (1.0, 1.0, 0.0), (2.0, 1.0, 0.0), (3.0, 1.0, 0.0), (4.0, 1.0, 0.0),
+             (1.0, 4.0, 0.0), (2.0, 4.0, 1.0), (3.0, 4.0, 1.0), (4.0, 4.0, 1.0),
+             (2.0, 2.0, 0.0), (3.0, 3.0, 1.0), (1.0, 3.0, 0.0), (4.0, 2.0, 1.0)) t(x1, x2, y);
+```
+
+```sql
+-- Accuracy of external probabilities, and lrm stats of an in-database logistic fit
+SELECT round(s.c, 4) AS c, round(s.dxy, 4) AS dxy,
+       round(v.slope, 3) AS cal_slope, round(v.intercept, 3) AS cal_intercept, round(v.emax, 3) AS emax
+FROM (SELECT somers2_agg(y01, prob) AS s, val_prob_agg(y01, prob) AS v FROM coll_demo);
+WITH m AS (SELECT logistic_fit_agg(y01, [x1, x3]) AS fit FROM coll_demo),
+     scored AS (SELECT y01, predict(m.fit, [x1, x3], {'type': 'link'}) AS lp FROM coll_demo, m)
+SELECT round(r.model_lr, 3) AS model_lr, round(r.c, 4) AS c, round(r.r2, 4) AS r2, round(r.brier, 4) AS brier
+FROM (SELECT lrm_stats_agg(y01, lp, 2) AS r FROM scored);
+-- Harrell's C for censored times: negate a risk score (higher risk = shorter survival)
+SELECT round((rcorr_cens_agg(time, event, -risk)).c, 4) AS harrell_c
+FROM (SELECT i, exp(1 + 0.5 * cos(0.8 * i)) AS time, i % 4 <> 0 AS event, -cos(0.8 * i) + 0.2 * sin(3 * i) AS risk
+      FROM range(40) t(i));
+```
+
+```sql
+-- Data reduction before modelling: screen, cluster, find redundant features, choose a transform
+CREATE OR REPLACE TABLE cars AS
+SELECT i AS id, 10 + i * 0.6 + sin(i) * 2 AS mpg, 100 + i * 9 + cos(i * 1.7) * 15 AS disp,
+       60 + i * 6 + sin(i * 0.9) * 12 AS hp, 1.5 + i * 0.07 + cos(i * 2.3) * 0.2 AS wt,
+       16 + sin(i * 0.5) * 2 AS qsec
+FROM range(1, 41) t(i);
+SELECT round((spearman2_agg(mpg, hp, {'p': 2})).rho2, 4) AS rho2_hp,
+       round((hoeffding_d_agg(qsec, wt)).d, 4) AS hoeffding_d
+FROM cars;
+SELECT v.variables, v.clusters, list_transform(v.height, lambda h: round(h, 3)) AS height
+FROM (SELECT varclus_agg([disp, hp, wt, qsec],
+                         {'similarity': 'spearman', 'cut_height': 0.3,
+                          'feature_names': ['disp', 'hp', 'wt', 'qsec']}) AS v FROM cars);
+SELECT r.removed, r.kept
+FROM (SELECT redun_agg([disp, hp, wt, qsec], {'r2': 0.8, 'feature_names': ['disp', 'hp', 'wt', 'qsec']}) AS r FROM cars);
+SELECT round(b.lambda_hat, 2) AS lambda, round(b.ci_lower, 2) AS lo, round(b.ci_upper, 2) AS hi,
+       round(box_cox_inverse(box_cox_transform(20.0, 0.5), 0.5), 6) AS roundtrip
+FROM (SELECT box_cox_agg(mpg, [wt, hp]) AS b FROM cars);
+-- Correlation PCA of a cluster (features on different scales) and one row's scores
+SELECT list_transform(m.proportion_of_variance, lambda p: round(p, 4)) AS prop_var,
+       list_transform(pca_transform(m, [300.0, 200.0, 3.0]), lambda z: round(z, 3)) AS scores
+FROM (SELECT pca_agg([disp, hp, wt], {'scale': true}) AS m FROM cars);
+```
+
+```sql
+-- Cox PH: proportional-hazards test and martingale residuals per group
+CREATE OR REPLACE TABLE pts AS
+SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END AS site, 40 + (i * 7) % 30 AS age,
+       (i % 3 = 0)::DOUBLE AS treated, round(exp(4 - 0.02 * ((i * 7) % 30) + 0.8 * sin(i)), 1) AS days,
+       (i % 5 <> 0)::DOUBLE AS died
+FROM range(1, 61) t(i);
+SELECT z.term, round(z.statistic, 3) AS chisq, round(z.p_value, 4) AS p
+FROM (SELECT unnest(cox_zph_agg(days, [age, treated], died)) AS z FROM pts);
+SELECT site, round(age / 10) * 10 AS age_band, round(avg(residual), 3) AS mean_martingale
+FROM cox_augment_by('pts', site, days, [age, treated], died)
+GROUP BY ALL ORDER BY site, age_band;
 ```
 
 ```sql
