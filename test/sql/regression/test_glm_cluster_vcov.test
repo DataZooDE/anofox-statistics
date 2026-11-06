@@ -130,6 +130,36 @@ SELECT poisson_fit_agg(y, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM 
 profile_ci cannot be combined
 
 statement error
+SELECT logistic_fit_agg(yb, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT binomial_fit_agg(yb, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT negbinom_fit_agg(y, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT gamma_fit_agg(pos, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT tweedie_fit_agg(pos, [x], g, {'vcov': 'cluster', 'profile_ci': true}) FROM d;
+----
+profile_ci cannot be combined
+
+statement error
+SELECT poisson_fit_agg(y, [x], g, {'vcov': 'cluster', 'profile_ci': true}) OVER () FROM d;
+----
+profile_ci cannot be combined
+
+statement error
 SELECT aft_fit_agg(t, [x], ev, {'vcov': 'cluster'}) FROM d;
 ----
 needs the cluster ids

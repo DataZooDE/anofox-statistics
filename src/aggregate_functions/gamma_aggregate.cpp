@@ -387,9 +387,6 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
-		if (state.profile_ci && clustered) {
-			throw InvalidInputException("gamma_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
-		}
 		if (state.profile_ci) {
 			ApplyProfileConfint("gamma_fit_agg", AnofoxLikelihoodFamily {4, 0, std::nan("")}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
@@ -476,6 +473,10 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateBi
 		result->profile_ci = ProfileCiOption(opts, "gamma_fit_agg");
 		if (result->profile_ci) {
 			result->compute_inference = true;
+		}
+		// At bind, not after the fit in finalize: a throw there would leak the FFI result arrays.
+		if (result->profile_ci && result->cluster.active) {
+			throw InvalidInputException("gamma_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 	}
 

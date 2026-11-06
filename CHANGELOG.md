@@ -354,6 +354,10 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- The GLM fit aggregates (`poisson`/`logistic`/`binomial`/`negbinom`/`gamma`/`tweedie_fit_agg`)
+  reject `profile_ci` with `'vcov': 'cluster'` at bind time instead of after the cluster fit in
+  finalize, which leaked the fit's FFI result arrays (ASAN); a failing profile-likelihood interval
+  now frees them before raising.
 - The core wrapper of the Yuen TOST passed `trim` and `alpha` to upstream in swapped order
   (it had no SQL caller before #293).
 - **`wls_fit_agg` with `hc_type` and no cluster ignored the weights (behaviour change).** The

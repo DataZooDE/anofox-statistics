@@ -418,10 +418,6 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			continue;
 		}
 		if (state.profile_ci) {
-			if (clustered) {
-				throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with the cluster-robust "
-				                            "covariance");
-			}
 			ApplyProfileConfint("poisson_fit_agg", AnofoxLikelihoodFamily {1, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
 			                    inference_result);
@@ -513,6 +509,10 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 		result->profile_ci = ProfileCiOption(opts, "poisson_fit_agg");
 		if (result->profile_ci) {
 			result->compute_inference = true;
+		}
+		// At bind, not after the fit in finalize: a throw there would leak the FFI result arrays.
+		if (result->profile_ci && result->cluster.active) {
+			throw InvalidInputException("poisson_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 	}
 

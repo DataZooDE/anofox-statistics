@@ -365,9 +365,6 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
-		if (state.profile_ci && clustered) {
-			throw InvalidInputException("negbinom_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
-		}
 		if (state.profile_ci) {
 			ApplyProfileConfint("negbinom_fit_agg", AnofoxLikelihoodFamily {3, 0, core_result.dispersion}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
@@ -455,6 +452,10 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 		result->profile_ci = ProfileCiOption(opts, "negbinom_fit_agg");
 		if (result->profile_ci) {
 			result->compute_inference = true;
+		}
+		// At bind, not after the fit in finalize: a throw there would leak the FFI result arrays.
+		if (result->profile_ci && result->cluster.active) {
+			throw InvalidInputException("negbinom_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();
