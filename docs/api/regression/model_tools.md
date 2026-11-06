@@ -106,8 +106,11 @@ computed by anofox-regression (`intervals_from_variance_factor`,
   prediction interval `yhat ∓ t(df) · sqrt(se_fit² + σ²)` with
   `σ = residual_std_error` (for WLS a new observation of weight 1, R's
   default). For Ridge `V` is the sandwich covariance of the shrunken
-  coefficients, as the fit-predict intervals use. `vcov` is the classical
-  covariance even when `hc_type` asks for robust standard errors.
+  coefficients, as the fit-predict intervals use. With `hc_type`, `vcov` of
+  `ols_fit_agg` / `wls_fit_agg` is the HC covariance (`sandwich::vcovHC`), and
+  with a cluster argument the cluster-robust one, so `se_fit` and the
+  confidence interval are robust (the prediction interval still adds the
+  classical `σ²`).
 - **GLMs** (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`),
   as R `predict.glm(se.fit = TRUE)`: on the link scale `se_fit = sqrt(x0' V x0)`
   (`V` includes the estimated dispersion of Gamma and Tweedie); on the response

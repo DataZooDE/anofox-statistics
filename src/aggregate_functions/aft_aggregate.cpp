@@ -12,6 +12,8 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
 #include "../include/glm_prior_options.hpp"
+#include "../include/cluster_ids.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
 #include "telemetry.hpp"
@@ -30,6 +32,8 @@ static_assert(offsetof(AnofoxAftAugmentResult, n_rows) == 5 * sizeof(double *),
 // AFT (accelerated failure time) survival regression with right censoring.
 //
 //   anofox_stats_aft_fit_agg(time DOUBLE, x LIST(DOUBLE), event DOUBLE [, options])
+//   aft_fit_agg(time, x, event, cluster, options): the cluster-robust covariance
+//     (survreg(..., cluster = id); upstream AftResult::cluster_vcov)
 //
 // `event` is 1 when the event was observed and 0 when the row is still censored.
 // Coefficients are on the log-time scale.
@@ -39,6 +43,7 @@ struct AftAggregateState {
 	vector<double> time_values;
 	vector<double> event_values;
 	vector<vector<double>> x_columns;
+	ClusterRows cluster; // cluster ids of the cluster form; empty otherwise
 	idx_t n_features;
 	bool initialized;
 
@@ -59,6 +64,7 @@ struct AftAggregateState {
 		time_values.clear();
 		event_values.clear();
 		x_columns.clear();
+		cluster.Clear();
 		n_features = 0;
 		initialized = false;
 	}
@@ -72,9 +78,11 @@ struct AftAggregateBindData : public FunctionData {
 	double tolerance = 1e-9;
 	bool compute_inference = false;
 	double confidence_level = 0.95;
+	ClusterBind cluster; // aft_fit_agg(time, x, event, cluster, options)
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<AftAggregateBindData>();
+		result->cluster = cluster;
 		result->prior_opts = prior_opts;
 		result->dist = dist;
 		result->fit_intercept = fit_intercept;
@@ -89,11 +97,11 @@ struct AftAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<AftAggregateBindData>();
 		return dist == o.dist && fit_intercept == o.fit_intercept && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && prior_opts.Equals(o.prior_opts);
+		       confidence_level == o.confidence_level && prior_opts.Equals(o.prior_opts) && cluster.Equals(o.cluster);
 	}
 };
 
-static LogicalType GetAftAggResultType() {
+static LogicalType GetAftAggResultType(bool clustered = false) {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -116,6 +124,12 @@ static LogicalType GetAftAggResultType() {
 	children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
 	children.push_back(make_pair("log_scale_std_error", LogicalType::DOUBLE));
 	AppendModelSummaryFields(children);
+	if (clustered) {
+		// The clustered covariance of (intercept, coefficients, log(scale)), row-major; then
+		// vcov_type and n_clusters.
+		children.push_back(make_pair("vcov", LogicalType::LIST(LogicalType::DOUBLE)));
+		AppendClusterFields(children);
+	}
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -176,6 +190,10 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 		if (ListHasNullElement(x_child_validity, list_entry)) {
 			continue;
 		}
+		vector<string> cluster_ids;
+		if (bind_data.cluster.active && !ReadClusterIds(inputs[3].GetValue(i), cluster_ids)) {
+			continue; // NULL cluster id: the row is left out
+		}
 		idx_t n_features = list_entry.length;
 
 		if (!state.initialized) {
@@ -189,6 +207,9 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 			                            n_features);
 		}
 
+		if (bind_data.cluster.active) {
+			state.cluster.Push(cluster_ids, "aft_fit_agg");
+		}
 		state.time_values.push_back(time_values[t_idx]);
 		state.event_values.push_back(event_values[e_idx]);
 		for (idx_t j = 0; j < n_features; j++) {
@@ -213,6 +234,7 @@ static void AftAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 			continue;
 		}
 
+		target.cluster.Append(source.cluster, "aft_fit_agg");
 		if (!target.initialized) {
 			target.time_values = CombineTake(source.time_values, aggr_input_data);
 			target.event_values = CombineTake(source.event_values, aggr_input_data);
@@ -256,18 +278,23 @@ static void SetDoubleList(Vector &target, idx_t row, const double *values, idx_t
 	list_data[row].length = len;
 }
 
-static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &result, idx_t count, idx_t offset) {
+static void AftAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                           idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<AftAggregateBindData>();
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (AftAggregateState **)sdata.data;
 	auto &struct_entries = StructVector::GetEntries(result);
 	ModelStructWriter writer(result);
 	Vector *log_scale_se = nullptr;
+	Vector *vcov_vec = nullptr; // cluster form only
 	{
 		auto &types = StructType::GetChildTypes(result.GetType());
 		for (idx_t k = 0; k < types.size(); k++) {
 			if (types[k].first == "log_scale_std_error") {
 				log_scale_se = &StructEntry(struct_entries[k]);
+			} else if (types[k].first == "vcov") {
+				vcov_vec = &StructEntry(struct_entries[k]);
 			}
 		}
 	}
@@ -282,7 +309,15 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		}
 
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
-		CanonicalRows().Keys(state.x_columns).Key(state.time_values).Key(state.event_values).Sort();
+		const bool clustered = !state.cluster.dims.empty();
+		{
+			CanonicalRows rows;
+			rows.Keys(state.x_columns).Key(state.time_values).Key(state.event_values);
+			if (clustered) {
+				state.cluster.AddTo(rows);
+			}
+			rows.Sort();
+		}
 		AnofoxDataArray time_array {state.time_values.data(), nullptr, state.time_values.size()};
 		AnofoxDataArray event_array {state.event_values.data(), nullptr, state.event_values.size()};
 		vector<AnofoxDataArray> x_arrays;
@@ -304,8 +339,18 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		AnofoxAftInference inference {};
 		AnofoxError error;
 
-		bool success = anofox_aft_fit(time_array, x_arrays.data(), x_arrays.size(), event_array, options, &core,
-		                              state.compute_inference ? &inference : nullptr, &error);
+		auto cluster_ptrs = state.cluster.Pointers();
+		vector<int64_t> n_clusters(cluster_ptrs.size(), 0);
+		double *cluster_vcov = nullptr;
+		size_t cluster_dim = 0;
+		bool success =
+		    clustered ? anofox_aft_cluster_fit(time_array, x_arrays.data(), x_arrays.size(), event_array, options,
+		                                       cluster_ptrs.data(), cluster_ptrs.size(),
+		                                       ConvertHcType(bind.cluster.hc_type), bind.cluster.cadjust, &core,
+		                                       state.compute_inference ? &inference : nullptr, &cluster_vcov,
+		                                       &cluster_dim, n_clusters.data(), &error)
+		              : anofox_aft_fit(time_array, x_arrays.data(), x_arrays.size(), event_array, options, &core,
+		                               state.compute_inference ? &inference : nullptr, &error);
 		if (!success) {
 			ThrowUnlessDegenerate("aft_fit_agg", error);
 			FlatVector::SetNull(result, row, true);
@@ -341,6 +386,25 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 			FlatVector::SetNull(*log_scale_se, row, true);
 		}
 		writer.WriteSummary(row, core.summary);
+		if (bind.cluster.active) {
+			if (cluster_vcov && vcov_vec) {
+				auto list_offset = ListVector::GetListSize(*vcov_vec);
+				const idx_t len = cluster_dim * cluster_dim;
+				ListVector::Reserve(*vcov_vec, list_offset + len);
+				auto child = FlatDataMut<double>(ListVector::GetEntry(*vcov_vec));
+				for (idx_t k = 0; k < len; k++) {
+					child[list_offset + k] = cluster_vcov[k];
+				}
+				ListVector::SetListSize(*vcov_vec, list_offset + len);
+				ListVector::GetData(*vcov_vec)[row] = {list_offset, len};
+			} else if (vcov_vec) {
+				FlatVector::SetNull(*vcov_vec, row, true);
+			}
+			WriteClusterFields(result, row, state.compute_inference, bind.cluster.VcovTypeName(), n_clusters);
+		}
+		if (cluster_vcov) {
+			anofox_free_interval_matrix(cluster_vcov);
+		}
 		if (state.compute_inference) {
 			anofox_free_aft_inference(&inference);
 		}
@@ -355,9 +419,16 @@ static unique_ptr<AftAggregateBindData> AftParseBind(ClientContext &context,
 	auto result = make_uniq<AftAggregateBindData>();
 
 	if (arguments.size() >= 4) {
+		// aft_fit_agg(time, x, event, cluster, options): the cluster-robust covariance.
+		const bool cluster_form = arguments.size() == 5;
 		auto opts = RegressionMapOptions::ParseFromExpression(
-            context, *arguments[3], name,
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "feature_names", "prior", "vcov"});
+            context, *arguments[arguments.size() - 1], name,
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "feature_names", "prior", "vcov", "hc_type", "cadjust"});
+		// survreg(cluster =) / rms::robcov: HC0 without the G / (G - 1) adjustment.
+		result->cluster.Load(opts, cluster_form, false, name, "aft_fit_agg(time, x, event, cluster, options)");
+		if (result->cluster.active) {
+			result->compute_inference = true; // the default of the cluster form, as ols_fit_agg's
+		}
 		result->prior_opts.LoadFrom(opts);
 		if (opts.aft_dist.has_value()) {
 			result->dist = (AnofoxAftDistribution)opts.aft_dist.value();
@@ -384,8 +455,8 @@ static unique_ptr<AftAggregateBindData> AftParseBind(ClientContext &context,
 static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto result = AftParseBind(context, arguments, "aft_fit_agg");
-	SetReturnTypeOf(function, GetAftAggResultType());
-	PostHogTelemetry::Instance().RecordFunctionCall("aft_fit_agg");
+	SetReturnTypeOf(function, GetAftAggResultType(result->cluster.active));
+	PostHogTelemetry::Instance().RecordFunctionCall(result->cluster.active ? "aft_fit_agg_cluster" : "aft_fit_agg");
 	return std::move(result);
 }
 
@@ -618,6 +689,16 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, ANOFOX_AGG_BIND(AftAggBind), AftAggDestroy);
 	func_set.AddFunction(with_opts);
 
+	// aft_fit_agg(time, x, event, cluster, options): the cluster-robust covariance.
+	func_set.AddFunction(AggregateFunction(
+	    "aft_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY,
+	     LogicalType::ANY},
+	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, ANOFOX_AGG_INIT(AftAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize), AftAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, ANOFOX_AGG_BIND(AftAggBind),
+	    AftAggDestroy));
+
 	CreateAggregateFunctionInfo info(func_set);
 	FunctionDescription d1;
 	d1.description = "Fits an accelerated failure time (AFT) survival model to right-censored durations (event = 1 observed, 0 censored); coefficients are on the log-time scale.";
@@ -633,6 +714,19 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	d2.parameter_names = {"time", "x", "event", "options"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY};
 	info.descriptions.push_back(std::move(d2));
+	FunctionDescription d3;
+	d3.description = "Fits the same AFT model with a cluster-robust coefficient covariance (survreg(..., cluster = "
+	                 "id), rms::robcov): std_errors, z tests, intercept_std_error and log_scale_std_error are "
+	                 "clustered, plus vcov (intercept, coefficients, log(scale)), vcov_type and n_clusters. cluster: "
+	                 "one id per row of any type, or a LIST / STRUCT of ids for multiway clustering. 'hc_type': "
+	                 "'hc0' (default) or 'hc1', 'cadjust' (default false, as survreg); with priors the penalized "
+	                 "bread is used. compute_inference defaults to true.";
+	d3.examples = {"aft_fit_agg(duration, [x1, x2], event, patient_id, MAP {})"};
+	d3.categories = {"survival", "regression"};
+	d3.parameter_names = {"time", "x", "event", "cluster", "options"};
+	d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
+	                      LogicalType::ANY, LogicalType::ANY};
+	info.descriptions.push_back(std::move(d3));
 	loader.RegisterFunction(info);
 
 	AggregateFunctionSet augment_set("aft_augment_agg");

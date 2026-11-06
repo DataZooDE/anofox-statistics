@@ -77,6 +77,15 @@ p("energy eqdist.etest form (V means)", m * n / (m + n) * (2 * Mxy - Vxx - Vyy))
 # --- mmd_test_agg kernels -----------------------------------------------------
 X <- rbind(A, B)
 p("mmd gaussian h=1", mmd2(exp(-D^2 / 2), m, n))
+# Default bandwidth of the gaussian kernel: the median heuristic,
+# max(median(dist(rbind(x, y))), 0.01) (upstream modern::median_heuristic_bandwidth,
+# the bandwidth of mmd_agg for 1-D rows).
+h_med <- max(median(dist(X)), 0.01)
+p("mmd median bandwidth", h_med)
+p("mmd gaussian h=median", mmd2(exp(-D^2 / (2 * h_med^2)), m, n))
+# embedding_drift_agg('mmd') reports its kernel bandwidth sqrt(s2 / 2)
+# (drift::embedding_mmd_bandwidth: k = exp(-d^2 / s2) = exp(-d^2 / (2 h^2))).
+p("embedding mmd bandwidth", sqrt(s2 / 2))
 p("mmd gaussian h=0.5", mmd2(exp(-D^2 / (2 * 0.25)), m, n))
 L1 <- as.matrix(dist(X, method = "manhattan"))
 p("mmd laplacian h=1", mmd2(exp(-L1), m, n))

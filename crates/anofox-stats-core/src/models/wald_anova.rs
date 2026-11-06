@@ -341,6 +341,14 @@ pub struct FastbwResult {
     pub coefficients: Vec<f64>,
     /// Approximate intercept (NaN without one).
     pub intercept: f64,
+    /// Approximate covariance of the reduced model (`fastbw`'s `var`,
+    /// upstream `StepDown::vcov`), row-major in the layout of the input
+    /// covariance (`model.dim` square, intercept first) with zero rows and
+    /// columns for deleted parameters.
+    pub vcov: Vec<f64>,
+    /// Kept parameters (`fastbw`'s `parms.kept`), 0-based positions in that
+    /// layout (the intercept is 0 when there is one), ascending.
+    pub kept_parameters: Vec<usize>,
 }
 
 /// `rms::fastbw` of the model. Columns without a term are forced into the
@@ -427,6 +435,18 @@ pub fn fastbw(
     }
     let mut kept_terms: Vec<usize> = s.kept_terms.iter().map(|&t| mapped.term_index[t]).collect();
     kept_terms.sort_unstable();
+    // Upstream's covariance is in the parameter order above; put it back in
+    // the model's layout.
+    let dim = model.dim;
+    let mut vcov_out = vec![0.0; dim * dim];
+    for a in 0..n {
+        for b in 0..n {
+            vcov_out[full(params[a]) * dim + full(params[b])] = s.vcov[(a, b)];
+        }
+    }
+    let mut kept_parameters: Vec<usize> =
+        s.kept_parameters.iter().map(|&a| full(params[a])).collect();
+    kept_parameters.sort_unstable();
     Ok(FastbwResult {
         deleted: s
             .deleted
@@ -445,6 +465,8 @@ pub fn fastbw(
         kept_terms,
         coefficients,
         intercept,
+        vcov: vcov_out,
+        kept_parameters,
     })
 }
 

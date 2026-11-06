@@ -11,6 +11,7 @@ pub(crate) mod cox;
 mod eb_shrink;
 mod elasticnet;
 mod glm;
+mod glm_cluster;
 mod glm_weighted;
 mod glmm;
 mod gls;
@@ -42,8 +43,8 @@ mod wald_anova;
 mod wls;
 
 pub use aft::{
-    aft_augment, aft_survival_curve, fit_aft, AftAugment, AftDistribution, AftFitResult,
-    AftInference, AftOptions, AftResult,
+    aft_augment, aft_cdf, aft_quantile, aft_survival_curve, fit_aft, AftAugment, AftDistribution,
+    AftFitResult, AftInference, AftOptions, AftResult,
 };
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
@@ -59,7 +60,9 @@ pub use bayesian::{
     fit_bayesian, fit_predict_bayesian, BayesianFitResult, BayesianOptions, BayesianPredictions,
 };
 pub use bls::{fit_bls, fit_nnls};
-pub use cluster::{fit_ols_cluster, fit_wls_cluster, ClusterFit, ClusterSpec};
+pub use cluster::{
+    fit_ols_cluster, fit_ols_hc, fit_wls_cluster, fit_wls_hc, ClusterFit, ClusterSpec,
+};
 pub use cox::{
     cox_survival_curve, fit_cox, CoxAugment, CoxModel, CoxRows, CoxSpec, CoxSummary, CoxTies,
     ZphTransform,
@@ -70,6 +73,7 @@ pub use glm::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie, GlmResult,
     LogisticResult,
 };
+pub use glm_cluster::{aft_cluster_inference, glm_cluster_inference};
 pub use glm_weighted::{
     fit_gamma_weighted, fit_poisson_weighted, fit_tweedie_weighted, WeightedGlmFit,
 };

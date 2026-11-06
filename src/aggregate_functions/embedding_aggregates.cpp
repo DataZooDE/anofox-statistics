@@ -108,6 +108,8 @@ static LogicalType EmbeddingResultType(int kind) {
 		add("n1", LogicalType::BIGINT);
 		add("n2", LogicalType::BIGINT);
 		add("dim", LogicalType::BIGINT);
+		// Kernel bandwidth of method 'mmd' (drift::embedding_mmd_bandwidth); NULL otherwise.
+		add("bandwidth", LogicalType::DOUBLE);
 		return LogicalType::STRUCT(std::move(c));
 	}
 	add("statistic", LogicalType::DOUBLE);
@@ -117,6 +119,11 @@ static LogicalType EmbeddingResultType(int kind) {
 	add("dim", LogicalType::BIGINT);
 	add("n_permutations", LogicalType::BIGINT);
 	AppendTestResultFields(c);
+	if (kind == EMB_MMD) {
+		// Bandwidth of the gaussian / laplacian kernel used (the median heuristic's by default
+		// for the gaussian); NULL for the linear and polynomial kernels.
+		add("bandwidth", LogicalType::DOUBLE);
+	}
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -280,6 +287,16 @@ static idx_t ReferenceSlot(const EmbeddingAggregateState &state, const Embedding
 	                            labels[0].ToString(), labels[1].ToString());
 }
 
+//! evidently's defaults, from upstream (drift::defaults) rather than copied here.
+static const AnofoxDriftDefaults &EvidentlyDefaults() {
+	static const AnofoxDriftDefaults defaults = [] {
+		AnofoxDriftDefaults d {};
+		anofox_drift_defaults(&d);
+		return d;
+	}();
+	return defaults;
+}
+
 static AnofoxEmbeddingDriftOptions DriftOptions(const EmbeddingBindData &bind) {
 	auto &o = bind.drift;
 	auto method = o.method.value_or("distance");
@@ -289,7 +306,7 @@ static AnofoxEmbeddingDriftOptions DriftOptions(const EmbeddingBindData &bind) {
 	r.threshold = o.threshold.value_or(std::nan(""));
 	r.quantile = o.quantile.value_or(std::nan(""));
 	r.component_threshold = o.component_threshold.value_or(std::nan(""));
-	r.n_bootstrap = o.n_bootstrap.value_or(100);
+	r.n_bootstrap = o.n_bootstrap.value_or(EvidentlyDefaults().embedding_bootstrap_resamples);
 	r.seed = o.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
 	r.has_seed = true;
 	r.method = method == "distance" ? 0 : method == "ratio" ? 1 : 2;
@@ -310,6 +327,11 @@ static AnofoxMultivariateTestOptions TestOptions(const EmbeddingBindData &bind) 
 	r.has_seed = true;
 	r.degree = o.degree.value_or(2);
 	r.kernel = kernel == "gaussian" ? 0 : kernel == "laplacian" ? 1 : kernel == "linear" ? 2 : 3;
+	// The gaussian kernel's default bandwidth is the median heuristic (upstream
+	// Kernel::GaussianMedianHeuristic), as mmd_agg and evidently's MMD use.
+	if (kernel == "gaussian" && (o.median_bandwidth || !o.bandwidth)) {
+		r.kernel = 4;
+	}
 	return r;
 }
 
@@ -353,6 +375,11 @@ static void EmbeddingFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 			FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = static_cast<int64_t>(r.n1);
 			FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(r.n2);
 			FlatDataMut<int64_t>(StructEntry(entries[6]))[row] = static_cast<int64_t>(r.dim);
+			if (std::isnan(r.bandwidth)) {
+				FlatVector::SetNull(StructEntry(entries[7]), row, true);
+			} else {
+				FlatDataMut<double>(StructEntry(entries[7]))[row] = r.bandwidth;
+			}
 		} else {
 			AnofoxMultivariateTestResult r;
 			if (!anofox_multivariate_two_sample(bind.kind == EMB_ENERGY ? 0 : 1, a.data(), na, b.data(), nb,
@@ -369,6 +396,14 @@ static void EmbeddingFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 			FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = static_cast<int64_t>(r.dim);
 			FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(r.n_permutations);
 			WriteTestResultFields(result, row, 6, r.unified);
+			if (bind.kind == EMB_MMD) {
+				auto &bw = StructEntry(entries[entries.size() - 1]);
+				if (std::isnan(r.bandwidth)) {
+					FlatVector::SetNull(bw, row, true);
+				} else {
+					FlatDataMut<double>(bw)[row] = r.bandwidth;
+				}
+			}
 		}
 		state.Reset();
 	}
@@ -492,7 +527,9 @@ void RegisterEmbeddingAggregateFunctions(ExtensionLoader &loader) {
 	    loader, {"mmd_test_agg",
 	             "Multivariate maximum mean discrepancy two-sample test (Gretton et al., unbiased MMD^2) of two groups "
 	             "of equal-length vectors with a gaussian, laplacian, linear or polynomial kernel, with a seeded "
-	             "permutation p-value.",
+	             "permutation p-value. The gaussian kernel's bandwidth defaults to the median heuristic (median "
+	             "pairwise distance of the pooled rows, as mmd_agg; 'bandwidth': 'median'); the result's bandwidth "
+	             "field reports the one used.",
 	             "mmd_test_agg(x, group_id, {'kernel': 'gaussian', 'bandwidth': 2.0})", "mmd_test_agg(x, group_id)",
 	             "x"});
 }

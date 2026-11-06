@@ -85,6 +85,14 @@ pub struct FastbwResultFFI {
     pub n_coefficients: usize,
     /// Approximate intercept, NaN without one.
     pub intercept: f64,
+    /// Approximate reduced-model covariance (`fastbw`'s `var`), `vcov_dim`
+    /// square, row-major in the layout of the input covariance; zero rows and
+    /// columns for deleted parameters.
+    pub vcov: *mut f64,
+    pub vcov_dim: usize,
+    /// 0-based kept parameters in that layout (`parms.kept`), ascending.
+    pub kept_parameters: *mut u64,
+    pub n_kept_parameters: usize,
 }
 
 impl Default for FastbwResultFFI {
@@ -97,6 +105,10 @@ impl Default for FastbwResultFFI {
             coefficients: std::ptr::null_mut(),
             n_coefficients: 0,
             intercept: f64::NAN,
+            vcov: std::ptr::null_mut(),
+            vcov_dim: 0,
+            kept_parameters: std::ptr::null_mut(),
+            n_kept_parameters: 0,
         }
     }
 }
@@ -392,6 +404,10 @@ pub unsafe extern "C" fn anofox_fastbw(
                     coefficients: alloc_array(&r.coefficients),
                     n_coefficients: r.coefficients.len(),
                     intercept: r.intercept,
+                    vcov: alloc_array(&r.vcov),
+                    vcov_dim: dim,
+                    kept_parameters: alloc_u64(&r.kept_parameters),
+                    n_kept_parameters: r.kept_parameters.len(),
                 };
                 true
             }
@@ -413,8 +429,12 @@ pub unsafe extern "C" fn anofox_free_fastbw(result: *mut FastbwResultFFI) {
         free_ptr(&mut r.deleted);
         free_ptr(&mut r.kept_terms);
         free_ptr(&mut r.coefficients);
+        free_ptr(&mut r.vcov);
+        free_ptr(&mut r.kept_parameters);
         r.n_deleted = 0;
         r.n_kept = 0;
         r.n_coefficients = 0;
+        r.vcov_dim = 0;
+        r.n_kept_parameters = 0;
     }
 }

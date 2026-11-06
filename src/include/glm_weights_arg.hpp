@@ -21,6 +21,21 @@ inline bool GlmWeightsArgument(const vector<unique_ptr<Expression>> &arguments) 
 	return arguments.size() == 3 && ReturnTypeOf(*arguments[2]).IsNumeric();
 }
 
+//! A weights argument must be numeric. A 4-argument call whose 3rd argument is not
+//! (e.g. VARCHAR cluster ids) is the cluster form, which needs 'vcov': 'cluster'.
+inline void CheckGlmWeightsArgument(const vector<unique_ptr<Expression>> &arguments, bool weighted,
+                                    const char *name) {
+	if (!weighted || arguments.size() < 3) {
+		return;
+	}
+	auto &type = ReturnTypeOf(*arguments[2]);
+	if (!type.IsNumeric() && type.id() != LogicalTypeId::SQLNULL) {
+		throw InvalidInputException("%s: the 3rd argument of %s(y, x, w, options) is the prior weights and must be "
+		                            "numeric, got %s; for cluster ids use %s(y, x, cluster, {'vcov': 'cluster'})",
+		                            name, name, type.ToString(), name);
+	}
+}
+
 //! The weights column of one Update chunk as DOUBLE (cast when the 3rd argument
 //! of the ANY overload is another numeric type).
 struct GlmWeightsInput {

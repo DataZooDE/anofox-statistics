@@ -2779,6 +2779,61 @@ void anofox_free_aft_result(AnofoxAftFitResultCore *result);
 /** Free the arrays owned by AFT inference. */
 void anofox_free_aft_inference(AnofoxAftInference *inf);
 
+/* ============================================================================
+ * Cluster-robust covariance of the GLM and AFT fits
+ * (crates/anofox-stats-ffi/src/glm_cluster_ffi.rs)
+ *
+ * As anofox_<family>_fit, with the cluster-robust inference and covariance
+ * (sandwich::vcovCL(glm, cluster, type = hc_type, cadjust); upstream
+ * GlmResult::cluster_vcov) in out_inference / out_result->vcov. clusters holds
+ * n_dims arrays of y.len non-negative codes; out_n_clusters (NULL or n_dims
+ * entries) receives the clusters per dimension among the fitted rows. hc_type:
+ * ANOFOX_HC_NONE / HC0 (vcovCL's default for GLMs) or HC1 (HC2 / HC3 are an
+ * error). With fewer than two clusters in a dimension the inference is NaN and
+ * vcov NULL; a coefficient at an L1 prior's kink is an error.
+ * ============================================================================ */
+bool anofox_poisson_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                AnofoxPoissonOptions options, const int32_t *const *clusters, size_t n_dims,
+                                AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                AnofoxError *out_error);
+bool anofox_binomial_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                 AnofoxBinomialOptions options, const int32_t *const *clusters, size_t n_dims,
+                                 AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                 AnofoxError *out_error);
+bool anofox_negbinomial_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                    AnofoxNegBinomialOptions options, const int32_t *const *clusters,
+                                    size_t n_dims, AnofoxHcType hc_type, bool cadjust,
+                                    AnofoxGlmFitResultCore *out_result, AnofoxFitResultInference *out_inference,
+                                    int64_t *out_n_clusters, AnofoxError *out_error);
+bool anofox_tweedie_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                AnofoxTweedieOptions options, const int32_t *const *clusters, size_t n_dims,
+                                AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                                AnofoxError *out_error);
+bool anofox_gamma_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                              AnofoxGammaOptions options, const int32_t *const *clusters, size_t n_dims,
+                              AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                              AnofoxFitResultInference *out_inference, int64_t *out_n_clusters,
+                              AnofoxError *out_error);
+bool anofox_logistic_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                 AnofoxLogisticOptions options, const int32_t *const *clusters, size_t n_dims,
+                                 AnofoxHcType hc_type, bool cadjust, AnofoxGlmFitResultCore *out_result,
+                                 AnofoxFitResultInference *out_inference, AnofoxLogisticFitExtras *out_extras,
+                                 int64_t *out_n_clusters, AnofoxError *out_error);
+/**
+ * AFT with the cluster-robust covariance (survreg(..., cluster = id): hc_type HC0, cadjust false;
+ * upstream AftResult::cluster_vcov). Outputs as anofox_aft_fit plus the clustered covariance of
+ * (intercept, coefficients, log scale) in out_vcov (out_dim square, row-major; NULL when
+ * undefined; free with anofox_free_interval_matrix) and the clusters per dimension.
+ */
+bool anofox_aft_cluster_fit(AnofoxDataArray time, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray event,
+                            AnofoxAftOptions options, const int32_t *const *clusters, size_t n_dims,
+                            AnofoxHcType hc_type, bool cadjust, AnofoxAftFitResultCore *out_core,
+                            AnofoxAftInference *out_inference, double **out_vcov, size_t *out_dim,
+                            int64_t *out_n_clusters, AnofoxError *out_error);
+
 /** P(T <= t) for a fitted AFT model. */
 double anofox_aft_cdf(double t, double eta, double scale, AnofoxAftDistribution dist);
 
@@ -3807,6 +3862,18 @@ bool anofox_dataset_drift(const bool *drifted, size_t len, double drift_share, A
                           AnofoxError *out_error);
 
 /**
+ * evidently's default parameters (upstream drift::defaults) that the SQL layer
+ * fills in for unset options. Must match DriftDefaultsFFI.
+ */
+typedef struct {
+	size_t n_permutations;                /* TVD / column drift permutations (N_PERMUTATIONS) */
+	size_t embedding_bootstrap_resamples; /* EMBEDDING_BOOTSTRAP_RESAMPLES */
+	double dataset_drift_share;           /* DATASET_DRIFT_SHARE */
+} AnofoxDriftDefaults;
+
+void anofox_drift_defaults(AnofoxDriftDefaults *out);
+
+/**
  * Drift statistic between two samples of category labels (#301), given as dense
  * codes in label order (NaN entries are dropped): upstream's *_categorical
  * divergences and tvd_test. kind: PSI, KL, Jensen-Shannon, Hellinger or TVD;
@@ -4228,14 +4295,16 @@ typedef struct {
 	size_t n_features;
 	size_t n_components;
 	size_t n_observations;
+	/** Column standard deviations the data were divided by (n_features values); NULL when unscaled */
+	double *scale;
 } AnofoxPcaResult;
 
 /**
- * PCA (R's prcomp(x, center = TRUE, scale. = FALSE)) of n_rows rows of
+ * PCA (R's prcomp(x, center = TRUE, scale. = scale)) of n_rows rows of
  * n_features values each, row-major in data, keeping the first n_components
  * components (0: all min(n_rows - 1, n_features)).
  */
-bool anofox_pca_fit(const double *data, size_t n_rows, size_t n_features, size_t n_components,
+bool anofox_pca_fit(const double *data, size_t n_rows, size_t n_features, size_t n_components, bool scale,
                     AnofoxPcaResult *out_result, AnofoxError *out_error);
 
 /** Free the arrays of a result filled by anofox_pca_fit. */
@@ -4243,10 +4312,12 @@ void anofox_free_pca_result(AnofoxPcaResult *result);
 
 /**
  * Scores of one row x (x_len values) on the n_components components of a
- * fitted PCA (predict.prcomp). loadings is component-major as in
- * AnofoxPcaResult; out_scores receives n_components values.
+ * fitted PCA (predict.prcomp). scale is NULL for an unscaled model, else
+ * n_features column sds; loadings is component-major as in AnofoxPcaResult;
+ * out_scores receives n_components values.
  */
-bool anofox_pca_transform(const double *center, const double *sdev, const double *loadings, size_t n_features,
+bool anofox_pca_transform(const double *center, const double *scale, const double *sdev, const double *loadings,
+                          size_t n_features,
                           size_t n_components, const double *x, size_t x_len, double *out_scores,
                           AnofoxError *out_error);
 
@@ -4415,6 +4486,8 @@ typedef struct {
 	size_t n1;
 	size_t n2;
 	size_t dim;
+	/** Kernel bandwidth of the mmd method (drift::embedding_mmd_bandwidth); NaN otherwise */
+	double bandwidth;
 	bool drifted;
 } AnofoxEmbeddingDriftResult;
 
@@ -4437,7 +4510,7 @@ typedef struct {
 	size_t n_permutations;
 	uint64_t seed;
 	uint32_t degree;
-	/** MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial */
+	/** MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial, 4 gaussian with the median-heuristic bandwidth */
 	int32_t kernel;
 	bool has_seed;
 } AnofoxMultivariateTestOptions;
@@ -4450,6 +4523,8 @@ typedef struct {
 	size_t n2;
 	size_t dim;
 	size_t n_permutations;
+	/** Bandwidth of the gaussian / laplacian kernel used (median heuristic with kernel 4); NaN otherwise */
+	double bandwidth;
 	/** Unified test fields (#159); keep last */
 	AnofoxTestSummaryFFI unified;
 } AnofoxMultivariateTestResult;
@@ -4486,6 +4561,21 @@ bool anofox_wls_cluster_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
                             AnofoxWlsOptions options, AnofoxFitResultCore *out_core,
                             AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
                             int64_t *out_n_clusters, AnofoxError *out_error);
+
+/**
+ * OLS / WLS whose covariance is the one the inference uses: with options.hc_type the HC
+ * covariance (sandwich::vcovHC; upstream FittedOls::hc_vcov / FittedWls::hc_vcov) in
+ * out_vcov (row-major, intercept first, zero rows for columns not estimated; free with
+ * anofox_free_interval_matrix), otherwise NULL. NULL also when the HC covariance is not
+ * available (a leverage-1 row for HC2 / HC3). Other outputs as anofox_ols_fit / anofox_wls_fit.
+ */
+bool anofox_ols_hc_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxOlsOptions options,
+                       AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference, double **out_vcov,
+                       size_t *out_dim, AnofoxError *out_error);
+bool anofox_wls_hc_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                       AnofoxWlsOptions options, AnofoxFitResultCore *out_core,
+                       AnofoxFitResultInference *out_inference, double **out_vcov, size_t *out_dim,
+                       AnofoxError *out_error);
 
 /* ============================================================================
  * Likelihood-ratio and score tests, profile-likelihood CIs (#310)
@@ -4697,6 +4787,12 @@ typedef struct {
 	double *coefficients; /* approximate reduced-model slopes, 0 when deleted */
 	size_t n_coefficients;
 	double intercept; /* NaN without one */
+	/* approximate reduced-model covariance (fastbw's var), vcov_dim square, row-major in the
+	 * layout of the input covariance; zero rows / columns for deleted parameters */
+	double *vcov;
+	size_t vcov_dim;
+	uint64_t *kept_parameters; /* 0-based positions in that layout (parms.kept), ascending */
+	size_t n_kept_parameters;
 } AnofoxFastbwResult;
 
 /**

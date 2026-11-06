@@ -88,6 +88,13 @@ CREATE VIEW results AS
     UNION ALL
     SELECT 'aft_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).intercept, (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).scale], (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).coefficients)::DOUBLE[] AS vals FROM small
     UNION ALL
+    -- cluster-robust forms: the cluster labels of each thread's state are re-interned on Combine
+    SELECT 'poisson_fit_agg_cluster' AS fn, g, 1e-6::DOUBLE AS tol, list_concat((poisson_fit_agg(cnt, [x1, x2], subj, {'vcov': 'cluster'})).std_errors, (poisson_fit_agg(cnt, [x1, x2], subj, {'vcov': 'cluster'})).vcov, (poisson_fit_agg(cnt, [x1, x2], subj, {'vcov': 'cluster'})).n_clusters::DOUBLE[])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'gamma_fit_agg_cluster2' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat((gamma_fit_agg(pos, [x1, x2], [subj, c1], {'vcov': 'cluster'})).std_errors, (gamma_fit_agg(pos, [x1, x2], [subj, c1], {'vcov': 'cluster'})).n_clusters::DOUBLE[])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'aft_fit_agg_cluster' AS fn, g, 1e-6::DOUBLE AS tol, list_concat((aft_fit_agg(surv_t, [x1], event, subj::VARCHAR, {'dist': 'weibull'})).std_errors, (aft_fit_agg(surv_t, [x1], event, subj::VARCHAR, {'dist': 'weibull'})).vcov)::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
     SELECT 'glmm_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(glmm_fit_agg(y, [x1], subj)).intercept, (glmm_fit_agg(y, [x1], subj)).var_group], (glmm_fit_agg(y, [x1], subj)).coefficients)::DOUBLE[] AS vals FROM small GROUP BY g
     UNION ALL
     SELECT 'glmm_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(glmm_fit_agg(y, [x1], subj)).intercept, (glmm_fit_agg(y, [x1], subj)).var_group], (glmm_fit_agg(y, [x1], subj)).coefficients)::DOUBLE[] AS vals FROM small;
@@ -124,11 +131,14 @@ GROUP BY fn
 ORDER BY fn;
 ----
 aft_fit_agg	9	true
+aft_fit_agg_cluster	8	true
 binomial_fit_agg	9	true
 binomial_fit_agg_probit	9	true
 gamma_fit_agg	9	true
+gamma_fit_agg_cluster2	1	true
 glmm_fit_agg	9	true
 logistic_fit_agg	9	true
 negbinom_fit_agg	9	true
 poisson_fit_agg	9	true
+poisson_fit_agg_cluster	8	true
 tweedie_fit_agg	9	true

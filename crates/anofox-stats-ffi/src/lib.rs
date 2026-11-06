@@ -8733,7 +8733,7 @@ pub unsafe extern "C" fn anofox_aft_cdf(
             AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
             AftDistributionFFI::Exponential => AftDistribution::Exponential,
         };
-        d.cdf_time(t, eta, scale)
+        anofox_stats_core::models::aft_cdf(t, eta, scale, d)
     })
 }
 
@@ -8755,7 +8755,7 @@ pub unsafe extern "C" fn anofox_aft_quantile(
             AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
             AftDistributionFFI::Exponential => AftDistribution::Exponential,
         };
-        d.quantile_time(p, eta, scale)
+        anofox_stats_core::models::aft_quantile(p, eta, scale, d)
     })
 }
 
@@ -10829,6 +10829,10 @@ pub use accuracy_ffi::*;
 // Cluster-robust covariance of OLS / WLS fits (#309).
 mod cluster_ffi;
 pub use cluster_ffi::*;
+
+// Cluster-robust covariance of the GLM and AFT fits.
+mod glm_cluster_ffi;
+pub use glm_cluster_ffi::*;
 
 // Likelihood-ratio / score tests and profile CIs (#310).
 mod likelihood_ffi;

@@ -542,7 +542,11 @@ static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
 	if (v == "naive" || v == "unpenalized" || v == "unpenalised") {
 		return VcovTypeOpt::NAIVE;
 	}
-	throw InvalidInputException("Unknown vcov type '%s'. Expected 'laplace', 'sandwich' or 'naive'.", val.ToString());
+	if (v == "cluster" || v == "vcovcl" || v == "cluster_robust") {
+		return VcovTypeOpt::CLUSTER;
+	}
+	throw InvalidInputException("Unknown vcov type '%s'. Expected 'laplace', 'sandwich', 'naive' or 'cluster'.",
+	                            val.ToString());
 }
 
 // Extract a LIST of positive integers (1-based column indices).
@@ -2315,6 +2319,12 @@ MultivariateTestMapOptions MultivariateTestMapOptions::ParseFromValue(const Valu
 			    result.kernel = ExtractChoice(val, "kernel", {"gaussian", "laplacian", "linear", "polynomial"});
 		    } else if (key == "degree") {
 			    result.degree = ExtractUInt32(val);
+		    } else if (key == "bandwidth" && !val.IsNull() && val.type().id() == LogicalTypeId::VARCHAR) {
+			    if (ToLower(val.ToString()) != "median") {
+				    throw InvalidInputException("%s: bandwidth must be a number > 0 or 'median', got '%s'",
+				                                function_name, val.ToString());
+			    }
+			    result.median_bandwidth = true;
 		    } else {
 			    auto v = ExtractDouble(val);
 			    if (v && !std::isfinite(*v)) {
@@ -2327,8 +2337,12 @@ MultivariateTestMapOptions MultivariateTestMapOptions::ParseFromValue(const Valu
 		    }
 	    });
 	auto kernel = result.kernel.value_or("gaussian");
-	if (result.bandwidth && kernel != "gaussian" && kernel != "laplacian") {
+	if ((result.bandwidth || result.median_bandwidth) && kernel != "gaussian" && kernel != "laplacian") {
 		throw InvalidInputException("%s: bandwidth applies only to the gaussian and laplacian kernels", function_name);
+	}
+	if (result.median_bandwidth && kernel != "gaussian") {
+		throw InvalidInputException("%s: bandwidth 'median' (the median heuristic) applies only to the gaussian kernel",
+		                            function_name);
 	}
 	if ((result.degree || result.scale || result.offset) && kernel != "polynomial") {
 		throw InvalidInputException("%s: degree, scale and offset apply only to the polynomial kernel", function_name);

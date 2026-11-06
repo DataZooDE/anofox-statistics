@@ -128,8 +128,20 @@ SELECT pca_agg([x1, x2, x3], {'n_components': 0}) FROM pts;
 ----
 n_components
 
+# 'scale': true is prcomp(scale. = TRUE): the sds are stored and pca_transform applies them
+# (reference values: test/sql/reference/pca_reference.test).
+query II
+SELECT len((pca_agg([x1, x2, x3], {'scale': true})).scale), (pca_agg([x1, x2, x3])).scale IS NULL FROM pts;
+----
+3	true
+
 statement error
-SELECT pca_agg([x1, x2, x3], {'scale': true}) FROM pts;
+SELECT pca_agg([x1, x2, x3], {'scale': 'maybe'}) FROM pts;
+----
+to BOOL
+
+statement error
+SELECT pca_agg([x1, x2, x3], {'scale': NULL}) FROM pts;
 ----
 scale
 

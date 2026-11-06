@@ -78,6 +78,21 @@ SELECT negbinom_fit_agg(qty, [promo],
 FROM demand;
 ```
 
+### Cluster-robust covariance
+
+`negbinom_fit_agg(y, x, cluster, {'vcov': 'cluster', ...})` clusters the standard
+errors, z tests and `vcov` by `cluster`, as R's `sandwich::vcovCL(glm(...), cluster =
+~id)`, and appends `vcov_type` and `n_clusters`. `cluster` is one id per row of any
+type (a `LIST` / `STRUCT` of ids for multiway clustering); `'hc_type'` is `'hc0'`
+(default) or `'hc1'`, `'cadjust'` defaults to true; with priors or `glm_lambda` the
+bread is the penalized information. See [Poisson: cluster-robust
+covariance](poisson.md#cluster-robust-covariance) for the details.
+
+```sql
+SELECT (fit).std_errors, (fit).vcov_type, (fit).n_clusters
+FROM (SELECT negbinom_fit_agg(qty, [promo, shelf_facings], week % 10, {'vcov': 'cluster'}) AS fit FROM demand);
+```
+
 ## Prediction
 
 Apply a fitted model to new rows with

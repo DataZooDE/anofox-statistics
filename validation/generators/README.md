@@ -245,6 +245,21 @@ Requires `sandwich`, `lmtest` and `rms`. It (re)writes
 clustering, no intercept, WLS), `lmtest::coeftest` / `coefci` / `waldtest` and
 `rms::robcov`.
 
+## `make_reference_glm_cluster_vcov.R`
+
+```bash
+Rscript validation/generators/make_reference_glm_cluster_vcov.R
+```
+
+Requires `sandwich`, `lmtest`, `MASS`, `statmod` and `survival`. It (re)writes
+`test/sql/reference/glm_cluster_vcov.test`: the cluster-robust inference of the
+GLM cluster forms (`poisson` / `binomial` / `logistic` / `negbinom` / `gamma` /
+`tweedie_fit_agg(y, x, cluster, {'vcov': 'cluster'})`) against
+`sandwich::vcovCL(glm)` (HC0 / HC1, `cadjust`, integer and string ids, two-way,
+an offset, `glm.nb`, `statmod::tweedie`), a penalized logistic sandwich computed
+in base R (Normal priors: penalized bread `(X'WX + P)^-1`), and of
+`aft_fit_agg(time, x, event, cluster, options)` against `survreg(..., cluster =)`.
+
 ## `make_reference_wls_hc.R`
 
 ```bash
@@ -252,7 +267,7 @@ Rscript validation/generators/make_reference_wls_hc.R
 ```
 
 Requires `sandwich` and `lmtest`. It (re)writes `test/sql/reference/wls_hc.test`:
-the heteroskedasticity-consistent inference of `wls_fit_agg(y, x, w, {'hc_type': ...})`
+the heteroskedasticity-consistent inference and `vcov` of `wls_fit_agg(y, x, w, {'hc_type': ...})` and `ols_fit_agg`
 without a cluster against `sandwich::vcovHC(lm(..., weights = w), type = "HC0".."HC3")`
 with `lmtest::coeftest` / `coefci`, with and without an intercept.
 

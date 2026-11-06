@@ -1,14 +1,15 @@
 # Multivariate: Principal Component Analysis
 
 Principal component analysis (PCA) of a column of feature vectors, as R's
-`prcomp(x, center = TRUE, scale. = FALSE)`. The components are the
-eigenvectors of the sample covariance matrix (divisor `n - 1`), ordered by
-decreasing variance. Fit a model per group with `pca_agg`, score rows with
+`prcomp(x, center = TRUE, scale. = FALSE)`, or of the standardised columns with
+`{'scale': true}` (`prcomp(scale. = TRUE)`). The components are the
+eigenvectors of the sample covariance (or correlation) matrix (divisor `n - 1`),
+ordered by decreasing variance. Fit a model per group with `pca_agg`, score rows with
 `pca_transform` (R's `predict.prcomp`), or get every row's scores per group
 with the `pca_by` table macro.
 
-The computation is upstream anofox-statistics `multivariate::pca` and
-`Pca::transform`, validated against `prcomp`
+The computation is upstream anofox-statistics `multivariate::pca_with_options`
+and `Pca::transform`, validated against `prcomp` and `predict.prcomp`
 (`test/sql/reference/pca_reference.test`).
 
 ## Functions
@@ -29,10 +30,12 @@ to `prcomp`'s up to the sign of each component (and of its scores).
 `min(n - 1, d)` components. `prcomp` returns `min(n, d)`: when `n <= d` its
 last component has a standard deviation of 0 and is not returned here.
 
-**Scaling.** The data are centred, not scaled (`scale. = FALSE`). The
-`scale` option of `prcomp(scale. = TRUE)` is not available yet (the upstream
-`pca` has no scaling); standardise the columns yourself if the features are on
-different scales, and apply the same standardisation before `pca_transform`.
+**Scaling.** By default the data are centred, not scaled (`scale. = FALSE`).
+With `{'scale': true}` each centred column is divided by its standard
+deviation (divisor `n - 1`) first, as `prcomp(scale. = TRUE)`: use it when the
+features are on different scales. The model then stores the standard
+deviations in its `scale` field and `pca_transform` applies them to new rows
+(`predict.prcomp`). A constant column cannot be scaled and is an error, as in R.
 
 ## pca_agg
 
@@ -47,6 +50,7 @@ Options:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `n_components` (alias `components`) | INTEGER | all | Keep the first `n_components` components (at least 1). More than the data support keeps all of them, like `prcomp`'s `rank.` |
+| `scale` | BOOLEAN | `false` | Divide each centred column by its standard deviation (`prcomp(scale. = TRUE)`) |
 
 **Returns:**
 
@@ -59,6 +63,7 @@ Options:
 | `n_components` | `BIGINT` | Number of components returned |
 | `n_features` | `BIGINT` | Number of features |
 | `n_observations` | `BIGINT` | Rows used in the fit |
+| `scale` | `DOUBLE[]` | Column standard deviations the data were divided by (`prcomp()$scale`); NULL unless `{'scale': true}` |
 
 Rows whose `x` is NULL or holds a NULL, NaN or infinite element are skipped.
 All rows must have the same number of features. A group with fewer than two
@@ -92,6 +97,14 @@ Keep two components:
 SELECT pca_agg([x1, x2, x3], {'n_components': 2}).n_components AS k FROM pca_demo;
 ```
 
+A scaled PCA (the correlation matrix), and the scores of a new row with it:
+
+```sql
+SELECT list_transform(m.scale, lambda s: round(s, 4)) AS column_sds,
+       list_transform(pca_transform(m, [10.0, 5.0, 2.0]), lambda s: round(s, 4)) AS scores
+FROM (SELECT pca_agg([x1, x2, x3], {'scale': true}) AS m FROM pca_demo);
+```
+
 ## pca_transform
 
 **Signature:**
@@ -102,9 +115,11 @@ pca_transform(model STRUCT, x DOUBLE[]) -> DOUBLE[]
 
 Scores of the feature vector `x` on every component of `model` (the STRUCT
 returned by `pca_agg`): `x` minus the model's `center`, times each component's
-loadings, as R's `predict(prcomp_fit, newdata)`. `x` must have `n_features`
-values. The result is NULL when the model or `x` is NULL, or `x` holds a NULL.
-Any STRUCT with the fields `center`, `sdev` and `loadings` is accepted.
+loadings, as R's `predict(prcomp_fit, newdata)`; for a scaled model
+(`{'scale': true}`) the centred row is first divided by the model's `scale`.
+`x` must have `n_features` values. The result is NULL when the model or `x` is
+NULL, or `x` holds a NULL. Any STRUCT with the fields `center`, `sdev` and
+`loadings` (and optionally `scale`) is accepted.
 
 **Example:**
 

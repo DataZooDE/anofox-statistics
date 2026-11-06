@@ -13,6 +13,7 @@
 
 use crate::splines::{SplineBasis, SplineKind, SplineSpec};
 use crate::{StatsError, StatsResult};
+use anofox_regression::design::DesignError;
 pub use anofox_regression::effects::ContrastEstimate;
 use anofox_regression::effects::{Critical, ModelSpec};
 use faer::{Col, Mat};
@@ -112,6 +113,18 @@ fn invalid(msg: String) -> StatsError {
     StatsError::InvalidInput(msg)
 }
 
+/// An upstream design error as an input error; a value that is not a level of
+/// a categorical predictor (`DesignError::UnknownLevel`) names the value and
+/// the predictor.
+fn design_error(e: DesignError) -> StatsError {
+    match e {
+        DesignError::UnknownLevel { predictor, value } => invalid(format!(
+            "value {value} is not a level of categorical {predictor}"
+        )),
+        other => invalid(other.to_string()),
+    }
+}
+
 /// Sorted distinct values.
 fn distinct(x: &[f64]) -> Vec<f64> {
     let mut v = x.to_vec();
@@ -126,8 +139,6 @@ pub struct Effects {
     spec: ModelSpec,
     /// The non-interaction terms in order.
     predictors: Vec<TermKind>,
-    /// Levels of each predictor (categorical) as used by the spec.
-    levels: Vec<Option<Vec<f64>>>,
     /// Number of design columns (no intercept).
     n_columns: usize,
 }
@@ -174,7 +185,6 @@ impl Effects {
             return Err(invalid("the predictor data must be finite".into()));
         }
         let mut spec = ModelSpec::new();
-        let mut levels = Vec::with_capacity(predictors.len());
         for (k, (term, x)) in predictors.iter().zip(columns).enumerate() {
             // Upstream names the predictor in its errors (e.g. a value that is
             // not a level): use the 1-based position the extension reports.
@@ -186,7 +196,6 @@ impl Effects {
             match term {
                 TermKind::Linear => {
                     spec.linear(&name, data);
-                    levels.push(None);
                 }
                 TermKind::Rcs { knots, norm } => {
                     let basis = SplineBasis::new(&spline(SplineKind::Rcs, knots, *norm))?;
@@ -194,7 +203,6 @@ impl Effects {
                         unreachable!()
                     };
                     spec.rcs(&name, r, data);
-                    levels.push(None);
                 }
                 TermKind::Lsp { knots } => {
                     let basis = SplineBasis::new(&spline(SplineKind::Lsp, knots, 2))?;
@@ -202,7 +210,6 @@ impl Effects {
                         unreachable!()
                     };
                     spec.lsp(&name, l, data);
-                    levels.push(None);
                 }
                 TermKind::Categorical { levels: given } => {
                     let given = given.as_ref().map(|g| distinct(g));
@@ -221,18 +228,9 @@ impl Effects {
                                 k + 1
                             )));
                         };
-                        if let Some(v) = x
-                            .iter()
-                            .find(|v| g.binary_search_by(|l| l.total_cmp(v)).is_err())
-                        {
-                            return Err(invalid(format!(
-                                "value {} is not a level of categorical term {}",
-                                v,
-                                k + 1
-                            )));
-                        }
+                        // A value that is not a level is rejected by upstream's
+                        // `ModelSpec::design` (DesignError::UnknownLevel).
                         spec.categorical(&name, &g);
-                        levels.push(Some(g));
                     } else {
                         let found = distinct(x);
                         if let Some(g) = given {
@@ -246,7 +244,6 @@ impl Effects {
                             }
                         }
                         spec.categorical(&name, x);
-                        levels.push(Some(found));
                     }
                 }
                 TermKind::Interaction { .. } => unreachable!(),
@@ -285,7 +282,6 @@ impl Effects {
         Ok(Self {
             spec,
             predictors,
-            levels,
             n_columns,
         })
     }
@@ -317,14 +313,10 @@ impl Effects {
             return Err(invalid("wrong number of predictor columns".into()));
         }
         for (k, x) in columns.iter().enumerate() {
-            self.check_values(k, x)?;
+            self.check_finite(k, x)?;
         }
         let refs: Vec<&[f64]> = columns.iter().map(Vec::as_slice).collect();
-        let m = self
-            .spec
-            .design(&refs)
-            .map_err(|e| invalid(e.to_string()))?
-            .matrix();
+        let m = self.spec.design(&refs).map_err(design_error)?.matrix();
         let mut out = Vec::with_capacity(m.nrows() * m.ncols());
         for i in 0..m.nrows() {
             for j in 0..m.ncols() {
@@ -341,27 +333,6 @@ impl Effects {
                 v,
                 k + 1
             )));
-        }
-        Ok(())
-    }
-
-    /// Finite values that are levels of a categorical predictor. Only the
-    /// design needs this check: upstream's `row` (contrasts, effect grids)
-    /// rejects a value that is not a level itself.
-    fn check_values(&self, k: usize, values: &[f64]) -> StatsResult<()> {
-        self.check_finite(k, values)?;
-        if let Some(levels) = &self.levels[k] {
-            if let Some(v) = values
-                .iter()
-                .find(|v| levels.binary_search_by(|l| l.total_cmp(v)).is_err())
-            {
-                return Err(invalid(format!(
-                    "value {} is not a level of categorical predictor {} (levels {:?})",
-                    v,
-                    k + 1,
-                    levels
-                )));
-            }
         }
         Ok(())
     }
@@ -642,7 +613,9 @@ mod tests {
             e.design(&[vec![2.0], vec![3.0]]).unwrap(),
             vec![2.0, 0.0, 1.0, 0.0, 2.0]
         );
-        assert!(Effects::new(&terms, &[vec![2.0], vec![4.0]], true).is_err());
+        // A value that is not a level: upstream's DesignError::UnknownLevel.
+        let err = e.design(&[vec![2.0], vec![4.0]]).unwrap_err().to_string();
+        assert!(err.contains("is not a level"), "{err}");
         let no_levels = vec![TermKind::Linear, TermKind::Categorical { levels: None }];
         assert!(Effects::new(&no_levels, &[vec![1.0], vec![1.0]], true).is_err());
     }

@@ -43,6 +43,8 @@ pub struct EmbeddingDriftResultFFI {
     pub n1: usize,
     pub n2: usize,
     pub dim: usize,
+    /// Kernel bandwidth of the `mmd` method; NaN for the other methods.
+    pub bandwidth: f64,
     pub drifted: bool,
 }
 
@@ -54,6 +56,7 @@ impl From<&EmbeddingDrift> for EmbeddingDriftResultFFI {
             n1: d.n1,
             n2: d.n2,
             dim: d.dim,
+            bandwidth: d.bandwidth.unwrap_or(f64::NAN),
             drifted: d.drifted,
         }
     }
@@ -71,7 +74,8 @@ pub struct MultivariateTestOptionsFFI {
     pub n_permutations: usize,
     pub seed: u64,
     pub degree: u32,
-    /// MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial.
+    /// MMD kernel: 0 gaussian, 1 laplacian, 2 linear, 3 polynomial, 4 gaussian
+    /// with the median-heuristic bandwidth (`bandwidth` unused).
     pub kernel: i32,
     pub has_seed: bool,
 }
@@ -86,6 +90,9 @@ pub struct MultivariateTestResultFFI {
     pub n2: usize,
     pub dim: usize,
     pub n_permutations: usize,
+    /// Bandwidth of the gaussian / laplacian MMD kernel (the median heuristic's
+    /// with kernel 4); NaN otherwise.
+    pub bandwidth: f64,
     /// Unified test fields (#159); keep last.
     pub unified: TestSummaryFFI,
 }
@@ -99,6 +106,7 @@ impl From<&MultivariateTestResult> for MultivariateTestResultFFI {
             n2: r.n2,
             dim: r.dim,
             n_permutations: r.n_permutations,
+            bandwidth: r.bandwidth.unwrap_or(f64::NAN),
             unified: TestSummaryFFI::from(&r.unified),
         }
     }
@@ -250,6 +258,7 @@ pub unsafe extern "C" fn anofox_multivariate_two_sample(
                     bandwidth: options.bandwidth,
                 },
                 2 => Kernel::Linear,
+                4 => Kernel::GaussianMedianHeuristic,
                 3 => Kernel::Polynomial {
                     degree: options.degree,
                     scale: options.scale,

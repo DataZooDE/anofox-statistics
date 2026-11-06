@@ -149,7 +149,7 @@ pub(crate) fn lm_cluster_inference(
     }
 }
 
-fn inference_from_vcov(
+pub(crate) fn inference_from_vcov(
     input: &LmClusterInput<'_>,
     summary: &mut ModelSummary,
     v: &Mat<f64>,
@@ -223,13 +223,28 @@ fn inference_from_vcov(
         f_pvalue: Some(f_pvalue),
     };
 
-    // Covariance in the full feature layout, zero for columns not in the design.
-    let dim = input.n_features + off;
+    (
+        inference,
+        expand_vcov(v, input.kept, input.n_features, off == 1),
+    )
+}
+
+/// A covariance over `[intercept,] kept` (upstream's layout of a fit on the
+/// kept columns) in the full feature layout: row-major, intercept first,
+/// zero rows / columns for the columns that are not in the design.
+pub(crate) fn expand_vcov(
+    v: &Mat<f64>,
+    kept: &[usize],
+    n_features: usize,
+    has_intercept: bool,
+) -> Vcov {
+    let off = usize::from(has_intercept);
+    let dim = n_features + off;
     let pos = |k: usize| {
         if k < off {
             k
         } else {
-            off + input.kept[k - off]
+            off + kept[k - off]
         }
     };
     let mut full = vec![0.0; dim * dim];
@@ -238,7 +253,7 @@ fn inference_from_vcov(
             full[pos(a) * dim + pos(b)] = v[(a, b)];
         }
     }
-    (inference, (full, dim))
+    (full, dim)
 }
 
 /// OLS with a cluster-robust covariance (`sandwich::vcovCL(lm(...), cluster,
@@ -252,6 +267,27 @@ pub fn fit_ols_cluster(
 ) -> StatsResult<ClusterFit> {
     validate_spec(spec, y.len())?;
     crate::models::ols::fit_ols_impl(y, x, options, Some(spec))
+}
+
+/// OLS whose covariance is the one its inference uses: with `hc_type` the
+/// HC covariance (`sandwich::vcovHC(lm(...), type)`, upstream
+/// `FittedOls::hc_vcov`), otherwise none (the classical `σ̂²(XᵀX)⁻¹` is
+/// formed by the caller). `vcov` is `None` without inference or when the HC
+/// covariance is not available (a leverage-1 row for HC2 / HC3).
+pub fn fit_ols_hc(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<ClusterFit> {
+    crate::models::ols::fit_ols_impl(y, x, options, None)
+}
+
+/// WLS as [`fit_ols_hc`]: with `hc_type` the HC covariance of the weighted
+/// fit (`sandwich::vcovHC(lm(..., weights = w), type)`, upstream
+/// `FittedWls::hc_vcov`).
+pub fn fit_wls_hc(
+    y: &[f64],
+    x: &[Vec<f64>],
+    weights: &[f64],
+    options: &WlsOptions,
+) -> StatsResult<ClusterFit> {
+    crate::models::wls::fit_wls_impl(y, x, weights, options, None)
 }
 
 /// WLS with a cluster-robust covariance (`sandwich::vcovCL(lm(..., weights), ...)`).

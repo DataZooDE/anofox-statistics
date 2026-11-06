@@ -89,6 +89,10 @@ inline AnofoxPriorSpec ToFfiPrior(const PriorSpecOpt &spec) {
 
 inline AnofoxVcovType ToFfiVcov(VcovTypeOpt v) {
 	switch (v) {
+	case VcovTypeOpt::CLUSTER:
+		// The cluster forms (glm_cluster.hpp) reset it to the default before this point.
+		throw InvalidInputException("vcov 'cluster' needs the cluster ids: use the cluster form of the fit, e.g. "
+		                            "poisson_fit_agg(y, x, cluster, {'vcov': 'cluster'})");
 	case VcovTypeOpt::SANDWICH:
 		return ANOFOX_VCOV_SANDWICH;
 	case VcovTypeOpt::NAIVE:

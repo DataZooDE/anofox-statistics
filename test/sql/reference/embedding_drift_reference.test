@@ -64,11 +64,18 @@ true	false
 # mmd: unbiased MMD^2 with exp(-|a - b|^2 / s2), s2 = median cross distance^2
 # (1.89271827844197); evidently's fixed threshold 0.015
 # ---------------------------------------------------------------------------
-query IIII
-SELECT r.method, abs(r.score - 0.0232831661825482) < 1e-12, r.threshold, r.drifted
+query IIIII
+SELECT r.method, abs(r.score - 0.0232831661825482) < 1e-12, r.threshold, r.drifted,
+       abs(r.bandwidth - 0.972809919368107) < 1e-12
 FROM (SELECT embedding_drift_agg(e, grp, {'method': 'mmd'}) r FROM emb);
 ----
-mmd	true	0.015	true
+mmd	true	0.015	true	true
+
+# The bandwidth (drift::embedding_mmd_bandwidth, sqrt(s2 / 2)) is reported for 'mmd' only.
+query I
+SELECT (embedding_drift_agg(e, grp)).bandwidth IS NULL FROM emb;
+----
+true
 
 # ---------------------------------------------------------------------------
 # energy_distance_test_agg: 2 E|X-Y| - E|X-X'| - E|Y-Y'| (within means over i != j).
@@ -86,7 +93,7 @@ true	true	30	25	3	1000	55	two_sided
 # mmd_test_agg: unbiased MMD^2 with the given kernel
 # ---------------------------------------------------------------------------
 query IIIIII
-SELECT abs((mmd_test_agg(e, grp)).statistic - 0.0240892109612384) < 1e-12,
+SELECT abs((mmd_test_agg(e, grp, {'bandwidth': 1.0})).statistic - 0.0240892109612384) < 1e-12,
        abs((mmd_test_agg(e, grp, {'bandwidth': 0.5})).statistic - 0.00897521533440643) < 1e-12,
        abs((mmd_test_agg(e, grp, {'kernel': 'laplacian'})).statistic - 0.0325895080006817) < 1e-12,
        abs((mmd_test_agg(e, grp, {'kernel': 'linear'})).statistic - 0.169391566507339) < 1e-12,
@@ -96,6 +103,26 @@ SELECT abs((mmd_test_agg(e, grp)).statistic - 0.0240892109612384) < 1e-12,
 FROM emb;
 ----
 true	true	true	true	true	true
+
+# Default gaussian bandwidth: the median heuristic max(median(dist(rbind(x, y))), 0.01)
+# (upstream Kernel::GaussianMedianHeuristic), also as 'bandwidth': 'median'; the result
+# reports the bandwidth used (NULL for the linear / polynomial kernels).
+query IIIIII
+SELECT abs((mmd_test_agg(e, grp)).statistic - 0.0291538926425603) < 1e-12,
+       abs((mmd_test_agg(e, grp)).bandwidth - 1.35776268356648) < 1e-12,
+       (mmd_test_agg(e, grp, {'bandwidth': 'median'})).statistic = (mmd_test_agg(e, grp)).statistic,
+       (mmd_test_agg(e, grp, {'bandwidth': 0.5})).bandwidth = 0.5,
+       (mmd_test_agg(e, grp, {'kernel': 'laplacian'})).bandwidth = 1.0,
+       (mmd_test_agg(e, grp, {'kernel': 'linear'})).bandwidth IS NULL
+FROM emb;
+----
+true	true	true	true	true	true
+
+# 1-D rows: the default is mmd_agg's statistic (mmd_test_1d uses the same median heuristic).
+query I
+SELECT abs((mmd_test_agg([e[1]], grp)).statistic - (mmd_agg(e[1], grp::INTEGER)).statistic) < 1e-12 FROM emb;
+----
+true
 
 # Separated samples: no permutation reaches the observed statistic, p = 1 / (B + 1).
 query II

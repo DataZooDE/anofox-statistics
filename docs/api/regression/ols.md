@@ -90,7 +90,7 @@ ORDER BY region;
 | `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add standard errors, t-values, p-values, confidence intervals and the F-test |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
-| `hc_type` | VARCHAR | `'none'` | Robust standard errors: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `hc_type` | VARCHAR | `'none'` | Robust standard errors, `sandwich::vcovHC(lm, type = )`: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'`; `vcov` is then the HC covariance (the F test stays the classical one) |
 | `compute_loo` | BOOLEAN | `false` | Fill the leave-one-out fields `press`, `press_rmse`, `loo_r_squared` (one more QR of the design); independent of `compute_inference` |
 | `alias_tolerance` | DOUBLE | `1e-7` | Tolerance of the collinearity (aliasing) test, as R `lm`'s `tol`: a column whose residual norm, relative to its own norm, is below it after projecting out the earlier columns is aliased (NaN coefficient). Must be > 0 |
 
@@ -151,7 +151,7 @@ Always present:
 | `model_type` | `VARCHAR` | `'ols'` |
 | `family` | `VARCHAR` | `'gaussian'` |
 | `link` | `VARCHAR` | `'identity'` |
-| `vcov` | `DOUBLE[]` | Coefficient covariance `σ²(X'X)⁻¹`, row-major `k × k`, intercept first; only with `compute_inference` (used by [`predict`](model_tools.md#standard-errors-and-intervals) for `se_fit` / intervals) |
+| `vcov` | `DOUBLE[]` | Coefficient covariance `σ²(X'X)⁻¹`, row-major `k × k`, intercept first; with `hc_type` the HC covariance `sandwich::vcovHC(lm, type)` the standard errors use (upstream `FittedOls::hc_vcov`; NULL when it is undefined, as the standard errors); only with `compute_inference` (used by [`predict`](model_tools.md#standard-errors-and-intervals) for `se_fit` / intervals) |
 | `df_residual` | `DOUBLE` | `n − k`; only with `compute_inference` |
 | `press` | `DOUBLE` | Leave-one-out prediction sum of squares `Σ (eᵢ / (1 − hᵢᵢ))²` (R: `sum(rstandard(fit, type = "predictive")^2)`); NULL unless `compute_loo`, and if a row has leverage 1 |
 | `press_rmse` | `DOUBLE` | `sqrt(press / n_observations)` |
@@ -207,7 +207,8 @@ wls_fit_agg(y DOUBLE, x DOUBLE[], weight DOUBLE, cluster ANY, options MAP) -> ST
   mixed ids (`[firm, year::VARCHAR]`) or use a `STRUCT`.
 - **`options`** is required (`MAP {}` for the defaults): it tells the cluster
   overload apart from `ols_fit_agg(y, x, options)`. `compute_inference`
-  defaults to **true** here; the other keys are those of [Options](#options), plus `cadjust`.
+  defaults to **true** here; the other keys are those of [Options](#options), plus `cadjust`
+  and `'vcov': 'cluster'` (optional here; the GLM cluster forms need it).
 - **`hc_type`** chooses `vcovCL`'s `type`: `'hc1'` (the default; also for
   `'none'`) multiplies by `(n − 1)/(n − k)`, `'hc0'` does not, `'hc2'` is the
   bias-reduced linearization (Bell-McCaffrey, CR2) and `'hc3'` the

@@ -104,7 +104,10 @@ enum class VcovTypeOpt {
 	/// (X'WX + P)^-1 X'WX (X'WX + P)^-1.
 	SANDWICH,
 	/// (X'WX)^-1 -- ignores the penalty; reproduces pre-Laplace standard errors.
-	NAIVE
+	NAIVE,
+	/// Cluster-robust sandwich (sandwich::vcovCL / survreg(cluster =)); only with the
+	/// cluster forms of the GLM / AFT / OLS / WLS fits, which take the cluster ids.
+	CLUSTER
 };
 
 enum class LambdaScaling { RAW, GLMNET };
@@ -838,7 +841,10 @@ struct MultivariateTestMapOptions {
 	std::optional<uint32_t> n_permutations; // default 1000
 	std::optional<uint64_t> seed;           // default ANOFOX_DEFAULT_MC_SEED
 	std::optional<string> kernel;           // gaussian (default) / laplacian / linear / polynomial
-	std::optional<double> bandwidth;        // gaussian, laplacian; default 1
+	std::optional<double> bandwidth;        // gaussian, laplacian; laplacian default 1
+	//! 'bandwidth': 'median': the median-heuristic bandwidth (gaussian only). The gaussian
+	//! kernel uses it when no bandwidth is given, as mmd_agg and evidently do.
+	bool median_bandwidth = false;
 	std::optional<uint32_t> degree;         // polynomial; default 2
 	std::optional<double> scale;            // polynomial; default 1
 	std::optional<double> offset;           // polynomial; default 1

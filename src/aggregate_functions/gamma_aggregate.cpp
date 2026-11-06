@@ -13,6 +13,8 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_weights_arg.hpp"
 #include "../include/glm_prior_options.hpp"
+#include "../include/cluster_ids.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/model_struct.hpp"
 #include "../include/profile_ci.hpp"
 #include "telemetry.hpp"
@@ -32,6 +34,7 @@ struct GammaAggregateState {
 	vector<double> y_values;
 	vector<double> weights; // prior weights (#305); empty unless weighted
 	vector<vector<double>> x_columns;
+	ClusterRows cluster; // cluster ids of the cluster form; empty otherwise
 	idx_t n_features;
 	bool initialized;
 
@@ -53,6 +56,7 @@ struct GammaAggregateState {
 		y_values.clear();
 		weights.clear();
 		x_columns.clear();
+		cluster.Clear();
 		n_features = 0;
 		initialized = false;
 	}
@@ -69,6 +73,7 @@ struct GammaAggregateBindData : public FunctionData {
 	idx_t offset_column = 0;
 	bool weighted = false; // f(y, x, w [, options]) (#305)
 	bool profile_ci = false;
+	ClusterBind cluster; // f(y, x, cluster, {'vcov': 'cluster', ...})
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<GammaAggregateBindData>();
@@ -82,6 +87,7 @@ struct GammaAggregateBindData : public FunctionData {
 		result->offset_column = offset_column;
 		result->weighted = weighted;
 		result->profile_ci = profile_ci;
+		result->cluster = cluster;
 		return std::move(result);
 	}
 
@@ -89,11 +95,12 @@ struct GammaAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<GammaAggregateBindData>();
 		return fit_intercept == o.fit_intercept && max_iterations == o.max_iterations && tolerance == o.tolerance &&
 		       compute_inference == o.compute_inference && confidence_level == o.confidence_level &&
-		       offset_column == o.offset_column && weighted == o.weighted && profile_ci == o.profile_ci;
+		       offset_column == o.offset_column && weighted == o.weighted && profile_ci == o.profile_ci &&
+		       cluster.Equals(o.cluster);
 	}
 };
 
-static LogicalType GetGammaAggResultType() {
+static LogicalType GetGammaAggResultType(bool clustered = false) {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -119,6 +126,9 @@ static LogicalType GetGammaAggResultType() {
 
 	AppendModelSummaryFields(children);
 	AppendCovarianceFields(children);
+	if (clustered) {
+		AppendClusterFields(children);
+	}
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -189,6 +199,10 @@ static void GammaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 
 		auto list_entry = x_list_data[x_idx];
 		idx_t n_features = list_entry.length;
+		vector<string> cluster_ids;
+		if (bind_data.cluster.active && !ReadClusterIds(inputs[2].GetValue(i), cluster_ids)) {
+			continue; // NULL cluster id: the row is left out
+		}
 
 		if (!state.initialized) {
 			state.n_features = n_features;
@@ -208,6 +222,9 @@ static void GammaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 				continue; // NULL weight: the row is left out, as wls_fit_agg
 			}
 			state.weights.push_back(w_val);
+		}
+		if (bind_data.cluster.active) {
+			state.cluster.Push(cluster_ids, "gamma_fit_agg");
 		}
 		state.y_values.push_back(y_val);
 
@@ -236,6 +253,7 @@ static void GammaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
 			continue;
 		}
 
+		target.cluster.Append(source.cluster, "gamma_fit_agg");
 		if (!target.initialized) {
 			target.y_values = CombineTake(source.y_values, aggr_input_data);
 			target.weights = CombineTake(source.weights, aggr_input_data);
@@ -285,6 +303,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 
 static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                              idx_t offset) {
+	auto &bind = aggr_input_data.bind_data->Cast<GammaAggregateBindData>();
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (GammaAggregateState **)sdata.data;
@@ -303,10 +322,18 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
 		// Canonical row order: bitwise-identical results whatever the thread count (#226).
 		const bool weighted = !state.weights.empty();
+		const bool clustered = !state.cluster.dims.empty();
 		if (weighted) {
 			CanonicalRows().Keys(state.x_columns).Key(state.y_values).Key(state.weights).Sort();
 		} else {
-			SortRowsCanonically(state.y_values, state.x_columns);
+			if (clustered) {
+				CanonicalRows rows;
+				rows.Keys(state.x_columns).Key(state.y_values);
+				state.cluster.AddTo(rows);
+				rows.Sort();
+			} else {
+				SortRowsCanonically(state.y_values, state.x_columns);
+			}
 		}
 		AnofoxDataArray y_array;
 		y_array.data = state.y_values.data();
@@ -340,15 +367,24 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		// Prior weights (#305): upstream's weighted Gamma fit; the unweighted fit is unchanged.
 		AnofoxDataArray w_array {state.weights.data(), nullptr, state.weights.size()};
 		AnofoxFitResultInference *inference_out = state.compute_inference ? &inference_result : nullptr;
-		bool success = weighted ? anofox_gamma_fit_weighted(y_array, x_arrays.data(), x_arrays.size(), w_array, options,
+		auto cluster_ptrs = state.cluster.Pointers();
+		vector<int64_t> n_clusters(cluster_ptrs.size(), 0);
+		bool success =
+		    clustered ? anofox_gamma_cluster_fit(y_array, x_arrays.data(), x_arrays.size(), options, cluster_ptrs.data(),
+		                                     cluster_ptrs.size(), ConvertHcType(bind.cluster.hc_type), bind.cluster.cadjust,
+		                                     &core_result, inference_out, n_clusters.data(), &error)
+		              : (weighted ? anofox_gamma_fit_weighted(y_array, x_arrays.data(), x_arrays.size(), w_array, options,
 		                                                 &core_result, inference_out, &error)
 		                        : anofox_gamma_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
-		                                          inference_out, &error);
+		                                          inference_out, &error));
 
 		if (!success) {
 			ThrowUnlessDegenerate("gamma_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
+		}
+		if (state.profile_ci && clustered) {
+			throw InvalidInputException("gamma_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 		if (state.profile_ci) {
 			if (weighted) {
@@ -387,6 +423,9 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			anofox_free_result_inference(&inference_result);
 		}
 
+		if (bind.cluster.active) {
+			WriteClusterFields(result, result_idx, state.compute_inference, bind.cluster.VcovTypeName(), n_clusters);
+		}
 		anofox_free_glm_result(&core_result);
 
 		state.Reset();
@@ -403,7 +442,14 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateBi
 	if (arguments.size() > options_idx) {
 		auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[options_idx], "gamma_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "glm_lambda", "feature_names", "prior", "vcov", "profile_ci", "hc_type", "cadjust"});
+		result->cluster.Load(opts, GlmClusterForm(opts, arguments), true, "gamma_fit_agg",
+		                     "gamma_fit_agg(y, x, cluster, {'vcov': 'cluster'})");
+		if (result->cluster.active) {
+			result->weighted = false;
+			result->compute_inference = true; // the default of the cluster form, as ols_fit_agg's
+		}
+		CheckGlmWeightsArgument(arguments, result->weighted, "gamma_fit_agg");
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
@@ -432,9 +478,9 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateBi
 		}
 	}
 
-	SetReturnTypeOf(function, GetGammaAggResultType());
+	SetReturnTypeOf(function, GetGammaAggResultType(result->cluster.active));
 
-	PostHogTelemetry::Instance().RecordFunctionCall("gamma_fit_agg");
+	PostHogTelemetry::Instance().RecordFunctionCall(result->cluster.active ? "gamma_fit_agg_cluster" : "gamma_fit_agg");
 	return std::move(result);
 }
 
@@ -452,6 +498,15 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, ANOFOX_AGG_INIT(GammaAggInitialize), ANOFOX_GUARDED_UPDATE(GammaAggUpdate, GammaAggDestroy, GammaAggInitialize),
 	    GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, ANOFOX_AGG_BIND(GammaAggBind), GammaAggDestroy);
 	func_set.AddFunction(map_func);
+	// (y, x, cluster, {'vcov': 'cluster'}): the cluster-robust covariance (also (y, x, w, options) with a
+	// non-DOUBLE numeric w).
+	func_set.AddFunction(AggregateFunction(
+	    "gamma_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
+	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, ANOFOX_AGG_INIT(GammaAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(GammaAggUpdate, GammaAggDestroy, GammaAggInitialize), GammaAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr,
+	    ANOFOX_AGG_BIND(GammaAggBind), GammaAggDestroy));
 
 	// (y, x, w, options): prior weights (#305). (y, x, w) is the ANY overload above
 	// with a numeric third argument.
@@ -491,6 +546,7 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
 	                      LogicalType::ANY};
 	info.descriptions.push_back(std::move(d3));
+	info.descriptions.push_back(GlmClusterDescription("gamma_fit_agg"));
 	loader.RegisterFunction(std::move(info));
 
 }

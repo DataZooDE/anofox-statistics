@@ -35,6 +35,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
 #include "../include/cluster_fit.hpp"
+#include "../include/cluster_ids.hpp"
 #include "telemetry.hpp"
 #include "list_input.hpp"
 #include "../include/min_obs_guard.hpp"
@@ -44,49 +45,6 @@
 namespace duckdb {
 
 namespace {
-
-//! One clustering dimension: dense ids per row and their labels.
-struct ClusterDim {
-	vector<int32_t> ids;
-	vector<string> labels;
-	unique_ptr<unordered_map<string, int32_t>> index;
-
-	int32_t Intern(const string &key) {
-		if (!index) {
-			index = make_uniq<unordered_map<string, int32_t>>();
-		}
-		auto it = index->find(key);
-		if (it != index->end()) {
-			return it->second;
-		}
-		auto id = static_cast<int32_t>(labels.size());
-		index->emplace(key, id);
-		labels.push_back(key);
-		return id;
-	}
-
-	//! Renumber by sorted label, so the codes do not depend on the row order.
-	void Canonicalize() {
-		const idx_t g = labels.size();
-		vector<idx_t> order(g);
-		std::iota(order.begin(), order.end(), 0);
-		std::sort(order.begin(), order.end(), [&](idx_t a, idx_t b) { return labels[a] < labels[b]; });
-		vector<int32_t> rank(g);
-		vector<string> sorted(g);
-		for (idx_t r = 0; r < g; r++) {
-			rank[order[r]] = static_cast<int32_t>(r);
-			sorted[r] = labels[order[r]];
-		}
-		for (auto &id : ids) {
-			id = rank[id];
-		}
-		labels = std::move(sorted);
-		index = make_uniq<unordered_map<string, int32_t>>();
-		for (idx_t r = 0; r < g; r++) {
-			index->emplace(labels[r], static_cast<int32_t>(r));
-		}
-	}
-};
 
 struct ClusterFitState {
 	vector<double> y_values;
@@ -177,31 +135,6 @@ LogicalType GetClusterFitResultType() {
 	children.push_back(make_pair("vcov_type", LogicalType::VARCHAR));
 	children.push_back(make_pair("n_clusters", LogicalType::LIST(LogicalType::BIGINT)));
 	return LogicalType::STRUCT(std::move(children));
-}
-
-//! The per-row ids of the cluster argument: one per dimension (LIST / STRUCT
-//! elements, or the scalar itself). False when the row has a NULL id.
-bool ReadClusterIds(const Value &v, vector<string> &out) {
-	out.clear();
-	if (v.IsNull()) {
-		return false;
-	}
-	const auto type_id = v.type().id();
-	if (type_id == LogicalTypeId::LIST || type_id == LogicalTypeId::STRUCT) {
-		auto &children = type_id == LogicalTypeId::LIST ? ListValue::GetChildren(v) : StructValue::GetChildren(v);
-		for (auto &c : children) {
-			if (c.IsNull()) {
-				return false;
-			}
-			out.push_back(c.ToString());
-		}
-		if (out.empty()) {
-			throw InvalidInputException("cluster: a LIST / STRUCT of cluster ids must not be empty");
-		}
-		return true;
-	}
-	out.push_back(v.ToString());
-	return true;
 }
 
 void ClusterFitInitialize(data_ptr_t state_p) {
@@ -502,7 +435,13 @@ unique_ptr<FunctionData> ClusterFitBind(ClientContext &context, AggregateBindFun
 	auto opts = RegressionMapOptions::ParseFromExpression(
 	    context, *arguments[options_arg], result->Name(),
 	    {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type", "cadjust", "alias_tolerance",
-	     "compute_loo"});
+	     "compute_loo", "vcov"});
+	// 'vcov': 'cluster' is accepted for symmetry with the GLM cluster forms (which need it).
+	if (opts.vcov.has_value() && opts.vcov.value() != VcovTypeOpt::CLUSTER) {
+		throw InvalidInputException("%s: the cluster form reports the cluster-robust covariance; 'vcov' must be "
+		                            "'cluster' or left out",
+		                            result->Name());
+	}
 	if (opts.fit_intercept.has_value()) {
 		result->fit_intercept = opts.fit_intercept.value();
 	}

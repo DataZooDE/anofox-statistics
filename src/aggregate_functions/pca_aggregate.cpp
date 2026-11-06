@@ -1,7 +1,8 @@
 // Principal component analysis (#303): pca_agg, pca_transform and pca_by.
-// The analysis is upstream anofox-statistics multivariate::pca / Pca::transform
-// (R's prcomp(x, center = TRUE, scale. = FALSE) and predict.prcomp); this file
-// only buffers rows, marshals the model STRUCT and scores rows with it.
+// The analysis is upstream anofox-statistics multivariate::pca_with_options /
+// Pca::transform (R's prcomp(x, center = TRUE, scale. = FALSE | TRUE) and
+// predict.prcomp); this file only buffers rows, marshals the model STRUCT and
+// scores rows with it.
 
 #include <cmath>
 #include <vector>
@@ -51,15 +52,19 @@ struct PcaAggregateState {
 struct PcaBindData : public FunctionData {
 	//! Components kept; 0 = all.
 	idx_t n_components = 0;
+	//! Standardise the columns (prcomp(scale. = TRUE)).
+	bool scale = false;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto copy = make_uniq<PcaBindData>();
 		copy->n_components = n_components;
+		copy->scale = scale;
 		return std::move(copy);
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
-		return n_components == other_p.Cast<PcaBindData>().n_components;
+		auto &other = other_p.Cast<PcaBindData>();
+		return n_components == other.n_components && scale == other.scale;
 	}
 };
 
@@ -72,6 +77,8 @@ static LogicalType GetPcaAggResultType() {
 	children.push_back(make_pair("n_components", LogicalType::BIGINT));
 	children.push_back(make_pair("n_features", LogicalType::BIGINT));
 	children.push_back(make_pair("n_observations", LogicalType::BIGINT));
+	// Column standard deviations the data were divided by ('scale': true); NULL when unscaled.
+	children.push_back(make_pair("scale", LogicalType::LIST(LogicalType::DOUBLE)));
 	return LogicalType::STRUCT(std::move(children));
 }
 
@@ -205,7 +212,7 @@ static void PcaAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
 		AnofoxPcaResult fit;
 		AnofoxError error;
-		if (!anofox_pca_fit(data.data(), n, d, bind.n_components, &fit, &error)) {
+		if (!anofox_pca_fit(data.data(), n, d, bind.n_components, bind.scale, &fit, &error)) {
 			ThrowUnlessDegenerate("pca_agg", error);
 			FlatVector::SetNull(result, row, true);
 			continue;
@@ -227,6 +234,11 @@ static void PcaAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = static_cast<int64_t>(k);
 		FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(fit.n_features);
 		FlatDataMut<int64_t>(StructEntry(entries[6]))[row] = static_cast<int64_t>(fit.n_observations);
+		if (fit.scale) {
+			AppendDoubleList(StructEntry(entries[7]), row, fit.scale, fit.n_features);
+		} else {
+			FlatVector::SetNull(StructEntry(entries[7]), row, true);
+		}
 		anofox_free_pca_result(&fit);
 		state.Reset();
 	}
@@ -236,7 +248,37 @@ static unique_ptr<FunctionData> PcaAggBind(ClientContext &context, AggregateBind
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<PcaBindData>();
 	if (arguments.size() >= 2) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[1], "pca_agg", {"n_components"});
+		// 'scale' is read here: the shared parser treats it as an alias of Huber's scale_method.
+		Value options = EvaluateConstantOptions(context, *arguments[1], "pca_agg");
+		child_list_t<Value> rest;
+		auto visit = [&](const string &key, const Value &val) {
+			if (StringUtil::Lower(key) == "scale") {
+				if (val.IsNull()) {
+					throw InvalidInputException("pca_agg: option 'scale' must be true or false, not NULL");
+				}
+				bind->scale = val.DefaultCastAs(LogicalType::BOOLEAN).GetValue<bool>();
+			} else {
+				rest.push_back(std::make_pair(AsDuckName(key), val));
+			}
+		};
+		if (!options.IsNull()) {
+			auto unwrapped = UnwrapVariant(options);
+			if (unwrapped.type().id() == LogicalTypeId::STRUCT) {
+				auto &vals = StructValue::GetChildren(unwrapped);
+				for (idx_t i = 0; i < vals.size(); i++) {
+					visit(NameString(StructType::GetChildName(unwrapped.type(), i)), UnwrapVariant(vals[i]));
+				}
+			} else if (unwrapped.type().id() == LogicalTypeId::MAP) {
+				for (auto &entry : MapValue::GetChildren(unwrapped)) {
+					auto &kv = StructValue::GetChildren(entry);
+					visit(kv[0].ToString(), UnwrapVariant(kv[1]));
+				}
+			} else {
+				throw InvalidInputException("pca_agg: options must be a MAP or STRUCT");
+			}
+		}
+		auto opts = RegressionMapOptions::ParseFromValue(rest.empty() ? Value() : Value::STRUCT(std::move(rest)),
+		                                                 "pca_agg", {"n_components"});
 		if (opts.n_components.has_value()) {
 			if (opts.n_components.value() == 0) {
 				throw InvalidInputException("pca_agg: option 'n_components' must be at least 1");
@@ -256,18 +298,22 @@ struct PcaTransformBindData : public FunctionData {
 	idx_t center_idx = DConstants::INVALID_INDEX;
 	idx_t sdev_idx = DConstants::INVALID_INDEX;
 	idx_t loadings_idx = DConstants::INVALID_INDEX;
+	//! Optional: the column sds of a scaled model (absent in models from before 'scale').
+	idx_t scale_idx = DConstants::INVALID_INDEX;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto copy = make_uniq<PcaTransformBindData>();
 		copy->center_idx = center_idx;
 		copy->sdev_idx = sdev_idx;
 		copy->loadings_idx = loadings_idx;
+		copy->scale_idx = scale_idx;
 		return std::move(copy);
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<PcaTransformBindData>();
-		return center_idx == other.center_idx && sdev_idx == other.sdev_idx && loadings_idx == other.loadings_idx;
+		return center_idx == other.center_idx && sdev_idx == other.sdev_idx && loadings_idx == other.loadings_idx &&
+		       scale_idx == other.scale_idx;
 	}
 };
 
@@ -294,6 +340,9 @@ static unique_ptr<FunctionData> PcaTransformBind(ClientContext &context, ScalarB
 		} else if (name == "loadings") {
 			data->loadings_idx = i;
 			type = LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE));
+		} else if (name == "scale") {
+			data->scale_idx = i;
+			type = LogicalType::LIST(LogicalType::DOUBLE);
 		}
 		cast_children.push_back(MakeChild(NameString(name), type));
 	}
@@ -374,9 +423,23 @@ static void PcaTransformFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 				loadings[j * d + i] = loadings_data[e.offset + i];
 			}
 		}
+		// A scaled model (pca_agg(..., {'scale': true})) divides the centred row by its column sds.
+		const double *scale = nullptr;
+		if (bind.scale_idx != DConstants::INVALID_INDEX) {
+			auto &scale_vec = StructEntry(entries[bind.scale_idx]);
+			if (!FlatVector::IsNull(scale_vec, row)) {
+				auto sc = FlatDataMut<list_entry_t>(scale_vec)[row];
+				auto &scale_child = ListVector::GetEntry(scale_vec);
+				if (sc.length != d || ListHasNullElement(FlatValidityMut(scale_child), sc)) {
+					throw InvalidInputException("pca_transform: the model's scale must hold %llu non-NULL values",
+					                            (unsigned long long)d);
+				}
+				scale = FlatDataMut<double>(scale_child) + sc.offset;
+			}
+		}
 		vector<double> scores(k);
 		AnofoxError error;
-		if (!anofox_pca_transform(FlatDataMut<double>(center_child) + c.offset,
+		if (!anofox_pca_transform(FlatDataMut<double>(center_child) + c.offset, scale,
 		                          FlatDataMut<double>(sdev_child) + s.offset, loadings.data(), d, k,
 		                          x_child_data + x_entry.offset, x_entry.length, scores.data(), &error)) {
 			ThrowUnlessDegenerate("pca_transform", error);
@@ -431,7 +494,8 @@ void RegisterPcaFunctions(ExtensionLoader &loader) {
 		FunctionDescription d1;
 		d1.description = "Principal component analysis of a column of feature vectors (R's prcomp(x, center = TRUE, "
 		                 "scale. = FALSE)): returns STRUCT(sdev, proportion_of_variance, loadings (one list of "
-		                 "n_features loadings per component), center, n_components, n_features, n_observations). "
+		                 "n_features loadings per component), center, n_components, n_features, n_observations, "
+		                 "scale (NULL unless scaled)). "
 		                 "Each component's sign is fixed so its largest absolute loading is positive. Rows with a "
 		                 "NULL or non-finite element are skipped.";
 		d1.examples = {"pca_agg([x1, x2, x3])"};
@@ -441,8 +505,10 @@ void RegisterPcaFunctions(ExtensionLoader &loader) {
 		info.descriptions.push_back(std::move(d1));
 		FunctionDescription d2;
 		d2.description = "Principal component analysis of a column of feature vectors with options: n_components "
-		                 "keeps the first components (default all, min(n - 1, n_features)).";
-		d2.examples = {"pca_agg([x1, x2, x3], {'n_components': 2})"};
+		                 "keeps the first components (default all, min(n - 1, n_features)); scale (default false) "
+		                 "divides each centred column by its standard deviation, prcomp(scale. = TRUE), and stores "
+		                 "the sds in the model's scale field (a constant column is then an error).";
+		d2.examples = {"pca_agg([x1, x2, x3], {'n_components': 2})", "pca_agg([x1, x2, x3], {'scale': true})"};
 		d2.categories = {"multivariate"};
 		d2.parameter_names = {"x", "options"};
 		d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -462,8 +528,8 @@ void RegisterPcaFunctions(ExtensionLoader &loader) {
 		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 		FunctionDescription desc;
 		desc.description = "Scores of one feature vector on the components of a pca_agg model (R's predict.prcomp): "
-		                   "the row minus the model's center, times each component's loadings. NULL when the model "
-		                   "or x is NULL or x holds a NULL.";
+		                   "the row minus the model's center (divided by its scale for a scaled model), times each "
+		                   "component's loadings. NULL when the model or x is NULL or x holds a NULL.";
 		desc.examples = {"pca_transform(pca_agg([x1, x2]), [1.5, 2.0])"};
 		desc.categories = {"multivariate"};
 		desc.parameter_names = {"model", "x"};

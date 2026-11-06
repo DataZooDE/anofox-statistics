@@ -127,11 +127,18 @@ true
 
 # ==== TEST 12: quantile inverts the CDF for every distribution ====
 query I
-SELECT bool_and(ABS(aft_cdf(aft_quantile(p, 1.5, 0.7, d), 1.5, 0.7, d) - p) < 1e-9)
+SELECT bool_and(ABS(aft_cdf(aft_quantile(p, 1.5, sc, d), 1.5, sc, d) - p) < 1e-9)
 FROM (VALUES (0.1),(0.25),(0.5),(0.75),(0.9)) AS ps(p),
-     (VALUES ('weibull'),('lognormal'),('loglogistic'),('exponential')) AS ds(d);
+     (VALUES ('weibull', 0.7),('lognormal', 0.7),('loglogistic', 0.7),('exponential', 1.0)) AS ds(d, sc);
 ----
 true
+
+# The exponential distribution's scale is fixed at 1: other scales are not a model
+# (upstream AftResult::from_parts) and give NaN.
+query II
+SELECT isnan(aft_cdf(2.0, 1.5, 0.7, 'exponential')), isnan(aft_quantile(0.5, 1.5, 0.7, 'exponential'));
+----
+true	true
 
 # ==== TEST 13: the short alias resolves ====
 query I

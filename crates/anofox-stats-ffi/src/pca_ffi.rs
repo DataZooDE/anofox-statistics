@@ -21,6 +21,9 @@ pub struct PcaResultFFI {
     pub n_features: usize,
     pub n_components: usize,
     pub n_observations: usize,
+    /// Column standard deviations the data were divided by (`n_features`
+    /// values); NULL for an unscaled PCA.
+    pub scale: *mut f64,
 }
 
 unsafe fn malloc_copy(values: &[f64]) -> *mut f64 {
@@ -34,7 +37,7 @@ unsafe fn malloc_copy(values: &[f64]) -> *mut f64 {
     ptr
 }
 
-/// PCA (R's `prcomp(x, center = TRUE, scale. = FALSE)`) of `n_rows` rows of
+/// PCA (R's `prcomp(x, center = TRUE, scale. = scale)`) of `n_rows` rows of
 /// `n_features` values each, row-major in `data`, keeping the first
 /// `n_components` components (0: all).
 ///
@@ -47,6 +50,7 @@ pub unsafe extern "C" fn anofox_pca_fit(
     n_rows: usize,
     n_features: usize,
     n_components: usize,
+    scale: bool,
     out_result: *mut PcaResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
@@ -70,7 +74,7 @@ pub unsafe extern "C" fn anofox_pca_fit(
         } else {
             Some(n_components)
         };
-        match pca_fit(&rows, k) {
+        match pca_fit(&rows, k, scale) {
             Ok(fit) => {
                 let k = fit.sdev.len();
                 let d = fit.center.len();
@@ -85,8 +89,13 @@ pub unsafe extern "C" fn anofox_pca_fit(
                     n_features: d,
                     n_components: k,
                     n_observations: fit.n_observations,
+                    scale: fit
+                        .scale
+                        .as_deref()
+                        .map_or(std::ptr::null_mut(), |s| malloc_copy(s)),
                 };
                 let failed = (d > 0 && out.center.is_null())
+                    || (fit.scale.is_some() && d > 0 && out.scale.is_null())
                     || (k > 0
                         && (out.sdev.is_null()
                             || out.proportion_of_variance.is_null()
@@ -128,6 +137,7 @@ pub unsafe extern "C" fn anofox_free_pca_result(result: *mut PcaResultFFI) {
             &mut r.sdev,
             &mut r.proportion_of_variance,
             &mut r.loadings,
+            &mut r.scale,
         ] {
             if !p.is_null() {
                 libc::free(*p as *mut libc::c_void);
@@ -138,9 +148,10 @@ pub unsafe extern "C" fn anofox_free_pca_result(result: *mut PcaResultFFI) {
 }
 
 /// Scores of one row `x` (`x_len` values) on the `n_components` components
-/// of a fitted PCA (`predict.prcomp`): `center` has `n_features` values,
-/// `sdev` `n_components`, and `loadings` is component-major as in
-/// `PcaResultFFI`. Writes `n_components` scores to `out_scores`.
+/// of a fitted PCA (`predict.prcomp`): `center` and `scale` (NULL: unscaled)
+/// have `n_features` values, `sdev` `n_components`, and `loadings` is
+/// component-major as in `PcaResultFFI`. Writes `n_components` scores to
+/// `out_scores`.
 ///
 /// # Safety
 /// - `center` must point to `n_features` doubles, `sdev` to `n_components`,
@@ -151,6 +162,7 @@ pub unsafe extern "C" fn anofox_free_pca_result(result: *mut PcaResultFFI) {
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn anofox_pca_transform(
     center: *const f64,
+    scale: *const f64,
     sdev: *const f64,
     loadings: *const f64,
     n_features: usize,
@@ -173,6 +185,7 @@ pub unsafe extern "C" fn anofox_pca_transform(
             }
         };
         let center = view(center, n_features);
+        let scale = (!scale.is_null()).then(|| view(scale, n_features));
         let sdev = view(sdev, n_components);
         let flat = view(loadings, n_components * n_features);
         let rotation: Vec<Vec<f64>> = (0..n_features)
@@ -183,7 +196,7 @@ pub unsafe extern "C" fn anofox_pca_transform(
             })
             .collect();
         let row = view(x, x_len);
-        match pca_transform(&center, &sdev, &rotation, &[row]) {
+        match pca_transform(&center, scale.as_deref(), &sdev, &rotation, &[row]) {
             Ok(scores) => {
                 std::ptr::copy_nonoverlapping(scores[0].as_ptr(), out_scores, n_components);
                 true

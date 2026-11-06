@@ -71,7 +71,7 @@ FROM wls_demo;
 | `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add standard errors, t-values, p-values, confidence intervals and the F-test |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
-| `hc_type` | VARCHAR | `'none'` | Robust standard errors of the weighted fit, `sandwich::vcovHC(lm(..., weights = w), type = )`: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` (the F test stays the classical one) |
+| `hc_type` | VARCHAR | `'none'` | Robust standard errors of the weighted fit, `sandwich::vcovHC(lm(..., weights = w), type = )`: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'`; `vcov` is then that HC covariance (the F test stays the classical one) |
 | `alias_tolerance` | DOUBLE | `1e-7` | Tolerance of the collinearity (aliasing) test, as R `lm`'s `tol`: a column whose residual norm, relative to its own norm, is below it after projecting out the earlier columns is aliased (NaN coefficient). Must be > 0 |
 
 Option keys the function does not support raise an error.
@@ -122,7 +122,10 @@ FROM (SELECT wls_fit_agg(y, [x], weight, (x::INTEGER) % 4, MAP {}) AS m FROM wls
 With `compute_inference` the struct also carries `vcov`, the coefficient covariance
 `σ²(X'WX)⁻¹` (row-major `k × k`, intercept first), and `df_residual = n − k`;
 [`predict`](model_tools.md#standard-errors-and-intervals) uses them for `se_fit` and
-confidence / prediction intervals.
+confidence / prediction intervals. With `hc_type`, `vcov` is the HC covariance of the
+weighted fit the standard errors use, `sandwich::vcovHC(lm(..., weights = w), type)`
+(upstream `FittedWls::hc_vcov`), so `se_fit` is robust too; if it is undefined (a
+leverage-1 row for HC2 / HC3) the inference and `vcov` fall back to the classical ones.
 
 ## See Also
 

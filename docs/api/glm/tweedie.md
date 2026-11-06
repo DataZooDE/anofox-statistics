@@ -105,6 +105,21 @@ SELECT (fit).coefficients, (fit).dispersion, (fit).aic IS NULL AS no_aic
 FROM (SELECT tweedie_fit_agg(loss, [risk_score], 1 + policy_id % 2, {'power': 1.5}) AS fit FROM losses);
 ```
 
+### Cluster-robust covariance
+
+`tweedie_fit_agg(y, x, cluster, {'vcov': 'cluster', ...})` clusters the standard
+errors, z tests and `vcov` by `cluster`, as R's `sandwich::vcovCL(glm(...), cluster =
+~id)`, and appends `vcov_type` and `n_clusters`. `cluster` is one id per row of any
+type (a `LIST` / `STRUCT` of ids for multiway clustering); `'hc_type'` is `'hc0'`
+(default) or `'hc1'`, `'cadjust'` defaults to true; with priors or `glm_lambda` the
+bread is the penalized information. See [Poisson: cluster-robust
+covariance](poisson.md#cluster-robust-covariance) for the details.
+
+```sql
+SELECT (fit).std_errors, (fit).vcov_type, (fit).n_clusters
+FROM (SELECT tweedie_fit_agg(loss, [risk_score], policy_id % 10, {'vcov': 'cluster', 'power': 1.5}) AS fit FROM losses);
+```
+
 ## Prediction
 
 Apply a fitted model to new rows with

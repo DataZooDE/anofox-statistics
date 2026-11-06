@@ -998,6 +998,124 @@ FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inf
 ----
 true
 
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[1]) - (17.633953238064322)) <= 1e-06 * (1 + abs(17.633953238064322)),
+    abs((b.vcov[2]) - (-0.5107539915837932)) <= 1e-06 * (1 + abs(-0.5107539915837932)),
+    abs((b.vcov[3]) - (0.88680209130737186)) <= 1e-06 * (1 + abs(0.88680209130737186)),
+    abs((b.vcov[4]) - (-2.7338259478727851)) <= 1e-06 * (1 + abs(-2.7338259478727851)),
+    abs((b.vcov[5]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[6]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[7]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[8]) - (-0.51075399158378365)) <= 1e-06 * (1 + abs(-0.51075399158378365)),
+    abs((b.vcov[9]) - (0.015056442010842788)) <= 1e-06 * (1 + abs(0.015056442010842788)),
+    abs((b.vcov[10]) - (-0.027220219862417201)) <= 1e-06 * (1 + abs(-0.027220219862417201)),
+    abs((b.vcov[11]) - (0.085638041382451402)) <= 1e-06 * (1 + abs(0.085638041382451402)),
+    abs((b.vcov[12]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[13]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[14]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[15]) - (0.88680209130734289)) <= 1e-06 * (1 + abs(0.88680209130734289)),
+    abs((b.vcov[16]) - (-0.027220219862416902)) <= 1e-06 * (1 + abs(-0.027220219862416902)),
+    abs((b.vcov[17]) - (0.057255545938969685)) <= 1e-06 * (1 + abs(0.057255545938969685)),
+    abs((b.vcov[18]) - (-0.19824570949457085)) <= 1e-06 * (1 + abs(-0.19824570949457085))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[19]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[20]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[21]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[22]) - (-2.733825947872671)) <= 1e-06 * (1 + abs(-2.733825947872671)),
+    abs((b.vcov[23]) - (0.085638041382449903)) <= 1e-06 * (1 + abs(0.085638041382449903)),
+    abs((b.vcov[24]) - (-0.19824570949456968)) <= 1e-06 * (1 + abs(-0.19824570949456968))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[25]) - (0.73522402225366912)) <= 1e-06 * (1 + abs(0.73522402225366912)),
+    abs((b.vcov[26]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[27]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[28]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[29]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[30]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[31]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[32]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[33]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[34]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[35]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[36]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[37]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[38]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[39]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[40]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[41]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[42]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[43]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[44]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[45]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[46]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[47]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[48]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): vcov = fastbw()$var (zero rows for deleted parameters)
+query I
+SELECT
+    abs((b.vcov[49]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true
+
+# fastbw(lrm) default (rule = 'aic', type = 'residual'): kept_parameters = fastbw()$parms.kept
+query I
+SELECT b.kept_parameters = [1, 2, 3, 4]::BIGINT[] FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w']) AS b FROM d) s;
+----
+true
+
 # fastbw(lrm, rule = 'p', sls = 0.5): deleted and kept factors
 query II
 SELECT list_transform(b.deleted, lambda d: d.term) = ['w', 'sex'], b.kept_terms = ['age', 'bp'] FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
@@ -1064,6 +1182,124 @@ query I
 SELECT
     abs((b.coefficients[6]) - (0)) <= 1e-06 * (1 + abs(0))
 FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[1]) - (26.652802380549989)) <= 1e-06 * (1 + abs(26.652802380549989)),
+    abs((b.vcov[2]) - (-0.52764381663932747)) <= 1e-06 * (1 + abs(-0.52764381663932747)),
+    abs((b.vcov[3]) - (0.8564652777050753)) <= 1e-06 * (1 + abs(0.8564652777050753)),
+    abs((b.vcov[4]) - (-2.5251448800608354)) <= 1e-06 * (1 + abs(-2.5251448800608354)),
+    abs((b.vcov[5]) - (-0.069932438464645863)) <= 1e-06 * (1 + abs(-0.069932438464645863)),
+    abs((b.vcov[6]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[7]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[8]) - (-0.52764381663931825)) <= 1e-06 * (1 + abs(-0.52764381663931825)),
+    abs((b.vcov[9]) - (0.015088072009959054)) <= 1e-06 * (1 + abs(0.015088072009959054)),
+    abs((b.vcov[10]) - (-0.027163407350489107)) <= 1e-06 * (1 + abs(-0.027163407350489107)),
+    abs((b.vcov[11]) - (0.085247239111334291)) <= 1e-06 * (1 + abs(0.085247239111334291)),
+    abs((b.vcov[12]) - (0.00013096423198949845)) <= 1e-06 * (1 + abs(0.00013096423198949845))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[13]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[14]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[15]) - (0.8564652777050471)) <= 1e-06 * (1 + abs(0.8564652777050471)),
+    abs((b.vcov[16]) - (-0.027163407350488812)) <= 1e-06 * (1 + abs(-0.027163407350488812)),
+    abs((b.vcov[17]) - (0.057357590251387001)) <= 1e-06 * (1 + abs(0.057357590251387001)),
+    abs((b.vcov[18]) - (-0.19894765256474781)) <= 1e-06 * (1 + abs(-0.19894765256474781))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[19]) - (0.00023523260195827195)) <= 1e-06 * (1 + abs(0.00023523260195827195)),
+    abs((b.vcov[20]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[21]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[22]) - (-2.5251448800607235)) <= 1e-06 * (1 + abs(-2.5251448800607235)),
+    abs((b.vcov[23]) - (0.085247239111332807)) <= 1e-06 * (1 + abs(0.085247239111332807)),
+    abs((b.vcov[24]) - (-0.19894765256474664)) <= 1e-06 * (1 + abs(-0.19894765256474664))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[25]) - (0.74005255274299642)) <= 1e-06 * (1 + abs(0.74005255274299642)),
+    abs((b.vcov[26]) - (-0.0016181195297689252)) <= 1e-06 * (1 + abs(-0.0016181195297689252)),
+    abs((b.vcov[27]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[28]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[29]) - (-0.069932438464648111)) <= 1e-06 * (1 + abs(-0.069932438464648111)),
+    abs((b.vcov[30]) - (0.00013096423198956673)) <= 1e-06 * (1 + abs(0.00013096423198956673))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[31]) - (0.00023523260195813361)) <= 1e-06 * (1 + abs(0.00023523260195813361)),
+    abs((b.vcov[32]) - (-0.0016181195297684525)) <= 1e-06 * (1 + abs(-0.0016181195297684525)),
+    abs((b.vcov[33]) - (0.00054225831614959348)) <= 1e-06 * (1 + abs(0.00054225831614959348)),
+    abs((b.vcov[34]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[35]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[36]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[37]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[38]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[39]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[40]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[41]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[42]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[43]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[44]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[45]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[46]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[47]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[48]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): vcov = fastbw()$var (zero rows for deleted parameters)
+query I
+SELECT
+    abs((b.vcov[49]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
+----
+true
+
+# fastbw(lrm, rule = 'p', sls = 0.5): kept_parameters = fastbw()$parms.kept
+query I
+SELECT b.kept_parameters = [1, 2, 3, 4, 5]::BIGINT[] FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'rule': 'p', 'sls': 0.5}) AS b FROM d) s;
 ----
 true
 
@@ -1157,6 +1393,124 @@ FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inf
 ----
 true
 
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[1]) - (17.633953238064322)) <= 1e-06 * (1 + abs(17.633953238064322)),
+    abs((b.vcov[2]) - (-0.5107539915837932)) <= 1e-06 * (1 + abs(-0.5107539915837932)),
+    abs((b.vcov[3]) - (0.88680209130737186)) <= 1e-06 * (1 + abs(0.88680209130737186)),
+    abs((b.vcov[4]) - (-2.7338259478727851)) <= 1e-06 * (1 + abs(-2.7338259478727851)),
+    abs((b.vcov[5]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[6]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[7]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[8]) - (-0.51075399158378365)) <= 1e-06 * (1 + abs(-0.51075399158378365)),
+    abs((b.vcov[9]) - (0.015056442010842788)) <= 1e-06 * (1 + abs(0.015056442010842788)),
+    abs((b.vcov[10]) - (-0.027220219862417201)) <= 1e-06 * (1 + abs(-0.027220219862417201)),
+    abs((b.vcov[11]) - (0.085638041382451402)) <= 1e-06 * (1 + abs(0.085638041382451402)),
+    abs((b.vcov[12]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[13]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[14]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[15]) - (0.88680209130734289)) <= 1e-06 * (1 + abs(0.88680209130734289)),
+    abs((b.vcov[16]) - (-0.027220219862416902)) <= 1e-06 * (1 + abs(-0.027220219862416902)),
+    abs((b.vcov[17]) - (0.057255545938969685)) <= 1e-06 * (1 + abs(0.057255545938969685)),
+    abs((b.vcov[18]) - (-0.19824570949457085)) <= 1e-06 * (1 + abs(-0.19824570949457085))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[19]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[20]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[21]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[22]) - (-2.733825947872671)) <= 1e-06 * (1 + abs(-2.733825947872671)),
+    abs((b.vcov[23]) - (0.085638041382449903)) <= 1e-06 * (1 + abs(0.085638041382449903)),
+    abs((b.vcov[24]) - (-0.19824570949456968)) <= 1e-06 * (1 + abs(-0.19824570949456968))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[25]) - (0.73522402225366912)) <= 1e-06 * (1 + abs(0.73522402225366912)),
+    abs((b.vcov[26]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[27]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[28]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[29]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[30]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[31]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[32]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[33]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[34]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[35]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[36]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[37]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[38]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[39]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[40]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[41]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[42]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[43]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[44]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[45]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[46]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[47]) - (0)) <= 1e-06 * (1 + abs(0)),
+    abs((b.vcov[48]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): vcov = fastbw()$var (zero rows for deleted parameters)
+query I
+SELECT
+    abs((b.vcov[49]) - (0)) <= 1e-06 * (1 + abs(0))
+FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true
+
+# fastbw(lrm, type = 'individual', aics = 1, k.aic = 3): kept_parameters = fastbw()$parms.kept
+query I
+SELECT b.kept_parameters = [1, 2, 3, 4]::BIGINT[] FROM (SELECT fastbw(logistic_fit_agg(yb, [g1, g2, g3, g4, g5, g6], {'compute_inference': true, 'tolerance': 1e-12, 'max_iterations': 100}), ['age', 'age', 'age', 'bp', 'sex', 'w'], {'type': 'individual', 'aics': 1, 'k_aic': 3}) AS b FROM d) s;
+----
+true
+
 # fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): deleted and kept factors
 query II
 SELECT list_transform(b.deleted, lambda d: d.term) = ['sex'], b.kept_terms = ['age', 'bp', 'age * sex'] FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
@@ -1206,4 +1560,189 @@ SELECT
 FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
 ----
 true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[1]) - (1.8113116348290581)) <= 1e-08 * (1 + abs(1.8113116348290581)),
+    abs((b.vcov[2]) - (-0.028409277777287686)) <= 1e-08 * (1 + abs(-0.028409277777287686)),
+    abs((b.vcov[3]) - (0.052945900485848477)) <= 1e-08 * (1 + abs(0.052945900485848477)),
+    abs((b.vcov[4]) - (-0.15674724206573273)) <= 1e-08 * (1 + abs(-0.15674724206573273)),
+    abs((b.vcov[5]) - (-0.0079285357132827354)) <= 1e-08 * (1 + abs(-0.0079285357132827354)),
+    abs((b.vcov[6]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[7]) - (0.00072255888958211445)) <= 1e-08 * (1 + abs(0.00072255888958211445)),
+    abs((b.vcov[8]) - (0.0091048300905544333)) <= 1e-08 * (1 + abs(0.0091048300905544333)),
+    abs((b.vcov[9]) - (-0.06587588180645243)) <= 1e-08 * (1 + abs(-0.06587588180645243)),
+    abs((b.vcov[10]) - (-0.028409277777287689)) <= 1e-08 * (1 + abs(-0.028409277777287689)),
+    abs((b.vcov[11]) - (0.00092672183397216783)) <= 1e-08 * (1 + abs(0.00092672183397216783)),
+    abs((b.vcov[12]) - (-0.0020158368795403182)) <= 1e-08 * (1 + abs(-0.0020158368795403182))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[13]) - (0.0066210615574330061)) <= 1e-08 * (1 + abs(0.0066210615574330061)),
+    abs((b.vcov[14]) - (9.9046357010720425e-06)) <= 1e-08 * (1 + abs(9.9046357010720425e-06)),
+    abs((b.vcov[15]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[16]) - (-5.1918749701123637e-05)) <= 1e-08 * (1 + abs(-5.1918749701123637e-05)),
+    abs((b.vcov[17]) - (0.00011687935477536389)) <= 1e-08 * (1 + abs(0.00011687935477536389)),
+    abs((b.vcov[18]) - (-4.0566559269355346e-05)) <= 1e-08 * (1 + abs(-4.0566559269355346e-05))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[19]) - (0.052945900485848477)) <= 1e-08 * (1 + abs(0.052945900485848477)),
+    abs((b.vcov[20]) - (-0.0020158368795403182)) <= 1e-08 * (1 + abs(-0.0020158368795403182)),
+    abs((b.vcov[21]) - (0.0058334508538477534)) <= 1e-08 * (1 + abs(0.0058334508538477534)),
+    abs((b.vcov[22]) - (-0.022311455854721617)) <= 1e-08 * (1 + abs(-0.022311455854721617)),
+    abs((b.vcov[23]) - (2.5290474406216171e-06)) <= 1e-08 * (1 + abs(2.5290474406216171e-06)),
+    abs((b.vcov[24]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[25]) - (0.00030469039281726378)) <= 1e-08 * (1 + abs(0.00030469039281726378)),
+    abs((b.vcov[26]) - (-0.002124631242795382)) <= 1e-08 * (1 + abs(-0.002124631242795382)),
+    abs((b.vcov[27]) - (0.0094810624041436441)) <= 1e-08 * (1 + abs(0.0094810624041436441)),
+    abs((b.vcov[28]) - (-0.15674724206573273)) <= 1e-08 * (1 + abs(-0.15674724206573273)),
+    abs((b.vcov[29]) - (0.0066210615574330053)) <= 1e-08 * (1 + abs(0.0066210615574330053)),
+    abs((b.vcov[30]) - (-0.022311455854721617)) <= 1e-08 * (1 + abs(-0.022311455854721617))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[31]) - (0.093301198275626773)) <= 1e-08 * (1 + abs(0.093301198275626773)),
+    abs((b.vcov[32]) - (-9.7596497401920913e-05)) <= 1e-08 * (1 + abs(-9.7596497401920913e-05)),
+    abs((b.vcov[33]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[34]) - (-0.0012083224940058861)) <= 1e-08 * (1 + abs(-0.0012083224940058861)),
+    abs((b.vcov[35]) - (0.010602578401069838)) <= 1e-08 * (1 + abs(0.010602578401069838)),
+    abs((b.vcov[36]) - (-0.0528847079434029)) <= 1e-08 * (1 + abs(-0.0528847079434029))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[37]) - (-0.0079285357132827354)) <= 1e-08 * (1 + abs(-0.0079285357132827354)),
+    abs((b.vcov[38]) - (9.9046357010720425e-06)) <= 1e-08 * (1 + abs(9.9046357010720425e-06)),
+    abs((b.vcov[39]) - (2.5290474406216171e-06)) <= 1e-08 * (1 + abs(2.5290474406216171e-06)),
+    abs((b.vcov[40]) - (-9.7596497401920913e-05)) <= 1e-08 * (1 + abs(-9.7596497401920913e-05)),
+    abs((b.vcov[41]) - (6.6138108449895002e-05)) <= 1e-08 * (1 + abs(6.6138108449895002e-05)),
+    abs((b.vcov[42]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[43]) - (-9.709762545758245e-06)) <= 1e-08 * (1 + abs(-9.709762545758245e-06)),
+    abs((b.vcov[44]) - (-1.9891562018328438e-05)) <= 1e-08 * (1 + abs(-1.9891562018328438e-05)),
+    abs((b.vcov[45]) - (0.00022374655071343407)) <= 1e-08 * (1 + abs(0.00022374655071343407)),
+    abs((b.vcov[46]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[47]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[48]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[49]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[50]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[51]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[52]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[53]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[54]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[55]) - (0.00072255888958212139)) <= 1e-08 * (1 + abs(0.00072255888958212139)),
+    abs((b.vcov[56]) - (-5.1918749701123637e-05)) <= 1e-08 * (1 + abs(-5.1918749701123637e-05)),
+    abs((b.vcov[57]) - (0.00030469039281726422)) <= 1e-08 * (1 + abs(0.00030469039281726422)),
+    abs((b.vcov[58]) - (-0.0012083224940058861)) <= 1e-08 * (1 + abs(-0.0012083224940058861)),
+    abs((b.vcov[59]) - (-9.7097625457582467e-06)) <= 1e-08 * (1 + abs(-9.7097625457582467e-06)),
+    abs((b.vcov[60]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[61]) - (0.00013980197863282208)) <= 1e-08 * (1 + abs(0.00013980197863282208)),
+    abs((b.vcov[62]) - (-0.00076661450656589393)) <= 1e-08 * (1 + abs(-0.00076661450656589393)),
+    abs((b.vcov[63]) - (0.0031581620974910352)) <= 1e-08 * (1 + abs(0.0031581620974910352)),
+    abs((b.vcov[64]) - (0.0091048300905544333)) <= 1e-08 * (1 + abs(0.0091048300905544333)),
+    abs((b.vcov[65]) - (0.00011687935477536346)) <= 1e-08 * (1 + abs(0.00011687935477536346)),
+    abs((b.vcov[66]) - (-0.0021246312427953828)) <= 1e-08 * (1 + abs(-0.0021246312427953828))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[67]) - (0.010602578401069842)) <= 1e-08 * (1 + abs(0.010602578401069842)),
+    abs((b.vcov[68]) - (-1.9891562018328438e-05)) <= 1e-08 * (1 + abs(-1.9891562018328438e-05)),
+    abs((b.vcov[69]) - (0)) <= 1e-08 * (1 + abs(0)),
+    abs((b.vcov[70]) - (-0.00076661450656589393)) <= 1e-08 * (1 + abs(-0.00076661450656589393)),
+    abs((b.vcov[71]) - (0.0061453273817269078)) <= 1e-08 * (1 + abs(0.0061453273817269078)),
+    abs((b.vcov[72]) - (-0.029699105332952065)) <= 1e-08 * (1 + abs(-0.029699105332952065))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query IIIIII
+SELECT
+    abs((b.vcov[73]) - (-0.06587588180645243)) <= 1e-08 * (1 + abs(-0.06587588180645243)),
+    abs((b.vcov[74]) - (-4.0566559269355346e-05)) <= 1e-08 * (1 + abs(-4.0566559269355346e-05)),
+    abs((b.vcov[75]) - (0.0094810624041436441)) <= 1e-08 * (1 + abs(0.0094810624041436441)),
+    abs((b.vcov[76]) - (-0.0528847079434029)) <= 1e-08 * (1 + abs(-0.0528847079434029)),
+    abs((b.vcov[77]) - (0.00022374655071343407)) <= 1e-08 * (1 + abs(0.00022374655071343407)),
+    abs((b.vcov[78]) - (0)) <= 1e-08 * (1 + abs(0))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true	true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): vcov = fastbw()$var (zero rows for deleted parameters)
+query III
+SELECT
+    abs((b.vcov[79]) - (0.0031581620974910352)) <= 1e-08 * (1 + abs(0.0031581620974910352)),
+    abs((b.vcov[80]) - (-0.029699105332952065)) <= 1e-08 * (1 + abs(-0.029699105332952065)),
+    abs((b.vcov[81]) - (0.15518406167034213)) <= 1e-08 * (1 + abs(0.15518406167034213))
+FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true	true	true
+
+# fastbw(ols y ~ rcs(age, 4) + bp + sex + rcs(age, 4) %ia% sex): kept_parameters = fastbw()$parms.kept
+query I
+SELECT b.kept_parameters = [1, 2, 3, 4, 5, 7, 8, 9]::BIGINT[] FROM (SELECT fastbw(ols_fit_agg(y, [a1, a2, a3, a4, a5, a6, a7, a8], {'compute_inference': true}), ['age', 'age', 'age', 'bp', 'sex', 'age * sex', 'age * sex', 'age * sex']) AS b FROM d) s;
+----
+true
 
