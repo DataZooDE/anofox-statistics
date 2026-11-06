@@ -631,7 +631,7 @@ static void RegisterSplineScalar(ExtensionLoader &loader, const char *name, vect
 		desc.examples = {examples[std::min(i, examples.size() - 1)]};
 		desc.categories = {"regression", "splines"};
 		desc.parameter_names = parameter_names[i];
-		desc.parameter_types = ArgumentsOf(overloads[i]);
+		desc.parameter_types = ArgumentTypesOf(overloads[i]);
 		info.descriptions.push_back(std::move(desc));
 	}
 	loader.RegisterFunction(std::move(info));

@@ -174,6 +174,30 @@ template <class T>
 auto ArgumentsOf(T &x) -> decltype(compat_detail::Arguments(x, 0)) {
 	return compat_detail::Arguments(x, 0);
 }
+
+namespace compat_detail {
+// DuckDB 2.0: the argument types live in the function's FunctionSignature.
+template <class T>
+auto ArgumentTypes(const T &x, int) -> decltype(x.GetSignature().GetParameters(), vector<LogicalType>()) {
+	vector<LogicalType> types;
+	for (auto &param : x.GetSignature().GetParameters()) {
+		types.push_back(param.GetType());
+	}
+	return types;
+}
+// DuckDB < 2.0: the arguments field (or GetArguments()).
+template <class T>
+vector<LogicalType> ArgumentTypes(const T &x, long) {
+	return ArgumentsOf(const_cast<T &>(x));
+}
+} // namespace compat_detail
+
+//! The argument types of a function (a copy), on every DuckDB version.
+template <class T>
+inline vector<LogicalType> ArgumentTypesOf(const T &x) {
+	return compat_detail::ArgumentTypes(x, 0);
+}
+
 //! Change the type of argument i of a function.
 template <class T>
 void SetArgumentTypeOf(T &x, idx_t i, LogicalType type) {
