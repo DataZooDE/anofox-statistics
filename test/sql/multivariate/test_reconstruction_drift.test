@@ -1,0 +1,201 @@
+# name: test/sql/multivariate/test_reconstruction_drift.test
+# description: pca_reconstruction_fit_agg / _error / _chunk_agg / _threshold_agg / _drift_by (#366): shapes, NULLs, errors
+# group: [multivariate]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE obs AS
+SELECT i AS id, i // 50 AS chunk, i < 200 AS is_ref,
+       sin(i) AS x1, CASE WHEN i >= 300 THEN -1 ELSE 1 END * sin(i) + 0.1 * cos(3.7 * i) AS x2, cos(1.3 * i) AS x3
+FROM range(400) t(i);
+
+# Model STRUCT shape
+query IIIIII
+SELECT (m).n_features, (m).n_observations, (m).n_components = len((m).sdev), len((m).loadings) = (m).n_components,
+       len((m).scale), (m).impute_nan
+FROM (SELECT pca_reconstruction_fit_agg([x1, x2, x3]) AS m FROM obs WHERE is_ref);
+----
+3	200	true	true	3	true
+
+# Unscaled: scale is NULL; fixed components
+query II
+SELECT (m).scale IS NULL, (m).n_components
+FROM (SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'scale': false, 'n_components': 2}) AS m FROM obs WHERE is_ref);
+----
+true	2
+
+# The chunk aggregate is the mean of the row errors (NannyML)
+query I
+WITH m AS (SELECT pca_reconstruction_fit_agg([x1, x2, x3]) AS model FROM obs WHERE is_ref)
+SELECT bool_and(abs((c).reconstruction_error - e) < 1e-12 AND (c).n = 50)
+FROM (
+    SELECT chunk, pca_reconstruction_chunk_agg(model, [x1, x2, x3]) AS c,
+           avg(pca_reconstruction_error(model, [x1, x2, x3])) AS e
+    FROM obs, m GROUP BY chunk);
+----
+true
+
+statement ok
+CREATE TABLE model AS SELECT pca_reconstruction_fit_agg([x1, x2, x3]) AS m FROM obs WHERE is_ref;
+
+# A hand-built model STRUCT with only the required fields gives the same errors
+query I
+SELECT abs(pca_reconstruction_error(m, [0.1, 0.2, 0.3])
+           - pca_reconstruction_error({'center': (m).center, 'scale': (m).scale, 'sdev': (m).sdev,
+                                       'loadings': (m).loadings}, [0.1, 0.2, 0.3])) < 1e-15
+FROM model;
+----
+true
+
+# NULL model / NULL x -> NULL; a NULL element is imputed by the reference mean
+query III
+SELECT pca_reconstruction_error(NULL::STRUCT(center DOUBLE[], sdev DOUBLE[], loadings DOUBLE[][]), [1.0, 2.0, 3.0]),
+       pca_reconstruction_error((SELECT m FROM model), NULL),
+       abs(pca_reconstruction_error((SELECT m FROM model), [NULL, 0.2, 0.3])
+           - pca_reconstruction_error((SELECT m FROM model), [(SELECT (m).center[1] FROM model), 0.2, 0.3])) < 1e-12;
+----
+NULL	NULL	true
+
+# impute_nan false: a missing value is an error
+statement error
+SELECT pca_reconstruction_fit_agg([x1, CASE WHEN id = 3 THEN NULL ELSE x2 END, x3], {'impute_nan': false}) FROM obs;
+----
+NaN
+
+# The drift macro: one row per (chunk, is_reference), reference first; chunks 6-7 break the x1-x2 relation and alert
+query IIIIII
+SELECT chunk, is_reference, n, lower_threshold IS NULL OR lower_threshold < upper_threshold,
+       reconstruction_error BETWEEN lower_confidence AND upper_confidence, CASE WHEN chunk >= 6 THEN alert END
+FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref);
+----
+0	true	50	true	true	NULL
+1	true	50	true	true	NULL
+2	true	50	true	true	NULL
+3	true	50	true	true	NULL
+4	false	50	true	true	NULL
+5	false	50	true	true	NULL
+6	false	50	true	true	true
+7	false	50	true	true	true
+
+# The thresholds come from the reference chunks' errors (pca_reconstruction_threshold_agg)
+query I
+SELECT bool_and(abs(d.upper_threshold - (b).upper_threshold) < 1e-12)
+FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref) d,
+     (SELECT pca_reconstruction_threshold_agg(reconstruction_error) AS b
+      FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref) WHERE is_reference);
+----
+true
+
+# Options and threshold pass through
+query II
+SELECT count(*), bool_and(lower_threshold IS NULL)
+FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref, options := {'variance': 0.5},
+                                 threshold := {'lower': NULL, 'upper': 2});
+----
+8	true
+
+# No reference rows: the model and every value are NULL
+query III
+SELECT count(*), count(reconstruction_error), count(upper_threshold)
+FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], false);
+----
+8	0	0
+
+# A chunk mixing reference and analysis rows gives two rows
+query I
+SELECT count(*) FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], id < 225);
+----
+9
+
+# NULL rows are skipped by every aggregate
+query I
+WITH m AS (SELECT pca_reconstruction_fit_agg([x1, x2, x3]) AS model FROM obs WHERE is_ref)
+SELECT (pca_reconstruction_chunk_agg(model, CASE WHEN id % 2 = 0 THEN NULL ELSE [x1, x2, x3] END)).n FROM obs, m;
+----
+200
+
+# Fewer than two reference rows: NULL model
+query I
+SELECT pca_reconstruction_fit_agg([x1, x2, x3]) IS NULL FROM obs WHERE id = 0;
+----
+true
+
+# Empty input
+query I
+SELECT pca_reconstruction_fit_agg([x1, x2, x3]) IS NULL FROM obs WHERE false;
+----
+true
+
+# Errors
+statement error
+SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'variance': 1.5}) FROM obs;
+----
+variance
+
+statement error
+SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'variance': 0.5, 'n_components': 2}) FROM obs;
+----
+either
+
+statement error
+SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'n_components': 1.5}) FROM obs;
+----
+whole number
+
+statement error
+SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'n_components': 4}) FROM obs;
+----
+n_components
+
+statement error
+SELECT pca_reconstruction_fit_agg([x1, x2, x3], {'bogus': 1}) FROM obs;
+----
+unknown option 'bogus'
+
+statement error
+SELECT pca_reconstruction_fit_agg(CASE WHEN id = 7 THEN [x1, x2] ELSE [x1, x2, x3] END) FROM obs;
+----
+same length
+
+statement error
+SELECT pca_reconstruction_error((SELECT m FROM model), [1.0, 2.0]);
+----
+features
+
+statement error
+SELECT pca_reconstruction_error(42, [1.0, 2.0]);
+----
+must be the STRUCT
+
+statement error
+SELECT pca_reconstruction_error({'center': [0.0, 0.0], 'sdev': [1.0], 'loadings': [[1.0]]}, [1.0, 2.0]);
+----
+one value per feature
+
+statement error
+SELECT pca_reconstruction_threshold_agg(x1, {'lower_limit': 0}) FROM obs;
+----
+unknown option 'lower_limit'
+
+statement error
+SELECT * FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref, threshold := {'k': -1});
+----
+non-negative
+
+# Thread count does not change the result (canonical row order)
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE single AS SELECT * FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref);
+
+statement ok
+SET threads = 4;
+
+query I
+SELECT count(*) FROM pca_reconstruction_drift_by('obs', chunk, [x1, x2, x3], is_ref) d
+JOIN single s USING (chunk, is_reference)
+WHERE d.reconstruction_error = s.reconstruction_error AND d.upper_threshold = s.upper_threshold;
+----
+8

@@ -259,6 +259,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterModelValidationFunctions(loader);
     // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
     RegisterReductionFunctions(loader);
+    // PCA reconstruction-error drift and reference-band alert thresholds (#366, #367)
+    RegisterReconstructionFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
