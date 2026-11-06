@@ -13,6 +13,7 @@ mod elasticnet;
 mod glm;
 mod glm_weighted;
 mod glmm;
+mod gls;
 mod huber;
 mod interval;
 mod isotonic;
@@ -71,6 +72,10 @@ pub use glm_weighted::{
 pub use glmm::{
     fit_glmm, fit_glmm_crossed, FactorVariance, GlmmDdf, GlmmFamily, GlmmObservations, GlmmOptions,
     GlmmResult, RandomEffect,
+};
+pub use gls::{
+    fit_gls, GlsAugment, GlsCorrelationKind, GlsModel, GlsResidualType, GlsRows, GlsSpec,
+    GlsSummary, GlsVarianceKind, GlsVariogramBin,
 };
 pub use huber::{fit_huber, HuberResult};
 pub use interval::{

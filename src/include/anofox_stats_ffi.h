@@ -4944,6 +4944,108 @@ bool anofox_continuation_ratio_predict(const double *levels, size_t n_levels, co
                                        double *out_exceedance, double *out_mean, size_t *out_class,
                                        AnofoxError *out_error);
 
+/* ============================================================================
+ * Generalized least squares, nlme::gls (#315). Must match crates/anofox-stats-ffi/src/gls_ffi.rs.
+ * ============================================================================ */
+
+/**
+ * correlation: 0 independent, 1 compound symmetry, 2 AR(1), 3 continuous AR(1),
+ * 4 exponential, 5 gaussian, 6 linear, 7 spherical, 8 unstructured.
+ * variance: 0 constant, 1 ident, 2 power, 3 exp.
+ * variogram_bins: 0 = none; variogram_residuals: 0 pearson, 1 normalized, 2 response.
+ */
+typedef struct {
+	double confidence_level;
+	uint32_t max_iterations;
+	int32_t correlation;
+	int32_t variance;
+	uint32_t variogram_bins;
+	int32_t variogram_residuals;
+	bool nugget;
+	bool reml;
+	bool fit_intercept;
+} AnofoxGlsOptions;
+
+/**
+ * The rows of a GLS fit: x column-major (n_rows * n_features), subject dense codes
+ * (negative: none), variance_covariate NULL without a variance function (varIdent:
+ * the stratum code). Rows with a non-finite value in a column the fit uses are left out.
+ */
+typedef struct {
+	const double *y;
+	const double *x;
+	const int32_t *subject;
+	const double *time;
+	const double *variance_covariate;
+	size_t n_rows;
+	size_t n_features;
+} AnofoxGlsData;
+
+/**
+ * A fitted GLS model, released with anofox_free_gls_fit_result. Coefficient arrays
+ * have n_coefficients entries (intercept first when has_intercept); vcov is
+ * n_coefficients^2 row-major. The *_conf_* arrays are NULL (sigma limits NaN) when
+ * has_intervals is false. variance_strata: varIdent strata codes, the reference first
+ * (n_variance_params + 1 entries), NULL otherwise.
+ */
+typedef struct {
+	double *coefficients;
+	double *std_errors;
+	double *t_values;
+	double *p_values;
+	double *conf_low;
+	double *conf_high;
+	double *vcov;
+	size_t n_coefficients;
+	double *correlation_params;
+	double *correlation_conf_low;
+	double *correlation_conf_high;
+	size_t n_correlation_params;
+	double *variance_params;
+	double *variance_conf_low;
+	double *variance_conf_high;
+	size_t n_variance_params;
+	double *variance_strata;
+	double *variogram_dist;
+	double *variogram_variog;
+	double *variogram_n_pairs;
+	size_t n_variogram;
+	double sigma;
+	double sigma_conf_low;
+	double sigma_conf_high;
+	double log_likelihood;
+	double aic;
+	double bic;
+	double df_residual;
+	double confidence_level;
+	size_t n_params;
+	size_t n_observations;
+	size_t n_groups;
+	size_t iterations;
+	bool converged;
+	bool has_intercept;
+	bool has_intervals;
+	AnofoxModelSummaryFFI summary;
+} AnofoxGlsFitResult;
+
+/** Per-input-row GLS results (NaN where a value does not exist). */
+typedef struct {
+	double *fitted;
+	double *se_fit;
+	double *residual;
+	double *pearson_residual;
+	double *normalized_residual;
+	bool *is_training;
+	size_t n_rows;
+} AnofoxGlsAugmentResult;
+
+bool anofox_gls_fit(const AnofoxGlsData *data, AnofoxGlsOptions options, AnofoxGlsFitResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_gls_fit_result(AnofoxGlsFitResult *result);
+bool anofox_gls_augment(const AnofoxGlsData *data, AnofoxGlsOptions options, AnofoxGlsAugmentResult *out_result,
+                        AnofoxError *out_error);
+void anofox_free_gls_augment_result(AnofoxGlsAugmentResult *result);
+
 #ifdef __cplusplus
 }
 #endif

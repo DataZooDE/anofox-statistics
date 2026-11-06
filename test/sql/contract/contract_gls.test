@@ -1,0 +1,177 @@
+# name: test/sql/contract/contract_gls.test
+# description: #315 GLS contract macros: gls_tidy_by (terms), gls_glance_by (summary), gls_augment_by (obs): columns, tags, row structure and NULL groups
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE v AS
+SELECT ['north', 'south'][(i // 48) + 1] AS clinic, 'p' || lpad((i // 6)::VARCHAR, 2, '0') AS patient,
+       ['ctl', 'trt'][(i // 6) % 2 + 1] AS arm, (i % 6 + 1) AS week, 0.5 + ((i * 13) % 11) / 4.0 AS dose,
+       (1.5 + 0.8 * (0.5 + ((i * 13) % 11) / 4.0) - 0.2 * (i % 6 + 1) + ((i // 6) % 4) * 0.4
+        + (((i * 37) % 17) - 8) / 9.0)::DOUBLE AS y
+FROM range(96) r(i);
+
+# ---- gls_tidy_by: the terms columns, then effect
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM gls_tidy_by('v', clinic, y, [dose], patient, week))
+----
+clinic	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+term	VARCHAR
+estimate	DOUBLE
+std_error	DOUBLE
+statistic	DOUBLE
+p_value	DOUBLE
+conf_low	DOUBLE
+conf_high	DOUBLE
+conf_level	DOUBLE
+index_name	VARCHAR
+index_value	DOUBLE
+effect	VARCHAR
+row_order	BIGINT
+
+query IIIII
+SELECT clinic, effect, term, model_id, model_name
+FROM gls_tidy_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1'}, names := ['dose'])
+ORDER BY clinic, row_order
+----
+north	coefficient	(Intercept)	gls	gls
+north	coefficient	dose	gls	gls
+north	correlation	phi	gls	gls
+north	sigma	sigma	gls	gls
+south	coefficient	(Intercept)	gls	gls
+south	coefficient	dose	gls	gls
+south	correlation	phi	gls	gls
+south	sigma	sigma	gls	gls
+
+# inference is on although options are passed; t = estimate / std_error
+query III
+SELECT bool_and(std_error > 0), bool_and(abs(statistic - estimate / std_error) < 1e-9), bool_and(conf_low < estimate AND estimate < conf_high)
+FROM gls_tidy_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'cs', 'max_iterations': 200}) WHERE effect = 'coefficient';
+----
+true	true	true
+
+# variance rows: one SD ratio per non-reference stratum; spatial terms range / nugget; unstructured cor_k
+query I
+SELECT string_agg(term, ',' ORDER BY row_order)
+FROM gls_tidy_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1', 'variance': 'ident'}, variance_col := arm)
+WHERE clinic = 'north' AND effect <> 'coefficient';
+----
+phi,sd_ratio_trt,sigma
+
+query I
+SELECT string_agg(term, ',' ORDER BY row_order)
+FROM gls_tidy_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'exponential', 'nugget': true})
+WHERE clinic = 'north' AND effect = 'correlation';
+----
+range,nugget
+
+query I
+SELECT count(*) FROM gls_tidy_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'unstructured'})
+WHERE clinic = 'north' AND effect = 'correlation' AND term LIKE 'cor\_%' ESCAPE '\';
+----
+15
+
+# a group that cannot be fitted has no rows
+statement ok
+CREATE VIEW v_bad AS SELECT * FROM v WHERE clinic = 'north' OR week = 1 AND patient = 'p08';
+
+query I
+SELECT count(*) FROM gls_tidy_by('v_bad', clinic, y, [dose], patient, week)
+WHERE clinic = 'south';
+----
+0
+
+# ---- gls_glance_by: the summary columns
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM gls_glance_by('v', clinic, y, [dose], patient, week))
+----
+clinic	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+model_type	VARCHAR
+metric	VARCHAR
+value	DOUBLE
+row_order	BIGINT
+
+query I
+SELECT string_agg(metric, ',' ORDER BY row_order) FROM gls_glance_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1'})
+WHERE clinic = 'north';
+----
+aic,bic,converged,df_residual,iterations,log_likelihood,n_features,n_groups,n_observations,n_params,sigma
+
+query II
+SELECT DISTINCT model_type, value FROM gls_glance_by('v', clinic, y, [dose], patient, week) WHERE metric = 'n_groups';
+----
+gls	8.0
+
+# ---- gls_augment_by: the source columns, then the obs columns, then se_fit / normalized_residual
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM gls_augment_by('v', clinic, y, [dose], patient, week))
+----
+clinic	VARCHAR
+patient	VARCHAR
+arm	VARCHAR
+week	BIGINT
+dose	DOUBLE
+y	DOUBLE
+model_id	VARCHAR
+model_name	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+se_fit	DOUBLE
+normalized_residual	DOUBLE
+row_order	BIGINT
+
+query IIII
+SELECT count(*), bool_and(is_training), bool_and(abs(fitted + residual - y) < 1e-9), bool_and(se_fit > 0)
+FROM gls_augment_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1'});
+----
+96	true	true	true
+
+# the augmented values do not depend on the source order
+statement ok
+CREATE VIEW v_desc AS SELECT * FROM v ORDER BY y DESC;
+
+query I
+SELECT bool_and(abs(a.fitted - b.fitted) < 1e-12 AND abs(a.normalized_residual - b.normalized_residual) < 1e-12)
+FROM gls_augment_by('v', clinic, y, [dose], patient, week, options := {'correlation': 'ar1'}) a
+JOIN gls_augment_by('v_desc', clinic, y, [dose], patient, week, options := {'correlation': 'ar1'}) b
+USING (patient, week);
+----
+true
+
+# a row with a NULL y is kept: fitted and se_fit, no residual, not training
+statement ok
+CREATE VIEW v_null AS SELECT * REPLACE (CASE WHEN patient = 'p00' AND week = 1 THEN NULL ELSE y END AS y) FROM v;
+
+query IIII
+SELECT is_training, fitted IS NOT NULL, se_fit IS NOT NULL, residual IS NULL
+FROM gls_augment_by('v_null', clinic, y, [dose], patient, week)
+WHERE patient = 'p00' AND week = 1;
+----
+false	true	true	true
+
+# ---- tags
+query III
+SELECT DISTINCT function_name, tags['anofox.output'], tags['anofox.contract'] FROM duckdb_functions()
+WHERE function_name IN ('gls_tidy_by', 'gls_glance_by', 'gls_augment_by')
+ORDER BY function_name;
+----
+gls_augment_by	obs	1
+gls_glance_by	summary	1
+gls_tidy_by	terms	1

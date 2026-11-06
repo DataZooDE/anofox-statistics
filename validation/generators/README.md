@@ -280,3 +280,16 @@ Requires `rms`, `MASS` and `numDeriv`. It (re)writes:
 | File | Extension functions | R reference |
 |------|---------------------|-------------|
 | `ordinal_reference.test` | `ordinal_fit_agg` (five links, case weights, offset, penalty, proportional-odds score test), `ordinal_predict` / `predict` (`prob`, `exceedance`, `mean`, `class`), `continuation_ratio_fit_agg` (equal and cohort-specific slopes, case weights) (#313) | `rms::orm`, `MASS::polr`, `predict.orm`, `predict.polr(type = "class")`, `rms::cr.setup` + `lrm`; the score test is `U' I^-1 U` of the partial proportional-odds log-likelihood by numDeriv, as upstream's validation |
+## `make_reference_gls.R`
+
+```bash
+Rscript validation/generators/make_reference_gls.R
+```
+
+Requires `nlme`. It (re)writes `test/sql/reference/gls_reference.test`:
+`gls_fit_agg` / `gls_augment_agg` (#315) against `nlme::gls` with `corAR1`,
+`corCompSymm`, `corCAR1`, `corExp` (with and without nugget) and `corSymm`,
+`varIdent`, `varPower` and `varExp`, REML and ML, without intercept;
+`intervals(fit)` (coefficients and var-cov), `Variogram(fit)`, `fitted` /
+`resid(type = "pearson" / "normalized")`, `sqrt(x' vcov(fit) x)` and
+`anova(full, reduced)` for `lr_test`.

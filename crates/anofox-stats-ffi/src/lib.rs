@@ -10849,3 +10849,6 @@ pub use cox_ffi::*;
 // Ordinal regression: cumulative link and continuation-ratio models (#313).
 mod ordinal_ffi;
 pub use ordinal_ffi::*;
+// Generalized least squares, nlme::gls (#315)
+mod gls_ffi;
+pub use gls_ffi::*;
