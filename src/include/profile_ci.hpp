@@ -45,7 +45,13 @@ inline void ApplyProfileConfint(const char *fn, AnofoxLikelihoodFamily family, A
 	                                static_cast<uint64_t>(offset_column), level, lower.data(), upper.data(),
 	                                intercept, &error)) {
 		// A data-dependent failure (e.g. a fit that had not converged) leaves NULL intervals.
-		ThrowUnlessDegenerate(fn, error);
+		// Any other error throws: free the fit's FFI result arrays first (the caller's
+		// frees are skipped by the throw). profile_ci implies compute_inference.
+		if (ClassifyFfiError(error.code) != FfiErrorKind::DEGENERATE) {
+			anofox_free_result_inference(&inference);
+			anofox_free_glm_result(&core);
+			ThrowFromFfiError(fn, error);
+		}
 	}
 	for (idx_t j = 0; j < inference.len && j < k; j++) {
 		inference.ci_lower[j] = lower[j];

@@ -375,9 +375,6 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
-		if (state.profile_ci && clustered) {
-			throw InvalidInputException("binomial_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
-		}
 		if (state.profile_ci) {
 			ApplyProfileConfint("binomial_fit_agg", AnofoxLikelihoodFamily {2, static_cast<int32_t>(state.link), std::nan("")}, y_array, x_arrays,
 			                    state.fit_intercept, state.offset_column, state.confidence_level, core_result,
@@ -463,6 +460,10 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 		result->profile_ci = ProfileCiOption(opts, "binomial_fit_agg");
 		if (result->profile_ci) {
 			result->compute_inference = true;
+		}
+		// At bind, not after the fit in finalize: a throw there would leak the FFI result arrays.
+		if (result->profile_ci && result->cluster.active) {
+			throw InvalidInputException("binomial_fit_agg: profile_ci cannot be combined with the cluster-robust covariance");
 		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();
