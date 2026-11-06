@@ -655,10 +655,10 @@ constexpr idx_t kPoolTermCount = 10;
 LogicalType PoolResultType() {
 	child_list_t<LogicalType> c;
 	for (auto name : kPoolTermLists) {
-		c.push_back(make_pair(name, LogicalType::LIST(LogicalType::DOUBLE)));
+		c.push_back(MakeChild(name, LogicalType::LIST(LogicalType::DOUBLE)));
 	}
 	for (auto name : kPoolInterceptFields) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("conf_level", LogicalType::DOUBLE));
 	c.push_back(make_pair("vcov", LogicalType::LIST(LogicalType::DOUBLE)));

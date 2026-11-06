@@ -490,7 +490,7 @@ unique_ptr<FunctionData> MultinomialPredictBind(ClientContext &context, ScalarBi
 			data->intercepts_idx = i;
 			type = LogicalType::LIST(LogicalType::DOUBLE);
 		}
-		cast_children.push_back(make_pair(children[i].first, type));
+		cast_children.push_back(MakeChild(children[i].first, type));
 	}
 	if (data->classes_idx == DConstants::INVALID_INDEX || data->coef_idx == DConstants::INVALID_INDEX ||
 	    data->intercepts_idx == DConstants::INVALID_INDEX) {

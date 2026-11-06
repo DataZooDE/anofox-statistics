@@ -421,7 +421,7 @@ LogicalType ValidateRowType() {
 	child_list_t<LogicalType> c;
 	c.push_back(make_pair("index_name", LogicalType::VARCHAR));
 	for (auto name : {"index_orig", "training", "test", "optimism", "index_corrected"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("n", LogicalType::BIGINT));
 	c.push_back(make_pair("n_failed", LogicalType::BIGINT));
@@ -433,11 +433,11 @@ LogicalType ValidateRowType() {
 LogicalType CalibrateRowType() {
 	child_list_t<LogicalType> c;
 	for (auto name : {"predy", "calibrated_orig", "calibrated_corrected", "optimism"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("n", LogicalType::BIGINT));
 	for (auto name : {"mean_abs_error", "mean_squared_error", "quantile90_abs_error"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("model", LogicalType::VARCHAR));
 	c.push_back(make_pair("method", LogicalType::VARCHAR));
@@ -449,7 +449,7 @@ LogicalType CalibrateCphRowType() {
 	c.push_back(make_pair("group_index", LogicalType::BIGINT));
 	for (auto name : {"cut_low", "cut_high", "mean_predicted", "km", "km_corrected", "std_err", "index_orig",
 	                  "training", "test", "optimism", "index_corrected"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("n", LogicalType::BIGINT));
 	c.push_back(make_pair("u", LogicalType::DOUBLE));
@@ -461,7 +461,7 @@ LogicalType BootcovRowType() {
 	child_list_t<LogicalType> c;
 	c.push_back(make_pair("term", LogicalType::VARCHAR));
 	for (auto name : {"estimate", "std_error", "conf_low", "conf_high", "conf_level", "boot_mean"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	c.push_back(make_pair("vcov", LogicalType::LIST(LogicalType::DOUBLE)));
 	c.push_back(make_pair("n_boot", LogicalType::BIGINT));

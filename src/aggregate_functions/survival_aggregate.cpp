@@ -205,7 +205,7 @@ static LogicalType KaplanMeierExtendedResultType() {
 	child_list_t<LogicalType> children;
 	for (auto name : {"time", "surv", "conf_low", "conf_high", "n_risk", "n_event", "n_censor", "std_err", "cumhaz",
 	                  "std_chaz"}) {
-		children.push_back(make_pair(name, LogicalType::DOUBLE));
+		children.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	return LogicalType::LIST(LogicalType::STRUCT(std::move(children)));
 }

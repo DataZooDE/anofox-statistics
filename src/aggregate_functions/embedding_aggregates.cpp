@@ -97,7 +97,7 @@ struct EmbeddingBindData : public FunctionData {
 //===--------------------------------------------------------------------===//
 static LogicalType EmbeddingResultType(int kind) {
 	child_list_t<LogicalType> c;
-	auto add = [&](const char *name, const LogicalType &type) { c.push_back(make_pair(name, type)); };
+	auto add = [&](const char *name, const LogicalType &type) { c.push_back(MakeChild(name, type)); };
 	if (kind == EMB_DRIFT) {
 		// evidently's embedding drift: no unified test fields (a score and a
 		// threshold, no p-value), as column_drift_agg.

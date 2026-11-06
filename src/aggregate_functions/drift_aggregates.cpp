@@ -127,7 +127,7 @@ struct DriftBindData : public FunctionData {
 //===--------------------------------------------------------------------===//
 static LogicalType DriftResultType(int kind) {
 	child_list_t<LogicalType> c;
-	auto add = [&](const char *name, const LogicalType &type) { c.push_back(make_pair(name, type)); };
+	auto add = [&](const char *name, const LogicalType &type) { c.push_back(MakeChild(name, type)); };
 	switch (kind) {
 	case DRIFT_AD:
 		add("statistic", LogicalType::DOUBLE);

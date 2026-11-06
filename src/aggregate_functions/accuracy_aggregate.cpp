@@ -76,10 +76,10 @@ struct AccuracyBindData : public FunctionData {
 static LogicalType AccuracyResultType(AccuracyKind kind) {
 	child_list_t<LogicalType> c;
 	auto d = [&](const char *name) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	};
 	auto i = [&](const char *name) {
-		c.push_back(make_pair(name, LogicalType::BIGINT));
+		c.push_back(MakeChild(name, LogicalType::BIGINT));
 	};
 	switch (kind) {
 	case AccuracyKind::CONCORDANCE:
@@ -458,7 +458,7 @@ static void RegisterAccuracyAggregate(ExtensionLoader &loader, const char *name,
 static LogicalType R2MeasuresType() {
 	child_list_t<LogicalType> c;
 	for (auto name : {"r2", "r2_adj", "r2_ess", "r2_adj_ess"}) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	return LogicalType::STRUCT(std::move(c));
 }

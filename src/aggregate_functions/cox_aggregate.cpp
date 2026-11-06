@@ -615,10 +615,10 @@ const char *const AUGMENT_LISTS[] = {"score_residuals", "dfbeta", "dfbetas", "sc
 LogicalType CoxAugmentResultType() {
 	child_list_t<LogicalType> c;
 	for (auto name : AUGMENT_SCALARS) {
-		c.push_back(make_pair(name, LogicalType::DOUBLE));
+		c.push_back(MakeChild(name, LogicalType::DOUBLE));
 	}
 	for (auto name : AUGMENT_LISTS) {
-		c.push_back(make_pair(name, LogicalType::LIST(LogicalType::DOUBLE)));
+		c.push_back(MakeChild(name, LogicalType::LIST(LogicalType::DOUBLE)));
 	}
 	c.push_back(make_pair("is_training", LogicalType::BOOLEAN));
 	return LogicalType::LIST(LogicalType::STRUCT(std::move(c)));

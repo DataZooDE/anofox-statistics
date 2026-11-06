@@ -310,7 +310,7 @@ LogicalType RmAnovaResultType() {
 	for (auto name : RM_OWN_FIELDS) {
 		string field(name);
 		bool is_count = field == "n_subjects" || field == "n_conditions" || field == "n_excluded_subjects";
-		c.push_back(make_pair(field, LogicalType(is_count ? LogicalTypeId::BIGINT : LogicalTypeId::DOUBLE)));
+		c.push_back(MakeChild(field, LogicalType(is_count ? LogicalTypeId::BIGINT : LogicalTypeId::DOUBLE)));
 	}
 	AppendTestResultFields(c);
 	return LogicalType::STRUCT(std::move(c));
