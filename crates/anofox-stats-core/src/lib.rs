@@ -6,14 +6,14 @@
 pub mod diagnostics;
 pub mod effects;
 pub mod errors;
-pub mod model_validation;
 pub mod imputation;
+pub mod model_validation;
 pub mod models;
 pub mod multinomial;
 pub mod multivariate;
 pub mod ordinal;
-pub mod splines;
 pub mod reduction;
+pub mod splines;
 pub mod tests;
 pub mod types;
 mod validation;

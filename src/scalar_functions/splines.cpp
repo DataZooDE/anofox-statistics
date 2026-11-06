@@ -426,7 +426,7 @@ struct SplineBasisBindData : public FunctionData {
 static unique_ptr<FunctionData> SplineBasisBind(ClientContext &context, ScalarBindFunction &function,
                                                 vector<unique_ptr<Expression>> &arguments) {
 	const char *fn = "spline_basis";
-	auto &type = arguments[1]->return_type;
+	const auto type = ReturnTypeOf(*arguments[1]);
 	if (type.id() != LogicalTypeId::STRUCT) {
 		throw InvalidInputException("%s: spec must be a STRUCT as returned by spline_spec, got %s", fn,
 		                            type.ToString());

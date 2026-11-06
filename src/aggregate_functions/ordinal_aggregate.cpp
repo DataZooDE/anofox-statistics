@@ -394,7 +394,7 @@ static vector<AnofoxDataArray> PrepareRows(OrdinalAggregateState &state, bool we
 }
 
 static void OrdinalFinalizeRow(OrdinalAggregateState &state, const OrdinalBindData &bind,
-                               vector<unique_ptr<Vector>> &entries, Vector &result, idx_t row) {
+                               StructEntries &entries, Vector &result, idx_t row) {
 	auto x_arrays = PrepareRows(state, bind.weighted);
 	AnofoxOrdinalOptions options {};
 	options.penalty = bind.penalty;
@@ -452,7 +452,7 @@ static void OrdinalFinalizeRow(OrdinalAggregateState &state, const OrdinalBindDa
 }
 
 static void ContinuationRatioFinalizeRow(OrdinalAggregateState &state, const OrdinalBindData &bind,
-                                         vector<unique_ptr<Vector>> &entries, Vector &result, idx_t row) {
+                                         StructEntries &entries, Vector &result, idx_t row) {
 	auto x_arrays = PrepareRows(state, bind.weighted);
 	AnofoxContinuationRatioFitResult fit;
 	AnofoxError error;
