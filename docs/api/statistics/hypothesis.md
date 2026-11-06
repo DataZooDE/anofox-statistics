@@ -1168,7 +1168,7 @@ The stationary bootstrap resamples the series, so the aggregate needs
 
 **Signature:**
 ```text
-spa_test_agg(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t, [options]) -> STRUCT
+spa_test_agg(benchmark_loss DOUBLE, model_losses DOUBLE[] [, options] ORDER BY t) -> STRUCT
 ```
 
 | Key | Default | Description |
@@ -1222,7 +1222,7 @@ differentials `(e_b² − e_k²) + (e_b − e_k)²`. The arguments are **forecas
 
 **Signature:**
 ```text
-mspe_adjusted_spa_agg(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t, [options]) -> STRUCT
+mspe_adjusted_spa_agg(benchmark_error DOUBLE, model_errors DOUBLE[] [, options] ORDER BY t) -> STRUCT
 ```
 
 ```sql
@@ -1241,7 +1241,7 @@ rejects at level alpha.
 
 **Signature:**
 ```text
-model_confidence_set_agg(model_losses DOUBLE[] ORDER BY t, [options]) -> STRUCT
+model_confidence_set_agg(model_losses DOUBLE[] [, options] ORDER BY t) -> STRUCT
 ```
 
 | Key | Default | Description |

@@ -10,6 +10,14 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+- **Docs: options before `ORDER BY` in the forecast-comparison examples.** The `duckdb_functions()`
+  examples of `spa_test_agg`, `mspe_adjusted_spa_agg` and `model_confidence_set_agg` wrote
+  `f(a, [b, c] ORDER BY t, {...})`. DuckDB parses a STRUCT after the `ORDER BY` as a second sort
+  key, so the options were silently ignored (the result showed `n_bootstrap` 1000 and the automatic
+  block length). The examples, and the signatures in `docs/api/statistics/hypothesis.md` and
+  `docs/API_REFERENCE.md`, now read `f(a, [b, c], {...} ORDER BY t)`. No behaviour change;
+  `test/sql/forecast/test_options_before_order_by.test` pins both forms and checks that no `_agg`
+  example puts an argument after its `ORDER BY`.
 - **anofox-regression 0.12.0.** Stored models are now rebuilt upstream from their parts instead of
   being scored by the extension, and the workarounds for bugs fixed in 0.12 are gone:
   - `ordinal_predict` / `predict` rebuild an `ordinal_fit_agg` model with
