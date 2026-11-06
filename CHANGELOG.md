@@ -12,6 +12,18 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Data reduction and transforms (#320):** `spearman2_agg(y, x [, {'p': 1|2}])` (generalized
+  Spearman rho^2 with F test, numeric or VARCHAR/categorical `x`, `Hmisc::spearman2`),
+  `hoeffding_d_agg(x, y)` (Hoeffding's D with P-value, `Hmisc::hoeffd`), `box_cox_agg(y [, x
+  DOUBLE[] [, options]])` (profile likelihood of lambda with its likelihood-ratio interval,
+  `MASS::boxcox`) with the scalars `box_cox_transform(y, lambda)` / `box_cox_inverse(z, lambda)`,
+  `varclus_agg(x DOUBLE[] [, options])` (variable clustering with R's `hclust` merge / height /
+  order and an optional `cut_height`, `Hmisc::varclus`) and `redun_agg(x DOUBLE[] [, options])`
+  (redundancy analysis, `Hmisc::redun`). Upstream anofox-regression `reduction` / `transform`;
+  reference values against Hmisc and MASS in `test/sql/reference/reduction_reference.test`.
+  `spearman2_agg` and `hoeffding_d_agg` carry the unified test fields. `areg` / `transcan` are
+  not exposed yet.
+
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,

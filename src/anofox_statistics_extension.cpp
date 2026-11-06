@@ -247,6 +247,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPcaFunctions(loader);
     // Multinomial logistic regression (#314)
     RegisterMultinomialFunctions(loader);
+    // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
+    RegisterReductionFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

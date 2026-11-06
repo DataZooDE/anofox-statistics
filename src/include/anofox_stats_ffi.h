@@ -4824,6 +4824,128 @@ bool anofox_cox_survival(const double *coefficients, size_t n_coefficients, cons
                          const double *base_cumhaz, size_t n_baseline, const double *x, const double *times,
                          size_t n_times, double *out_survival);
 
+/* ============================================================================
+ * Data reduction and transforms (#320). Must match
+ * crates/anofox-stats-ffi/src/reduction_ffi.rs.
+ * ============================================================================ */
+
+/** Generalized Spearman rho^2 (Hmisc::spearman2). */
+typedef struct {
+	double rho2;
+	double adjusted_rho2;
+	double statistic; /* F */
+	double df1;
+	double df2;
+	double p_value;
+	int64_t n;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxSpearman2Result;
+
+/** spearman2(x, y, p) of n values each, p = 1 or 2. */
+bool anofox_spearman2(const double *y, const double *x, size_t n, size_t p, AnofoxSpearman2Result *out_result,
+                      AnofoxError *out_error);
+/** spearman2(factor(x), y): codes holds the level code of each row. */
+bool anofox_spearman2_categorical(const double *y, const uint64_t *codes, size_t n,
+                                  AnofoxSpearman2Result *out_result, AnofoxError *out_error);
+
+/** Hoeffding's D of one pair (Hmisc::hoeffd): 30 D and its P-value. */
+typedef struct {
+	double d;
+	double p_value;
+	int64_t n;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxHoeffdingResult;
+
+bool anofox_hoeffding_d(const double *x, const double *y, size_t n, AnofoxHoeffdingResult *out_result,
+                        AnofoxError *out_error);
+
+/** Options of anofox_box_cox: NaN numbers / a NULL grid keep MASS's defaults. */
+typedef struct {
+	const double *lambdas;
+	size_t n_lambdas;
+	double eps;
+	bool fit_intercept;
+	double confidence_level;
+} AnofoxBoxCoxOptions;
+
+/** A Box-Cox profile; release with anofox_free_box_cox_result. */
+typedef struct {
+	double lambda;
+	double max_log_likelihood;
+	double ci_lower; /* NaN: not reached within the grid */
+	double ci_upper;
+	double confidence_level;
+	double *lambdas;
+	double *log_likelihood;
+	size_t n_lambdas;
+	size_t n_observations;
+} AnofoxBoxCoxResult;
+
+/** MASS::boxcox(lm(y ~ x)) for n responses and x_count predictor columns (none: intercept only). */
+bool anofox_box_cox(const double *y, size_t n, const AnofoxDataArray *x, size_t x_count, AnofoxBoxCoxOptions options,
+                    AnofoxBoxCoxResult *out_result, AnofoxError *out_error);
+void anofox_free_box_cox_result(AnofoxBoxCoxResult *result);
+/** (y^lambda - 1) / lambda, log y at lambda = 0. */
+double anofox_box_cox_transform(double y, double lambda);
+/** (lambda z + 1)^(1 / lambda), exp z at lambda = 0. */
+double anofox_box_cox_inverse(double z, double lambda);
+
+/** A variable clustering (Hmisc::varclus); release with anofox_free_varclus_result. */
+typedef struct {
+	/** n_variables^2 similarities, row-major */
+	double *similarity;
+	/** 2 (n_variables - 1) values in R's hclust merge convention (merge k at 2k, 2k + 1) */
+	int64_t *merge;
+	double *height;
+	/** dendrogram order, 1-based */
+	int64_t *order;
+	/** 1-based cluster of each variable after the cut; NULL without a cut */
+	int64_t *clusters;
+	size_t n_variables;
+	size_t n_observations;
+} AnofoxVarclusResult;
+
+/** varclus of x_count columns; NULL names keep spearman / square / complete; NaN cut_height: no cut. */
+bool anofox_varclus(const AnofoxDataArray *x, size_t x_count, const char *similarity, const char *transform,
+                    const char *linkage, double cut_height, AnofoxVarclusResult *out_result, AnofoxError *out_error);
+void anofox_free_varclus_result(AnofoxVarclusResult *result);
+
+/** Options of anofox_redun: NaN r2, negative nk or a flag of -1 keep Hmisc's defaults. */
+typedef struct {
+	double r2;
+	int64_t nk;
+	int32_t adjusted;
+	int32_t tlinear;
+	int32_t rank;
+	int32_t qrank;
+	int32_t allcat;
+} AnofoxRedunOptions;
+
+/** A redundancy analysis (Hmisc::redun), 1-based variable numbers; release with anofox_free_redun_result. */
+typedef struct {
+	int64_t *kept;
+	size_t n_kept;
+	int64_t *removed;
+	double *r_squared;
+	size_t n_removed;
+	/** removal k (0-based, from the second) contributes k values */
+	double *r_squared_later;
+	size_t n_r_squared_later;
+	int64_t *analysed;
+	double *r_squared_first;
+	size_t n_analysed;
+	int64_t *too_few;
+	size_t n_too_few;
+	size_t n_observations;
+} AnofoxRedunResult;
+
+/** redun of x_count columns; kinds: one name per column (spline, linear, categorical) or NULL. */
+bool anofox_redun(const AnofoxDataArray *x, size_t x_count, const char *const *kinds, AnofoxRedunOptions options,
+                  AnofoxRedunResult *out_result, AnofoxError *out_error);
+void anofox_free_redun_result(AnofoxRedunResult *result);
+
 #ifdef __cplusplus
 }
 #endif

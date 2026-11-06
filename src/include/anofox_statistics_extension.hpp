@@ -181,6 +181,9 @@ void RegisterPcaFunctions(ExtensionLoader &loader);
 // Multinomial logistic regression: multinomial_fit_agg, multinomial_predict,
 // multinomial_fit_predict_by (#314)
 void RegisterMultinomialFunctions(ExtensionLoader &loader);
+// Data reduction and transforms: spearman2_agg, hoeffding_d_agg, box_cox_agg,
+// box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
+void RegisterReductionFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

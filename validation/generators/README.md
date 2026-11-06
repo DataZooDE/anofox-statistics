@@ -157,6 +157,11 @@ of `partial_correlation_reference.test` (`partial_cor_agg`, `semi_partial_cor_ag
 `mauchly.test` and the Greenhouse-Geisser epsilon, cross-checked against
 `afex::aov_ez` when afex is installed, e.g. in `~/R/userlib`).
 
+`make_reference_reduction.R` (Hmisc, MASS) (re)writes `reduction_reference.test`:
+`spearman2_agg`, `hoeffding_d_agg`, `varclus_agg` and `redun_agg` against Hmisc's
+`spearman2`, `hoeffd`, `varclus` and `redun`, and `box_cox_agg` against `MASS::boxcox`
+(lambda and its interval by `optimize` / `uniroot` on boxcox's own profile), on `mtcars`.
+
 `make_reference_pca.R` (base R only) (re)writes `pca_reference.test`:
 `pca_agg`, `pca_transform` and `pca_by` against `prcomp` / `predict.prcomp`
 on `USArrests` and a wide (n < d) matrix. prcomp's arbitrary component signs

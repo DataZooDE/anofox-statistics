@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// Data reduction and transforms (#320)
+mod reduction_ffi;
+pub use reduction_ffi::*;
