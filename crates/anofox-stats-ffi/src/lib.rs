@@ -10877,6 +10877,10 @@ pub use model_validation_ffi::*;
 mod reduction_ffi;
 pub use reduction_ffi::*;
 
+// Additive regression with optimal transformations, Hmisc::areg (#320 follow-up)
+mod areg_ffi;
+pub use areg_ffi::*;
+
 // Multiple imputation (aregImpute) and Rubin pooling (#321).
 mod imputation_ffi;
 pub use imputation_ffi::*;

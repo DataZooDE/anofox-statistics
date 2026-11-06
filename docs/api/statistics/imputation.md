@@ -167,8 +167,10 @@ lists and the intercept in the `intercept_*` fields:
 
 Fewer than two models give NULL. Values that are not finite are NULL: when
 the imputations agree exactly on a coefficient (`B = 0`, e.g. no missing
-values), its d.f. is infinite (or undefined with the small-sample d.f.) and
-its p-value and interval are NULL. Reiter's d.f. of the D1 test needs
+values), Rubin's d.f. is infinite (NULL) and its p-value and interval use the
+standard normal, as `mice` (`df = Inf`); with the small-sample d.f. the
+Barnard–Rubin d.f. is finite there (mice's form `(m − 1)·tmp / ((ν + 3)(m − 1) + λ²·tmp)`,
+`tmp = (1 − λ)(ν + 1)ν`). Reiter's d.f. of the D1 test needs
 `k (m − 1) > 4` (`k` slopes, `m` imputations); with fewer it is unreliable or
 NULL, as in `mitml`. The result does not depend on the order of the models.
 

@@ -1458,3 +1458,240 @@ FROM (SELECT continuation_ratio_fit_agg(y, [x1, x2], wt, NULL) AS m FROM d) t;
 ----
 true
 
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.29726043431051)) <= 1e-6 * (1 + abs(1.29726043431051)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1)) <= 1e-5 * (1 + abs(1)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (2.08209416397718)) <= 1e-5 * (1 + abs(2.08209416397718)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.89613948445545)) <= 1e-6 * (1 + abs(1.89613948445545)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1.20911975300759)) <= 1e-5 * (1 + abs(1.20911975300759)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (2.59623978690548)) <= 1e-5 * (1 + abs(2.59623978690548))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (4.81489807176998)) <= 1e-5 * (1 + abs(4.81489807176998)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (2)) <= 1e-6 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (1)) <= 1e-5 * (1 + abs(1)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (2)) <= 1e-5 * (1 + abs(2))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (2)) <= 1e-6 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (2)) <= 1e-5 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (2)) <= 1e-5 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (3)) <= 1e-5 * (1 + abs(3)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (4.72240786422072)) <= 1e-5 * (1 + abs(4.72240786422072)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (3)) <= 1e-5 * (1 + abs(3)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' logistic vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'logistic'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.20501615761537)) <= 1e-6 * (1 + abs(1.20501615761537)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1)) <= 1e-5 * (1 + abs(1)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (1.9837710474819)) <= 1e-5 * (1 + abs(1.9837710474819)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.86789201384402)) <= 1e-6 * (1 + abs(1.86789201384402)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1.1784832641783)) <= 1e-5 * (1 + abs(1.1784832641783)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (2.56675377152951)) <= 1e-5 * (1 + abs(2.56675377152951))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (4.78642346206327)) <= 1e-5 * (1 + abs(4.78642346206327)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (2)) <= 1e-6 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (1)) <= 1e-5 * (1 + abs(1)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (2)) <= 1e-5 * (1 + abs(2))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (2)) <= 1e-6 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (2)) <= 1e-5 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (2)) <= 1e-5 * (1 + abs(2)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (3)) <= 1e-5 * (1 + abs(3)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (4.43660385998425)) <= 1e-5 * (1 + abs(4.43660385998425)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (3)) <= 1e-5 * (1 + abs(3)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' probit vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (5)) <= 1e-6 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (5)) <= 1e-5 * (1 + abs(5)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5)) <= 1e-5 * (1 + abs(5))
+FROM (SELECT ordinal_fit_agg(y, [x1, x2], {'link': 'probit'}) AS m FROM d) t;
+----
+true	true	true	true	true	true
+
+statement ok
+CREATE TABLE dc AS SELECT d.*, v.yc FROM d JOIN (VALUES (1, 0.892), (2, 4.206), (3, 3.376), (4, -0.592), (5, 1.377), (6, 2.105), (7, 0.629), (8, -0.557), (9, 1.484), (10, 4.098), (11, 1.354), (12, 1.052), (13, -0.008), (14, 0.259), (15, 2.938), (16, 0.431), (17, -0.611), (18, 3.917), (19, 0.817), (20, 3), (21, 1.679), (22, 2.179), (23, -0.986), (24, 1.888), (25, 1.849), (26, 0.116), (27, 3.866), (28, 0.989), (29, 1.088), (30, 1.912), (31, -0.535), (32, -0.442), (33, 0.88), (34, 1.556), (35, 2.491), (36, 2.996), (37, -1.097), (38, 2.759), (39, 1.333), (40, 1.459), (41, 1.162), (42, 3.312), (43, 3.743), (44, 3.952), (45, 1.604), (46, 2.427), (47, 2.056), (48, 3.801), (49, 2.441), (50, 1.228), (51, 2.271), (52, 2.492), (53, 1.546), (54, 1.355), (55, -1.029), (56, 2.445), (57, 3.049), (58, 4.339), (59, -0.351), (60, 0.147), (61, 0.986), (62, 2.486), (63, 3.207), (64, 0.399), (65, 2.43), (66, 2.211), (67, 2.456), (68, 1.146), (69, -0.475), (70, 2.305), (71, -0.918), (72, 1.582), (73, 2.379), (74, 2.091), (75, 0.102), (76, 2.507), (77, 1.183), (78, 1.582), (79, 4.197), (80, -0.811), (81, -1.003), (82, 2.614), (83, 1.066), (84, -0.746), (85, 2.268), (86, 2.382), (87, 1.001), (88, 3.665), (89, 2.529), (90, 1.44), (91, 0.676), (92, 2.607), (93, 2.353), (94, 0.827), (95, 3.428), (96, 3.078), (97, 3.531), (98, 0.68), (99, 3.59), (100, 5.992), (101, 0.348), (102, 2.88), (103, 3.304), (104, 2.314), (105, 2.097), (106, 0.943), (107, 2.433), (108, 0.574), (109, 3.422), (110, 1.509), (111, 1.304), (112, 1.87), (113, 0.336), (114, 2.539), (115, 1.432), (116, 2.129), (117, 4.725), (118, -1.568), (119, 0.379), (120, 3.374), (121, 0.377), (122, 4.684), (123, 1.396), (124, 4.441), (125, 3.74), (126, 3.718), (127, 1.375), (128, 1.148), (129, 1.444), (130, -0.845), (131, 1.548), (132, 4.028), (133, 1.604), (134, -0.378), (135, 3.344), (136, 1.665), (137, 3.889), (138, 3.344), (139, 3.22), (140, 3.115)) v(id, yc) USING (id);
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.40213414765568)) <= 1e-6 * (1 + abs(1.40213414765568)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1.15203486985561)) <= 1e-5 * (1 + abs(1.15203486985561)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (1.58871059193023)) <= 1e-5 * (1 + abs(1.58871059193023)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (1.34464452039817)) <= 1e-6 * (1 + abs(1.34464452039817)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (1.03817057931557)) <= 1e-5 * (1 + abs(1.03817057931557)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (1.50604472341808)) <= 1e-5 * (1 + abs(1.50604472341808))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat) - (4.16188706819079)) <= 1e-6 * (1 + abs(4.16188706819079)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_lower) - (3.87471376415659)) <= 1e-5 * (1 + abs(3.87471376415659)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'interpolated'})).yhat_upper) - (4.68278040098527)) <= 1e-5 * (1 + abs(4.68278040098527)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (1.396)) <= 1e-6 * (1 + abs(1.396)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (1.148)) <= 1e-5 * (1 + abs(1.148)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (1.582)) <= 1e-5 * (1 + abs(1.582))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (1.354)) <= 1e-6 * (1 + abs(1.354)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (1.052)) <= 1e-5 * (1 + abs(1.052)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (1.509)) <= 1e-5 * (1 + abs(1.509)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat) - (4.197)) <= 1e-6 * (1 + abs(4.197)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_lower) - (3.889)) <= 1e-5 * (1 + abs(3.889)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.5, 'method': 'discrete'})).yhat_upper) - (4.684)) <= 1e-5 * (1 + abs(4.684))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (2.49108351079144)) <= 1e-6 * (1 + abs(2.49108351079144)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (2.34200051935583)) <= 1e-5 * (1 + abs(2.34200051935583)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (3.08125934506123)) <= 1e-5 * (1 + abs(3.08125934506123)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (2.44164399233396)) <= 1e-6 * (1 + abs(2.44164399233396)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (2.25046021298116)) <= 1e-5 * (1 + abs(2.25046021298116)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (2.88049489825541)) <= 1e-5 * (1 + abs(2.88049489825541))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat) - (5.695323352838)) <= 1e-6 * (1 + abs(5.695323352838)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_lower) - (4.56771334870536)) <= 1e-5 * (1 + abs(4.56771334870536)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'interpolated'})).yhat_upper) - (5.992)) <= 1e-5 * (1 + abs(5.992)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (2.491)) <= 1e-6 * (1 + abs(2.491)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (2.314)) <= 1e-5 * (1 + abs(2.314)),
+    abs(((ordinal_predict(t.m, [-0.002, 1], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (3.078)) <= 1e-5 * (1 + abs(3.078))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+
+# ordinal_predict type 'quantile' continuous response vs rms::Quantile.orm(conf.int = 0.95)
+query IIIIII
+SELECT
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (2.441)) <= 1e-6 * (1 + abs(2.441)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (2.211)) <= 1e-5 * (1 + abs(2.211)),
+    abs(((ordinal_predict(t.m, [-0.619, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (2.88)) <= 1e-5 * (1 + abs(2.88)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat) - (4.725)) <= 1e-6 * (1 + abs(4.725)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_lower) - (4.441)) <= 1e-5 * (1 + abs(4.441)),
+    abs(((ordinal_predict(t.m, [1.992, 0], {'type': 'quantile', 'q': 0.9, 'method': 'discrete'})).yhat_upper) - (5.992)) <= 1e-5 * (1 + abs(5.992))
+FROM (SELECT ordinal_fit_agg(yc, [x1, x2]) AS m FROM dc) t;
+----
+true	true	true	true	true	true
+

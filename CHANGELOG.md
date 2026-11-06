@@ -10,6 +10,38 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+- **anofox-regression 0.12.0.** Stored models are now rebuilt upstream from their parts instead of
+  being scored by the extension, and the workarounds for bugs fixed in 0.12 are gone:
+  - `ordinal_predict` / `predict` rebuild an `ordinal_fit_agg` model with
+    `FittedOrdinal::from_information` from the new `information` field of the model STRUCT (the
+    compact observed information, O(k·p) values) and a `continuation_ratio_fit_agg` model with
+    `FittedContinuationRatio::from_parts`; a model without `information` (hand-written or from an
+    earlier build) is an error. New `{'type': 'quantile'}` with `q`, `level` and `method`
+    (`'interpolated'` / `'discrete'`): the predicted quantile with confidence limits,
+    `STRUCT(yhat, yhat_lower, yhat_upper)`, equal to `rms::Quantile.orm(conf.int = )`. The Wald
+    `z_values` / `p_values` of `ordinal_fit_agg` come from upstream (a zero standard error now
+    gives an infinite z instead of NULL).
+  - `multinomial_predict` / `predict` use `FittedMultinomialLogistic::from_parts`; a model with
+    non-finite coefficients or the wrong number of rows is an error (message from upstream).
+  - `pspline_fit_agg` returns the smoother's `knots` and Bayesian `covariance`, and
+    `predict(model, [x])` evaluates a stored P-spline at a new `x` (with `se_fit` / `interval`
+    / `level`, `FittedPSpline::from_parts`); `log_likelihood`, `aic` and `bic` are mgcv's
+    `logLik.gam` / `AIC` / `BIC` instead of NULL.
+  - `aft_augment_agg` fits once (`FittedAft::from_result`) instead of refitting.
+  - GLS errors are matched on upstream's `GlsError` variants instead of message text (same NULL vs
+    error behaviour); an AFT fit with every observation censored stays NULL
+    (`RegressionError::AllCensored`).
+  - Effects: a setting value that is not a level of a categorical predictor is rejected by upstream
+    (`ModelSpec::row` / `contrast` / `predict_grid` now return errors); the message names the
+    predictor as `predictor k`.
+  - `pool_rubin_agg`: when the imputations agree exactly (`B = 0`) Rubin's d.f. is infinite and the
+    p-values and intervals now use the standard normal (were NULL), as mice; the Barnard–Rubin d.f.
+    is mice's finite form there.
+  - `kaplan_meier_agg(..., {'conf_type': 'plain'})`: the limits are NULL once the survival reaches 0
+    (were 0 and 1), as `survfit(conf.type = "plain")`.
+  - `rcs_knots_agg` of a constant column and `box_cox_inverse` outside the range of the transform
+    rely on upstream (`TooFewUniqueKnots` -> NULL, `NaN` -> NULL); the results are unchanged.
+
 - **anofox-statistics 0.9.1.** Seeded bootstrap and permutation results are now the same on
   wasm32 as on 64-bit builds (they differed before 0.8.3), and large samples no longer overflow
   on 32-bit targets. No change on 64-bit.
@@ -23,8 +55,8 @@ Breaking changes are called out explicitly.
   (alias `k`), `penalty_order`, `lambda` (default: GCV). `pspline_fit_agg` returns the smooth
   and its standard error at the distinct `x`, the coefficients, `lambda`, `edf`, `sigma2` and
   `r_squared`; the fit-predict forms add a prediction (default) or confidence interval
-  (`interval`, `confidence_level`) and extend the smooth linearly beyond the data. Upstream does
-  not expose the fitted basis, so prediction at new `x` goes through the fit-predict forms.
+  (`interval`, `confidence_level`) and extend the smooth linearly beyond the data;
+  `predict(model, [x])` evaluates a stored fit at a new `x`.
 
 - **`pentrace_agg(y, x, options)`, `penalized_ols_fit_agg(y, x [, options])`, `pentrace_by`
   and `penalized_ols_fit_by` (#323).** Penalized maximum likelihood a la rms from
@@ -62,8 +94,17 @@ Breaking changes are called out explicitly.
   order and an optional `cut_height`, `Hmisc::varclus`) and `redun_agg(x DOUBLE[] [, options])`
   (redundancy analysis, `Hmisc::redun`). Upstream anofox-regression `reduction` / `transform`;
   reference values against Hmisc and MASS in `test/sql/reference/reduction_reference.test`.
-  `spearman2_agg` and `hoeffding_d_agg` carry the unified test fields. `areg` / `transcan` are
-  not exposed yet.
+  `spearman2_agg` and `hoeffding_d_agg` carry the unified test fields. `transcan` is not exposed
+  yet.
+- **`areg_fit_agg(y, x [, options])`, `areg_predict(model, x [, options])`,
+  `areg_transform(model, y)` and `areg_inverse(model, t)` (#320 follow-up).** Additive regression
+  with optimal transformations of both sides, `Hmisc::areg` (anofox-regression
+  `transform::areg`): options `nk`, `x_types` (`s` / `l` / `c`, one or one per predictor),
+  `y_type`; the model STRUCT holds the coefficients of the predictor and response bases, R²,
+  `mad` / `med`, the bases' knots / levels and the range of `y`. The scalars rebuild the stored
+  model (`Areg::from_parts`): the linear predictor at a new row (or with `{'type': 'fitted'}`
+  back on the `y` scale), the response transformation and its inverse. Validated against
+  `Hmisc::areg`, `predict.areg`, `ytrans` and `yinv` (`validation/generators/make_reference_areg.R`).
 
 - **`areg_impute_agg(id, x [, options])`, `areg_impute_by` and `pool_rubin_agg(model [, options])`
   (#321).** Multiple imputation by additive regression, bootstrapping and predictive mean
@@ -268,7 +309,7 @@ Breaking changes are called out explicitly.
   model LR chi-square, AIC and the proportional-odds score test (`po_test_*`).
   `continuation_ratio_fit_agg(y, x [, weight] [, {'cohort_specific': [...]}])`: the
   continuation-ratio model (`ContinuationRatioRegressor`, `rms::cr.setup` + `lrm`).
-  `ordinal_predict(model, x [, {'type': 'class' | 'prob' | 'exceedance' | 'mean'}])` (also
+  `ordinal_predict(model, x [, {'type': 'class' | 'prob' | 'exceedance' | 'mean' | 'quantile'}])` (also
   `predict(model, x)`) and the `ordinal_fit_predict_by` / `continuation_ratio_fit_predict_by`
   table macros. Reference values: `rms::orm`, `MASS::polr`, `cr.setup` + `lrm` and the
   partial proportional-odds score by numDeriv

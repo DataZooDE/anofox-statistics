@@ -42,9 +42,9 @@ static_assert(offsetof(AnofoxOrdinalOptions, link) == 2 * sizeof(double) &&
                   offsetof(AnofoxOrdinalOptions, po_test) == 2 * sizeof(double) + 3 * sizeof(uint32_t) &&
                   sizeof(AnofoxOrdinalOptions) == 2 * sizeof(double) + 4 * sizeof(uint32_t),
               "AnofoxOrdinalOptions must match OrdinalOptionsFFI");
-static_assert(offsetof(AnofoxOrdinalFitResult, n_levels) == 8 * sizeof(double *) &&
+static_assert(offsetof(AnofoxOrdinalFitResult, n_levels) == 12 * sizeof(double *) &&
                   offsetof(AnofoxOrdinalFitResult, log_likelihood) ==
-                      ((8 * sizeof(double *) + 3 * sizeof(size_t) + alignof(double) - 1) / alignof(double)) *
+                      ((12 * sizeof(double *) + 3 * sizeof(size_t) + alignof(double) - 1) / alignof(double)) *
                           alignof(double) &&
                   offsetof(AnofoxOrdinalFitResult, iterations) ==
                       offsetof(AnofoxOrdinalFitResult, log_likelihood) + 10 * sizeof(double) &&
@@ -208,6 +208,19 @@ struct OrdinalBindData : public FunctionData {
 	}
 };
 
+//! The observed information of a cumulative link model in upstream's compact block form
+//! (FittedOrdinal::information): what ordinal_predict rebuilds the model from.
+const char *const ORDINAL_INFORMATION_FIELDS[] = {"intercept_diagonal", "intercept_off_diagonal", "intercept_slope",
+                                                  "slopes"};
+
+static LogicalType OrdinalInformationType() {
+	child_list_t<LogicalType> c;
+	for (auto name : ORDINAL_INFORMATION_FIELDS) {
+		c.push_back(MakeChild(name, LogicalType::LIST(LogicalType::DOUBLE)));
+	}
+	return LogicalType::STRUCT(std::move(c));
+}
+
 static LogicalType OrdinalModelType() {
 	auto dlist = LogicalType::LIST(LogicalType::DOUBLE);
 	child_list_t<LogicalType> c;
@@ -238,6 +251,7 @@ static LogicalType OrdinalModelType() {
 	c.push_back(MakeChild("converged", LogicalType::BOOLEAN));
 	c.push_back(MakeChild("model_type", LogicalType::VARCHAR));
 	c.push_back(MakeChild("link", LogicalType::VARCHAR));
+	c.push_back(MakeChild("information", OrdinalInformationType()));
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -448,6 +462,13 @@ static void OrdinalFinalizeRow(OrdinalAggregateState &state, const OrdinalBindDa
 	FlatDataMut<bool>(StructEntry(entries[24]))[row] = fit.converged;
 	SetString(StructEntry(entries[25]), row, "ordinal");
 	SetString(StructEntry(entries[26]), row, ORDINAL_LINK_NAMES[bind.link]);
+	{
+		auto &info = StructVector::GetEntries(StructEntry(entries[27]));
+		AppendDoubles(StructEntry(info[0]), row, fit.info_intercept_diagonal, k - 1);
+		AppendDoubles(StructEntry(info[1]), row, fit.info_intercept_off_diagonal, k - 2);
+		AppendDoubles(StructEntry(info[2]), row, fit.info_cross, (k - 1) * p);
+		AppendDoubles(StructEntry(info[3]), row, fit.info_slopes, p * p);
+	}
 	anofox_free_ordinal_result(&fit);
 }
 
@@ -626,11 +647,16 @@ static unique_ptr<FunctionData> ContinuationRatioAggBind(ClientContext &context,
 //===--------------------------------------------------------------------===//
 // ordinal_predict(model, x DOUBLE[] [, options]) and predict(model, x [, options])
 //===--------------------------------------------------------------------===//
-enum class OrdinalPredictType : uint8_t { CLASS, PROB, EXCEEDANCE, MEAN };
+enum class OrdinalPredictType : uint8_t { CLASS, PROB, EXCEEDANCE, MEAN, QUANTILE };
 
 struct OrdinalPredictBindData : public FunctionData {
 	OrdinalPredictType type = OrdinalPredictType::CLASS;
+	// type 'quantile' (rms Quantile.orm)
+	double q = 0.5;
+	double level = 0.95;
+	uint32_t quantile_method = 0; // 0 interpolated, 1 discrete
 	bool continuation_ratio = false;
+	idx_t information_idx = DConstants::INVALID_INDEX;
 	idx_t levels_idx = DConstants::INVALID_INDEX;
 	idx_t intercepts_idx = DConstants::INVALID_INDEX;
 	idx_t coef_idx = DConstants::INVALID_INDEX;
@@ -643,9 +669,10 @@ struct OrdinalPredictBindData : public FunctionData {
 	}
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<OrdinalPredictBindData>();
-		return type == o.type && continuation_ratio == o.continuation_ratio && levels_idx == o.levels_idx &&
-		       intercepts_idx == o.intercepts_idx && coef_idx == o.coef_idx && link_idx == o.link_idx &&
-		       offset_idx == o.offset_idx && cohort_idx == o.cohort_idx;
+		return type == o.type && q == o.q && level == o.level && quantile_method == o.quantile_method &&
+		       information_idx == o.information_idx && continuation_ratio == o.continuation_ratio &&
+		       levels_idx == o.levels_idx && intercepts_idx == o.intercepts_idx && coef_idx == o.coef_idx &&
+		       link_idx == o.link_idx && offset_idx == o.offset_idx && cohort_idx == o.cohort_idx;
 	}
 };
 
@@ -702,10 +729,32 @@ unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFu
 		} else if (name == "cohort_specific") {
 			data->cohort_idx = i;
 			type = LogicalType::LIST(LogicalType::BIGINT);
+		} else if (name == "information") {
+			if (type.id() != LogicalTypeId::STRUCT) {
+				throw InvalidInputException("%s(model, x): the model's information must be a STRUCT, got %s", fn_name,
+				                            type.ToString());
+			}
+			for (auto field : ORDINAL_INFORMATION_FIELDS) {
+				bool found = false;
+				for (auto &info_child : StructType::GetChildTypes(type)) {
+					found = found || NameString(info_child.first) == field;
+				}
+				if (!found) {
+					throw InvalidInputException("%s(model, x): the model's information needs the field '%s'", fn_name,
+					                            field);
+				}
+			}
+			data->information_idx = i;
+			type = OrdinalInformationType();
 		}
 		cast_children.push_back(MakeChild(NameString(children[i].first), type));
 	}
 	data->continuation_ratio = data->intercepts_idx == DConstants::INVALID_INDEX;
+	if (!data->continuation_ratio && data->information_idx == DConstants::INVALID_INDEX) {
+		throw InvalidInputException("%s(model, x): an ordinal_fit_agg model needs its information field (the model is "
+		                            "rebuilt from it); refit it with ordinal_fit_agg",
+		                            fn_name);
+	}
 	if (data->coef_idx == DConstants::INVALID_INDEX) {
 		throw InvalidInputException("%s(model, x): an ordinal model needs a coefficients field, got %s", fn_name,
 		                            in_type.ToString());
@@ -715,10 +764,40 @@ unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFu
 		arguments[0] = BoundCastExpression::AddCastToType(context, std::move(arguments[0]), target);
 	}
 	if (arguments.size() >= 3) {
+		bool quantile_options = false;
 		VisitOptions(context, *arguments[2], fn_name, [&](const string &key, const Value &val) {
+			if (key == "q" || key == "level") {
+				double v;
+				try {
+					v = val.DefaultCastAs(LogicalType::DOUBLE).GetValue<double>();
+				} catch (std::exception &) {
+					throw InvalidInputException("%s: option '%s' must be a number, got '%s'", fn_name, key,
+					                            val.ToString());
+				}
+				if (!(v > 0.0 && v < 1.0)) {
+					throw InvalidInputException("%s: option '%s' must be in (0, 1), got %s", fn_name, key,
+					                            val.ToString());
+				}
+				(key == "q" ? data->q : data->level) = v;
+				quantile_options = true;
+				return;
+			}
+			if (key == "method") {
+				auto m = StringUtil::Lower(val.ToString());
+				if (m == "interpolated") {
+					data->quantile_method = 0;
+				} else if (m == "discrete") {
+					data->quantile_method = 1;
+				} else {
+					throw InvalidInputException("%s: option 'method' must be 'interpolated' or 'discrete', got '%s'",
+					                            fn_name, val.ToString());
+				}
+				quantile_options = true;
+				return;
+			}
 			if (key != "type") {
-				throw InvalidInputException("%s: unknown option '%s' for an ordinal model (supported: type)", fn_name,
-				                            key);
+				throw InvalidInputException(
+				    "%s: unknown option '%s' for an ordinal model (supported: type, q, level, method)", fn_name, key);
 			}
 			auto v = StringUtil::Lower(val.ToString());
 			if (v == "class") {
@@ -730,20 +809,32 @@ unique_ptr<FunctionData> OrdinalPredictBind(ClientContext &context, ScalarBindFu
 			} else if (v == "mean") {
 				data->type = OrdinalPredictType::MEAN;
 			} else if (v == "quantile") {
-				throw InvalidInputException(
-				    "%s: type 'quantile' is not available for a stored ordinal model (upstream's predicted "
-				    "quantiles need the fitted model object); use 'class', 'prob', 'exceedance' or 'mean'",
-				    fn_name);
+				data->type = OrdinalPredictType::QUANTILE;
 			} else {
-				throw InvalidInputException(
-				    "%s: option 'type' must be 'class', 'prob', 'exceedance' or 'mean' for an ordinal model, got '%s'",
-				    fn_name, val.ToString());
+				throw InvalidInputException("%s: option 'type' must be 'class', 'prob', 'exceedance', 'mean' or "
+				                            "'quantile' for an ordinal model, got '%s'",
+				                            fn_name, val.ToString());
 			}
 		});
+		if (quantile_options && data->type != OrdinalPredictType::QUANTILE) {
+			throw InvalidInputException("%s: options 'q', 'level' and 'method' apply to {'type': 'quantile'} only",
+			                            fn_name);
+		}
+		if (data->type == OrdinalPredictType::QUANTILE && data->continuation_ratio) {
+			throw InvalidInputException("%s: type 'quantile' is available for ordinal_fit_agg models only "
+			                            "(rms Quantile.orm), not for a continuation-ratio model",
+			                            fn_name);
+		}
 	}
 	LogicalType ret = LogicalType::DOUBLE;
 	if (data->type == OrdinalPredictType::PROB || data->type == OrdinalPredictType::EXCEEDANCE) {
 		ret = LogicalType::LIST(LogicalType::DOUBLE);
+	} else if (data->type == OrdinalPredictType::QUANTILE) {
+		child_list_t<LogicalType> c;
+		c.push_back(MakeChild("yhat", LogicalType::DOUBLE));
+		c.push_back(MakeChild("yhat_lower", LogicalType::DOUBLE));
+		c.push_back(MakeChild("yhat_upper", LogicalType::DOUBLE));
+		ret = LogicalType::STRUCT(std::move(c));
 	}
 	SetReturnTypeOf(bound_function, ret);
 	SetFunctionCallbackOf(bound_function, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, OrdinalPredictFunction));
@@ -798,6 +889,7 @@ static void OrdinalPredictFunctionImpl(DataChunk &args, ExpressionState &state, 
 		const idx_t k = levels.size();
 		vector<double> proba(k), exceedance(k > 0 ? k - 1 : 0);
 		double mean = 0.0;
+		double quantile[3] = {0.0, 0.0, 0.0};
 		size_t best = 0;
 		AnofoxError error;
 		bool ok;
@@ -861,9 +953,33 @@ static void OrdinalPredictFunctionImpl(DataChunk &args, ExpressionState &state, 
 					offset_column = static_cast<uint64_t>(c);
 				}
 			}
-			ok = anofox_ordinal_predict(link, levels.data(), k, intercepts.data(), coefficients.data(),
-			                            coefficients.size(), offset_column, x_child_data + x_entry.offset,
-			                            x_entry.length, proba.data(), exceedance.data(), &mean, &best, &error);
+			auto &info_vec = StructEntry(entries[bind.information_idx]);
+			if (FlatVector::IsNull(info_vec, row)) {
+				FlatVector::SetNull(result, row, true);
+				continue;
+			}
+			auto &info = StructVector::GetEntries(info_vec);
+			vector<double> info_parts[4];
+			bool info_null = false;
+			for (idx_t f = 0; f < 4; f++) {
+				auto &part = StructEntry(info[f]);
+				if (FlatVector::IsNull(part, row)) {
+					info_null = true;
+					break;
+				}
+				info_parts[f] = ListDoubles(part, row, "information");
+			}
+			if (info_null) {
+				FlatVector::SetNull(result, row, true);
+				continue;
+			}
+			const bool want_quantile = bind.type == OrdinalPredictType::QUANTILE;
+			ok = anofox_ordinal_predict(
+			    link, levels.data(), k, intercepts.data(), coefficients.data(), coefficients.size(),
+			    info_parts[0].data(), info_parts[0].size(), info_parts[1].data(), info_parts[1].size(),
+			    info_parts[2].data(), info_parts[2].size(), info_parts[3].data(), info_parts[3].size(), offset_column,
+			    x_child_data + x_entry.offset, x_entry.length, want_quantile ? bind.q : std::nan(""),
+			    bind.quantile_method, bind.level, proba.data(), exceedance.data(), &mean, &best, quantile, &error);
 		}
 		if (!ok) {
 			ThrowUnlessDegenerate("ordinal_predict", error);
@@ -883,6 +999,13 @@ static void OrdinalPredictFunctionImpl(DataChunk &args, ExpressionState &state, 
 		case OrdinalPredictType::EXCEEDANCE:
 			AppendDoubles(result, row, exceedance.data(), exceedance.size());
 			break;
+		case OrdinalPredictType::QUANTILE: {
+			auto &q_entries = StructVector::GetEntries(result);
+			for (idx_t f = 0; f < 3; f++) {
+				SetDoubleOrNull(StructEntry(q_entries[f]), row, quantile[f]);
+			}
+			break;
+		}
 		}
 	}
 	result.SetVectorType(VectorType::FLAT_VECTOR);
@@ -1018,8 +1141,10 @@ void RegisterOrdinalFunctions(ExtensionLoader &loader) {
 		    "Predicts one row from an ordinal_fit_agg or continuation_ratio_fit_agg model: the most probable level "
 		    "(DOUBLE; polr's predict(type = 'class')), or with {'type': 'prob'} the level probabilities (DOUBLE[] in "
 		    "the order of the model's levels), {'type': 'exceedance'} P(Y >= y_{j+1}) for j = 1..k-1 (DOUBLE[]) or "
-		    "{'type': 'mean'} the predicted mean sum_j y_j P(Y = y_j) (rms Mean.orm). NULL when the model or x is "
-		    "NULL or x holds a NULL. predict(model, x [, options]) does the same.";
+		    "{'type': 'mean'} the predicted mean sum_j y_j P(Y = y_j) (rms Mean.orm), or {'type': 'quantile'} "
+		    "(options q, level, method) the predicted quantile with confidence limits as STRUCT(yhat, yhat_lower, "
+		    "yhat_upper) (rms Quantile.orm). The model is rebuilt upstream from its stored parts. NULL when the "
+		    "model or x is NULL or x holds a NULL. predict(model, x [, options]) does the same.";
 		desc.examples = {"ordinal_predict(model, [52, 1.0])", "ordinal_predict(model, [52, 1.0], {'type': 'prob'})"};
 		desc.categories = {"regression", "ordinal", "prediction"};
 		desc.parameter_names = {"model", "x", "options"};

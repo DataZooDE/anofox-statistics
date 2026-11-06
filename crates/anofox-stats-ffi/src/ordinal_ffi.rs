@@ -5,7 +5,8 @@
 use super::*;
 use anofox_stats_core::ordinal::{
     continuation_ratio_predict, fit_continuation_ratio, fit_ordinal, ordinal_link_from_code,
-    ordinal_predict, OrdinalOptions, OrdinalPrediction,
+    ordinal_predict, OrdinalOptions, OrdinalPrediction, OrdinalQuantileMethod, QuantileRequest,
+    StoredInformation, StoredOrdinal,
 };
 
 /// Fit options of `anofox_ordinal_fit`.
@@ -42,6 +43,15 @@ pub struct OrdinalFitResultFFI {
     pub std_errors: *mut f64,
     pub z_values: *mut f64,
     pub p_values: *mut f64,
+    /// The observed information in upstream's compact block form
+    /// (`FittedOrdinal::information`): the intercept block's diagonal
+    /// (`n_levels - 1`) and first off-diagonal (`n_levels - 2`), the
+    /// intercepts x slopes block (row-major `(n_levels - 1) x n_features`) and
+    /// the slopes block (row-major `n_features x n_features`).
+    pub info_intercept_diagonal: *mut f64,
+    pub info_intercept_off_diagonal: *mut f64,
+    pub info_cross: *mut f64,
+    pub info_slopes: *mut f64,
     pub n_levels: usize,
     pub n_features: usize,
     pub n_observations: usize,
@@ -194,6 +204,12 @@ pub unsafe extern "C" fn anofox_ordinal_fit(
                     std_errors: malloc_doubles(&fit.std_errors),
                     z_values: malloc_doubles(&fit.z_values),
                     p_values: malloc_doubles(&fit.p_values),
+                    info_intercept_diagonal: malloc_doubles(&fit.information.intercept_diagonal),
+                    info_intercept_off_diagonal: malloc_doubles(
+                        &fit.information.intercept_off_diagonal,
+                    ),
+                    info_cross: malloc_doubles(&fit.information.cross),
+                    info_slopes: malloc_doubles(&fit.information.slopes),
                     n_levels: fit.levels.len(),
                     n_features: fit.n_features,
                     n_observations: fit.n_observations,
@@ -210,9 +226,15 @@ pub unsafe extern "C" fn anofox_ordinal_fit(
                     iterations: fit.iterations as u32,
                     converged: fit.converged,
                 };
+                let info = &fit.information;
                 let failed = out.levels.is_null()
                     || out.counts.is_null()
                     || out.intercepts.is_null()
+                    || out.info_intercept_diagonal.is_null()
+                    || (!info.intercept_off_diagonal.is_empty()
+                        && out.info_intercept_off_diagonal.is_null())
+                    || (!info.cross.is_empty() && out.info_cross.is_null())
+                    || (!info.slopes.is_empty() && out.info_slopes.is_null())
                     || (!ise.is_empty() && out.intercept_std_errors.is_null())
                     || (fit.n_features > 0
                         && (out.coefficients.is_null()
@@ -255,6 +277,10 @@ pub unsafe extern "C" fn anofox_free_ordinal_result(result: *mut OrdinalFitResul
             &mut r.std_errors,
             &mut r.z_values,
             &mut r.p_values,
+            &mut r.info_intercept_diagonal,
+            &mut r.info_intercept_off_diagonal,
+            &mut r.info_cross,
+            &mut r.info_slopes,
         ]);
     })
 }
@@ -376,16 +402,24 @@ unsafe fn write_prediction(
 
 /// Predict one row `x` (`x_len` values: the columns of the fit, including an
 /// offset column) under a stored cumulative link model with `link` (code as
-/// `OrdinalOptionsFFI`), `n_levels` levels, `n_levels - 1` intercepts and
-/// `n_coefficients` slopes; `offset_column` is 1-based (0: none). Writes the
-/// `n_levels` category probabilities, the `n_levels - 1` exceedance
-/// probabilities, the mean and the index of the most probable level.
+/// `OrdinalOptionsFFI`), `n_levels` levels, `n_levels - 1` intercepts,
+/// `n_coefficients` slopes and the observed information blocks of
+/// `OrdinalFitResultFFI` (`info_*`, with their lengths); `offset_column` is
+/// 1-based (0: none). The model is rebuilt upstream
+/// (`FittedOrdinal::from_information`). Writes the `n_levels` category
+/// probabilities, the `n_levels - 1` exceedance probabilities, the mean and
+/// the index of the most probable level; with a `quantile_q` in (0, 1) (NaN:
+/// none) also the predicted quantile and its `level` confidence limits
+/// (`quantile_method` 0 interpolated, 1 discrete) to `out_quantile`
+/// (estimate, lower, upper).
 ///
 /// # Safety
 /// - `levels` must point to `n_levels` doubles, `intercepts` to
-///   `n_levels - 1`, `coefficients` to `n_coefficients`, `x` to `x_len`
+///   `n_levels - 1`, `coefficients` to `n_coefficients`, each `info_*` to its
+///   length, `x` to `x_len`
 /// - `out_proba` must point to `n_levels` writable doubles, `out_exceedance`
-///   to `n_levels - 1`; `out_mean`, `out_class` and `out_error` must be valid
+///   to `n_levels - 1`, `out_quantile` to 3 when `quantile_q` is not NaN;
+///   `out_mean`, `out_class` and `out_error` must be valid
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn anofox_ordinal_predict(
@@ -395,21 +429,35 @@ pub unsafe extern "C" fn anofox_ordinal_predict(
     intercepts: *const f64,
     coefficients: *const f64,
     n_coefficients: usize,
+    info_intercept_diagonal: *const f64,
+    n_info_intercept_diagonal: usize,
+    info_intercept_off_diagonal: *const f64,
+    n_info_intercept_off_diagonal: usize,
+    info_cross: *const f64,
+    n_info_cross: usize,
+    info_slopes: *const f64,
+    n_info_slopes: usize,
     offset_column: u64,
     x: *const f64,
     x_len: usize,
+    quantile_q: f64,
+    quantile_method: u32,
+    level: f64,
     out_proba: *mut f64,
     out_exceedance: *mut f64,
     out_mean: *mut f64,
     out_class: *mut usize,
+    out_quantile: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
     ffi_guard(out_error, false, || {
         reset_error(out_error);
+        let want_quantile = !quantile_q.is_nan();
         if !check_out(out_proba, out_error)
             || !check_out(out_mean, out_error)
             || !check_out(out_class, out_error)
             || (n_levels > 1 && !check_out(out_exceedance, out_error))
+            || (want_quantile && !check_out(out_quantile, out_error))
         {
             return false;
         }
@@ -423,11 +471,41 @@ pub unsafe extern "C" fn anofox_ordinal_predict(
         let lv = view(levels, n_levels);
         let ic = view(intercepts, n_levels.saturating_sub(1));
         let co = view(coefficients, n_coefficients);
+        let information = StoredInformation {
+            intercept_diagonal: view(info_intercept_diagonal, n_info_intercept_diagonal),
+            intercept_off_diagonal: view(
+                info_intercept_off_diagonal,
+                n_info_intercept_off_diagonal,
+            ),
+            cross: view(info_cross, n_info_cross),
+            slopes: view(info_slopes, n_info_slopes),
+        };
         let row = view(x, x_len);
-        let offset = (offset_column > 0).then(|| offset_column as usize - 1);
-        match ordinal_predict(link, &lv, &ic, &co, offset, &row) {
+        let model = StoredOrdinal {
+            link,
+            levels: &lv,
+            intercepts: &ic,
+            coefficients: &co,
+            information: &information,
+            offset_column: (offset_column > 0).then(|| offset_column as usize - 1),
+        };
+        let request = want_quantile.then_some(QuantileRequest {
+            q: quantile_q,
+            method: if quantile_method == 1 {
+                OrdinalQuantileMethod::Discrete
+            } else {
+                OrdinalQuantileMethod::Interpolated
+            },
+            level,
+        });
+        match ordinal_predict(&model, &row, request) {
             Ok(p) => {
                 write_prediction(&p, out_proba, out_exceedance, out_mean, out_class);
+                if let Some((e, l, h)) = p.quantile {
+                    *out_quantile = e;
+                    *out_quantile.add(1) = l;
+                    *out_quantile.add(2) = h;
+                }
                 true
             }
             Err(e) => {
@@ -556,40 +634,67 @@ mod tests {
             assert!(!fit.intercept_std_errors.is_null());
             assert!(fit.po_df == 1.0);
             let (mut proba, mut exceed, mut mean, mut class) = ([0.0; 3], [0.0; 2], 0.0, 0usize);
-            assert!(anofox_ordinal_predict(
-                0,
-                fit.levels,
-                fit.n_levels,
-                fit.intercepts,
-                fit.coefficients,
-                fit.n_features,
-                0,
-                [2.0].as_ptr(),
-                1,
-                proba.as_mut_ptr(),
-                exceed.as_mut_ptr(),
+            let mut quantile = [0.0; 3];
+            let predict = |x: &[f64],
+                           q: f64,
+                           proba: &mut [f64; 3],
+                           exceed: &mut [f64; 2],
+                           mean: &mut f64,
+                           class: &mut usize,
+                           quantile: &mut [f64; 3],
+                           err: &mut AnofoxError| {
+                anofox_ordinal_predict(
+                    0,
+                    fit.levels,
+                    fit.n_levels,
+                    fit.intercepts,
+                    fit.coefficients,
+                    fit.n_features,
+                    fit.info_intercept_diagonal,
+                    2,
+                    fit.info_intercept_off_diagonal,
+                    1,
+                    fit.info_cross,
+                    2,
+                    fit.info_slopes,
+                    1,
+                    0,
+                    x.as_ptr(),
+                    x.len(),
+                    q,
+                    0,
+                    0.95,
+                    proba.as_mut_ptr(),
+                    exceed.as_mut_ptr(),
+                    mean,
+                    class,
+                    quantile.as_mut_ptr(),
+                    err,
+                )
+            };
+            assert!(predict(
+                &[2.0],
+                0.5,
+                &mut proba,
+                &mut exceed,
                 &mut mean,
                 &mut class,
-                &mut err,
+                &mut quantile,
+                &mut err
             ));
             assert!((proba.iter().sum::<f64>() - 1.0).abs() < 1e-12);
             assert!((exceed[1] - proba[2]).abs() < 1e-12);
             assert_eq!(class, 2);
-            assert!(!anofox_ordinal_predict(
-                0,
-                fit.levels,
-                fit.n_levels,
-                fit.intercepts,
-                fit.coefficients,
-                fit.n_features,
-                0,
-                [2.0, 1.0].as_ptr(),
-                2,
-                proba.as_mut_ptr(),
-                exceed.as_mut_ptr(),
+            assert!(quantile[1] <= quantile[0] && quantile[0] <= quantile[2]);
+            assert!(!predict(
+                &[2.0, 1.0],
+                f64::NAN,
+                &mut proba,
+                &mut exceed,
                 &mut mean,
                 &mut class,
-                &mut err,
+                &mut quantile,
+                &mut err
             ));
             assert!(matches!(err.code, ErrorCode::DimensionMismatch));
             anofox_free_ordinal_result(&mut fit);

@@ -275,12 +275,15 @@ FROM (SELECT pool_rubin_agg(m) AS p FROM (VALUES ({'coefficients': [1.0], 'std_e
 ----
 true	true	true	true
 
-# identical imputations (no missing data): B = 0, the d.f. is infinite and the p-value / interval undefined (NULL)
-query III
-SELECT p.riv[1], p.p_values[1] IS NULL, abs(p.std_errors[1] - (SELECT fit.std_errors[1] FROM fits WHERE imputation = 1)) > 1e-12
+# identical imputations (no missing data): B = 0, the d.f. is infinite (NULL) and the p-value / interval
+# use the standard normal (mice: df = Inf)
+query IIIII
+SELECT p.riv[1], p.df[1] IS NULL, p.p_values[1] IS NOT NULL,
+       abs(p.conf_low[1] - (p.coefficients[1] - 1.959963984540054 * p.std_errors[1])) < 1e-9,
+       abs(p.std_errors[1] - (SELECT fit.std_errors[1] FROM fits WHERE imputation = 1)) > 1e-12
 FROM (SELECT pool_rubin_agg(f, {'small_sample': false}) AS p FROM (SELECT fit AS f FROM fits WHERE imputation = 1 UNION ALL SELECT fit FROM fits WHERE imputation = 1));
 ----
-0.0	true	false
+0.0	true	true	true	false
 
 # a GLM pools the same way
 query II

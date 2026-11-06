@@ -7,24 +7,21 @@
 //! The wrappers fit upstream and hand back the estimates and fit statistics.
 //!
 //! Prediction from a stored model ([`ordinal_predict`],
-//! [`continuation_ratio_predict`]): upstream's `FittedOrdinal` and
-//! `FittedContinuationRatio` cannot be rebuilt from their parts (private
-//! fields, no constructor), so a stored model is scored here by composing
-//! upstream's public link functions (`OrdinalLink::cdf` / `sf`) with the
-//! stored intercepts and slopes, exactly as upstream's
-//! `exceedance_probabilities` / `category_probabilities` / `predict_mean` /
-//! `conditional_probabilities` do. The unit tests check the composition
-//! against those upstream methods on the fitted model. Predicted quantiles
-//! (`predict_quantile[_ci]`) and the delta-method SE of the mean
-//! (`predict_mean_with_se`) need the fitted object (its covariance and the
-//! private `quantile_of` interpolation) and are not offered for stored models.
+//! [`continuation_ratio_predict`]) rebuilds upstream's fitted model from the
+//! parts the model STRUCT stores: `FittedOrdinal::from_information` (the
+//! intercepts, slopes and the compact observed information
+//! `FittedOrdinal::information`, O(k·p) for k levels) and
+//! `FittedContinuationRatio::from_parts`, and predicts with its methods
+//! (probabilities, mean, and for a cumulative link model the predicted
+//! quantile with confidence limits, `rms::Quantile.orm`).
 
 use crate::{StatsError, StatsResult};
+pub use anofox_regression::solvers::OrdinalQuantileMethod;
 use anofox_regression::solvers::{
-    ContinuationRatioRegressor, FittedRegressor, IterativeFit, OrdinalLink, OrdinalRegressor,
+    ContinuationRatioRegressor, FittedContinuationRatio, FittedOrdinal, FittedRegressor,
+    IterativeFit, OrdinalInformation, OrdinalLink, OrdinalRegressor,
 };
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal};
 
 /// Response levels up to which the proportional-odds score test is computed
 /// by default (its information matrix is dense in the number of levels).
@@ -89,6 +86,55 @@ impl Default for OrdinalOptions {
     }
 }
 
+/// The observed information of a cumulative link model in upstream's compact
+/// block form ([`OrdinalInformation`]) as flat vectors: what a stored model
+/// needs to be rebuilt with `FittedOrdinal::from_information`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct StoredInformation {
+    /// Diagonal of the intercept block (`k − 1`).
+    pub intercept_diagonal: Vec<f64>,
+    /// First off-diagonal of the intercept block (`k − 2`).
+    pub intercept_off_diagonal: Vec<f64>,
+    /// Intercepts × slopes block, row-major `(k − 1) × p`.
+    pub cross: Vec<f64>,
+    /// Slopes block, row-major `p × p`.
+    pub slopes: Vec<f64>,
+}
+
+impl StoredInformation {
+    fn from_upstream(i: &OrdinalInformation) -> Self {
+        let flat = |m: &Mat<f64>| -> Vec<f64> {
+            (0..m.nrows())
+                .flat_map(|r| (0..m.ncols()).map(move |c| m[(r, c)]))
+                .collect()
+        };
+        Self {
+            intercept_diagonal: i.intercept_diagonal.clone(),
+            intercept_off_diagonal: i.intercept_off_diagonal.clone(),
+            cross: flat(&i.cross),
+            slopes: flat(&i.slopes),
+        }
+    }
+
+    fn to_upstream(&self, m: usize, p: usize) -> StatsResult<OrdinalInformation> {
+        if self.cross.len() != m * p || self.slopes.len() != p * p {
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "the model's information has an intercept_slope block of {} and a slopes block of {} values; {m} intercepts and {p} slopes need {} and {}",
+                self.cross.len(),
+                self.slopes.len(),
+                m * p,
+                p * p
+            )));
+        }
+        Ok(OrdinalInformation {
+            intercept_diagonal: self.intercept_diagonal.clone(),
+            intercept_off_diagonal: self.intercept_off_diagonal.clone(),
+            cross: Mat::from_fn(m, p, |r, c| self.cross[r * p + c]),
+            slopes: Mat::from_fn(p, p, |r, c| self.slopes[r * p + c]),
+        })
+    }
+}
+
 /// A fitted cumulative link model (`rms::orm` parametrisation
 /// `P(Y ≥ y_{j+1} | x) = F(α_j + xᵀβ)`).
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +163,9 @@ pub struct OrdinalFit {
     pub n_features: usize,
     pub iterations: usize,
     pub converged: bool,
+    /// The observed information (the inverse of the covariance), for
+    /// prediction from the stored model.
+    pub information: StoredInformation,
 }
 
 fn check_columns(y: &[f64], x_columns: &[Vec<f64>], weights: Option<&[f64]>) -> StatsResult<()> {
@@ -139,29 +188,6 @@ fn distinct_levels(y: &[f64]) -> usize {
     v.sort_by(f64::total_cmp);
     v.dedup();
     v.len()
-}
-
-/// Wald `z = β / SE` and two-sided normal p-values of the upstream estimates
-/// and standard errors.
-fn wald(coefficients: &[f64], std_errors: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let normal = Normal::standard();
-    coefficients
-        .iter()
-        .zip(std_errors)
-        .map(|(b, se)| {
-            let z = if *se > 0.0 && se.is_finite() {
-                b / se
-            } else {
-                f64::NAN
-            };
-            let p = if z.is_finite() {
-                2.0 * normal.sf(z.abs())
-            } else {
-                f64::NAN
-            };
-            (z, p)
-        })
-        .unzip()
 }
 
 /// Fit a cumulative link model to the ordered response `y` (its distinct
@@ -223,7 +249,8 @@ pub fn fit_ordinal(
 
     let coefficients: Vec<f64> = fitted.coefficients().iter().copied().collect();
     let std_errors: Vec<f64> = fitted.std_errors().iter().copied().collect();
-    let (z_values, p_values) = wald(&coefficients, &std_errors);
+    let z_values: Vec<f64> = fitted.z_values().iter().copied().collect();
+    let p_values: Vec<f64> = fitted.p_values().iter().copied().collect();
     let m = fitted.intercepts().nrows();
     let intercept_std_errors = (m < INTERCEPT_SE_MAX_LEVELS).then(|| {
         let v = fitted.vcov();
@@ -258,6 +285,7 @@ pub fn fit_ordinal(
         n_features: p,
         iterations: fitted.iterations(),
         converged: fitted.converged(),
+        information: StoredInformation::from_upstream(&fitted.information()),
     })
 }
 
@@ -363,89 +391,118 @@ pub struct OrdinalPrediction {
     /// Index of the most probable level (the first on ties; `polr`'s
     /// `predict(type = "class")`).
     pub class: usize,
+    /// `(estimate, lower, upper)` of the predicted quantile when requested
+    /// (`rms::Quantile.orm`).
+    pub quantile: Option<(f64, f64, f64)>,
 }
 
-fn finish(levels: &[f64], probabilities: Vec<f64>, exceedance: Vec<f64>) -> OrdinalPrediction {
-    let mean = probabilities.iter().zip(levels).map(|(p, y)| p * y).sum();
-    let class = (0..probabilities.len()).fold(0, |b, j| {
+/// A predicted quantile request: `q` in (0, 1), the method and the
+/// confidence level in (0, 1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct QuantileRequest {
+    pub q: f64,
+    pub method: OrdinalQuantileMethod,
+    pub level: f64,
+}
+
+fn most_probable(probabilities: &[f64]) -> usize {
+    (0..probabilities.len()).fold(0, |b, j| {
         if probabilities[j] > probabilities[b] {
             j
         } else {
             b
         }
-    });
-    OrdinalPrediction {
-        probabilities,
-        exceedance,
-        mean,
-        class,
-    }
+    })
+}
+
+/// A stored cumulative link model.
+#[derive(Debug, Clone, Copy)]
+pub struct StoredOrdinal<'a> {
+    pub link: OrdinalLink,
+    pub levels: &'a [f64],
+    pub intercepts: &'a [f64],
+    pub coefficients: &'a [f64],
+    pub information: &'a StoredInformation,
+    /// 0-based column of `x` that is an offset.
+    pub offset_column: Option<usize>,
 }
 
 /// Score one row `x` (the columns of the fit, including an offset column)
-/// under a stored cumulative link model: `F(α_j + xᵀβ + offset)` with
-/// upstream's link `F`, differenced from the tail that keeps precision as
-/// upstream's `category_probabilities`.
+/// under a stored cumulative link model rebuilt upstream
+/// (`FittedOrdinal::from_information`). An offset adds a constant to every
+/// `α_j + xᵀβ`, so it is folded into the intercepts of the rebuilt model.
 pub fn ordinal_predict(
-    link: OrdinalLink,
-    levels: &[f64],
-    intercepts: &[f64],
-    coefficients: &[f64],
-    offset_column: Option<usize>,
+    model: &StoredOrdinal<'_>,
     x: &[f64],
+    quantile: Option<QuantileRequest>,
 ) -> StatsResult<OrdinalPrediction> {
-    let k = levels.len();
-    if k < 2 || intercepts.len() + 1 != k {
+    let k = model.levels.len();
+    if k < 2 || model.intercepts.len() + 1 != k {
         return Err(StatsError::InvalidInput(format!(
             "an ordinal model needs at least two levels and one intercept fewer than levels, got {k} levels and {} intercepts",
-            intercepts.len()
+            model.intercepts.len()
         )));
     }
-    let expected = coefficients.len() + usize::from(offset_column.is_some());
+    let p = model.coefficients.len();
+    let expected = p + usize::from(model.offset_column.is_some());
     if x.len() != expected {
         return Err(StatsError::DimensionMismatchMsg(format!(
             "the model has {expected} x columns but x has {} values",
             x.len()
         )));
     }
-    let mut eta = 0.0;
-    let mut slope = coefficients.iter();
-    for (j, v) in x.iter().enumerate() {
-        if Some(j) == offset_column {
-            eta += v;
-        } else if let Some(b) = slope.next() {
-            eta += b * v;
+    if let Some(r) = quantile {
+        if !(r.q > 0.0 && r.q < 1.0) {
+            return Err(StatsError::InvalidInput(format!(
+                "the quantile must be in (0, 1), got {}",
+                r.q
+            )));
+        }
+        if !(r.level > 0.0 && r.level < 1.0) {
+            return Err(StatsError::InvalidInput(format!(
+                "level must be in (0, 1), got {}",
+                r.level
+            )));
         }
     }
-    let exceedance: Vec<f64> = intercepts.iter().map(|a| link.cdf(a + eta)).collect();
-    let probabilities = (0..k)
-        .map(|j| {
-            let a = if j == 0 {
-                f64::INFINITY
-            } else {
-                intercepts[j - 1] + eta
-            };
-            let b = if j + 1 == k {
-                f64::NEG_INFINITY
-            } else {
-                intercepts[j] + eta
-            };
-            if b > 0.0 {
-                link.sf(b) - link.sf(a)
-            } else {
-                link.cdf(a) - link.cdf(b)
-            }
-        })
+    let offset = model.offset_column.map_or(0.0, |c| x[c]);
+    let features: Vec<f64> = x
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| Some(*j) != model.offset_column)
+        .map(|(_, v)| *v)
         .collect();
-    Ok(finish(levels, probabilities, exceedance))
+    let m = k - 1;
+    let fitted = FittedOrdinal::from_information(
+        model.link,
+        model.levels.to_vec(),
+        Col::from_fn(m, |j| model.intercepts[j] + offset),
+        Col::from_fn(p, |j| model.coefficients[j]),
+        model.information.to_upstream(m, p)?,
+    )?;
+    let xm = Mat::from_fn(1, p, |_, j| features[j]);
+    let probs = fitted.category_probabilities(&xm);
+    let exceed = fitted.exceedance_probabilities(&xm);
+    let probabilities: Vec<f64> = (0..k).map(|j| probs[(0, j)]).collect();
+    let quantile = quantile.map(|r| {
+        let (est, lo, hi) = fitted.predict_quantile_ci(&xm, r.q, r.method, r.level);
+        (est[0], lo[0], hi[0])
+    });
+    Ok(OrdinalPrediction {
+        class: most_probable(&probabilities),
+        probabilities,
+        exceedance: (0..m).map(|j| exceed[(0, j)]).collect(),
+        mean: fitted.predict_mean(&xm)[0],
+        quantile,
+    })
 }
 
 /// Score one row `x` under a stored continuation-ratio model
 /// ([`ContinuationRatioFit::coefficients`] layout, 0-based
-/// `cohort_specific` columns): the conditional probabilities
-/// `h_j = logit⁻¹(θ_j + xᵀγ + xᵀγ_j)` (upstream's logistic `F`) and
-/// `P(Y = y_j) = h_j ∏_{c<j} (1 − h_c)` as upstream's
-/// `category_probabilities`.
+/// `cohort_specific` columns) rebuilt upstream
+/// (`FittedContinuationRatio::from_parts`): its category probabilities, the
+/// exceedance probabilities `P(Y ≥ y_{j+1}) = Σ_{i > j} P(Y = y_i)` and the
+/// mean `Σ_j y_j P(Y = y_j)`.
 pub fn continuation_ratio_predict(
     levels: &[f64],
     coefficients: &[f64],
@@ -454,56 +511,29 @@ pub fn continuation_ratio_predict(
 ) -> StatsResult<OrdinalPrediction> {
     let k = levels.len();
     let p = x.len();
-    if k < 3 {
-        return Err(StatsError::InvalidInput(format!(
-            "a continuation-ratio model needs at least three levels, got {k}"
-        )));
+    let fitted = FittedContinuationRatio::from_parts(
+        levels.to_vec(),
+        p,
+        cohort_specific,
+        &Col::from_fn(coefficients.len(), |j| coefficients[j]),
+        None,
+    )?;
+    let xm = Mat::from_fn(1, p, |_, j| x[j]);
+    let probs = fitted.category_probabilities(&xm);
+    let probabilities: Vec<f64> = (0..k).map(|j| probs[(0, j)]).collect();
+    let mut exceedance = vec![0.0; k - 1];
+    let mut tail = 0.0;
+    for j in (0..k - 1).rev() {
+        tail += probabilities[j + 1];
+        exceedance[j] = tail;
     }
-    let m = k - 1;
-    let expected = m + p + cohort_specific.len() * (m - 1);
-    if coefficients.len() != expected {
-        return Err(StatsError::DimensionMismatchMsg(format!(
-            "a continuation-ratio model of {k} levels with {} cohort-specific columns and an x of {p} values needs {expected} coefficients, got {}",
-            cohort_specific.len(),
-            coefficients.len()
-        )));
-    }
-    if let Some(&c) = cohort_specific.iter().find(|&&c| c >= p) {
-        return Err(StatsError::InvalidInput(format!(
-            "cohort_specific column {} is out of range for an x of {p} values",
-            c + 1
-        )));
-    }
-    let slopes = &coefficients[m..m + p];
-    let common: f64 = slopes.iter().zip(x).map(|(b, v)| b * v).sum();
-    let link = OrdinalLink::Logistic;
-    let h: Vec<f64> = (0..m)
-        .map(|j| {
-            let mut eta = coefficients[0] + common;
-            if j > 0 {
-                eta += coefficients[j];
-                for (s, &c) in cohort_specific.iter().enumerate() {
-                    eta += coefficients[m + p + s * (m - 1) + (j - 1)] * x[c];
-                }
-            }
-            link.cdf(eta)
-        })
-        .collect();
-    let mut probabilities = Vec::with_capacity(k);
-    let mut survive = 1.0;
-    for hj in &h {
-        probabilities.push(hj * survive);
-        survive *= 1.0 - hj;
-    }
-    probabilities.push(survive);
-    // P(Y ≥ y_{j+1}) = ∏_{c ≤ j} (1 − h_c)
-    let mut exceedance = Vec::with_capacity(m);
-    let mut s = 1.0;
-    for hj in &h {
-        s *= 1.0 - hj;
-        exceedance.push(s);
-    }
-    Ok(finish(levels, probabilities, exceedance))
+    Ok(OrdinalPrediction {
+        class: most_probable(&probabilities),
+        mean: probabilities.iter().zip(levels).map(|(p, y)| p * y).sum(),
+        probabilities,
+        exceedance,
+        quantile: None,
+    })
 }
 
 #[cfg(test)]
@@ -560,16 +590,23 @@ mod tests {
             let probs = up.category_probabilities(&xm);
             let exceed = up.exceedance_probabilities(&xm);
             let mean = up.predict_mean(&xm);
+            let (qe, ql, qh) =
+                up.predict_quantile_ci(&xm, 0.5, OrdinalQuantileMethod::Interpolated, 0.9);
+            let model = StoredOrdinal {
+                link,
+                levels: &fit.levels,
+                intercepts: &fit.intercepts,
+                coefficients: &fit.coefficients,
+                information: &fit.information,
+                offset_column: None,
+            };
+            let request = QuantileRequest {
+                q: 0.5,
+                method: OrdinalQuantileMethod::Interpolated,
+                level: 0.9,
+            };
             for i in 0..n {
-                let pr = ordinal_predict(
-                    link,
-                    &fit.levels,
-                    &fit.intercepts,
-                    &fit.coefficients,
-                    None,
-                    &[x[0][i], x[1][i]],
-                )
-                .unwrap();
+                let pr = ordinal_predict(&model, &[x[0][i], x[1][i]], Some(request)).unwrap();
                 for j in 0..4 {
                     assert!((pr.probabilities[j] - probs[(i, j)]).abs() < 1e-12);
                 }
@@ -577,6 +614,9 @@ mod tests {
                     assert!((pr.exceedance[j] - exceed[(i, j)]).abs() < 1e-12);
                 }
                 assert!((pr.mean - mean[i]).abs() < 1e-10);
+                let (e, l, h) = pr.quantile.unwrap();
+                assert!((e - qe[i]).abs() < 1e-10);
+                assert!((l - ql[i]).abs() < 1e-8 && (h - qh[i]).abs() < 1e-8);
             }
         }
     }
@@ -592,24 +632,19 @@ mod tests {
         };
         let fit = fit_ordinal(&y, &cols, None, &opts).unwrap();
         assert_eq!(fit.n_features, 2);
-        let a = ordinal_predict(
-            OrdinalLink::Logistic,
-            &fit.levels,
-            &fit.intercepts,
-            &fit.coefficients,
-            Some(1),
-            &[0.3, 0.5, -0.2],
-        )
-        .unwrap();
-        let b = ordinal_predict(
-            OrdinalLink::Logistic,
-            &fit.levels,
-            &fit.intercepts.iter().map(|v| v + 0.5).collect::<Vec<_>>(),
-            &fit.coefficients,
-            None,
-            &[0.3, -0.2],
-        )
-        .unwrap();
+        let mut model = StoredOrdinal {
+            link: OrdinalLink::Logistic,
+            levels: &fit.levels,
+            intercepts: &fit.intercepts,
+            coefficients: &fit.coefficients,
+            information: &fit.information,
+            offset_column: Some(1),
+        };
+        let a = ordinal_predict(&model, &[0.3, 0.5, -0.2], None).unwrap();
+        let shifted: Vec<f64> = fit.intercepts.iter().map(|v| v + 0.5).collect();
+        model.intercepts = &shifted;
+        model.offset_column = None;
+        let b = ordinal_predict(&model, &[0.3, -0.2], None).unwrap();
         for j in 0..4 {
             assert!((a.probabilities[j] - b.probabilities[j]).abs() < 1e-14);
         }
@@ -666,15 +701,28 @@ mod tests {
             Err(StatsError::InvalidInput(_))
         ));
         assert!(fit_continuation_ratio(&[1.0, 2.0, 3.0], &x, None, &[2]).is_err());
-        assert!(ordinal_predict(
-            OrdinalLink::Logistic,
-            &[1.0, 2.0],
-            &[0.0],
-            &[1.0],
-            None,
-            &[1.0, 2.0]
-        )
-        .is_err());
+        let info = StoredInformation {
+            intercept_diagonal: vec![1.0],
+            intercept_off_diagonal: vec![],
+            cross: vec![0.0],
+            slopes: vec![1.0],
+        };
+        let model = StoredOrdinal {
+            link: OrdinalLink::Logistic,
+            levels: &[1.0, 2.0],
+            intercepts: &[0.0],
+            coefficients: &[1.0],
+            information: &info,
+            offset_column: None,
+        };
+        assert!(ordinal_predict(&model, &[1.0, 2.0], None).is_err());
+        assert!(ordinal_predict(&model, &[1.0], None).is_ok());
+        let bad_q = QuantileRequest {
+            q: 1.5,
+            method: OrdinalQuantileMethod::Discrete,
+            level: 0.95,
+        };
+        assert!(ordinal_predict(&model, &[1.0], Some(bad_q)).is_err());
         assert!(continuation_ratio_predict(&[1.0, 2.0, 3.0], &[0.0, 0.0], &[], &[1.0]).is_err());
     }
 

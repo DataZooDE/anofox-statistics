@@ -99,6 +99,11 @@ impl From<anofox_regression::solvers::RegressionError> for StatsError {
             R::InvalidParameter { name, reason } => {
                 StatsError::InvalidInput(format!("{name}: {reason}"))
             }
+            R::NoValidData => StatsError::NoValidData,
+            // A survival model with every observation censored is not
+            // identified: a degenerate outcome (NULL), as before upstream had
+            // a variant for it.
+            R::AllCensored => StatsError::InsufficientDataMsg(R::AllCensored.to_string()),
             // `RegressionError` is `#[non_exhaustive]`; a variant added upstream is
             // surfaced as an error rather than silently degraded to NULL.
             other => StatsError::RegressError(other.to_string()),
@@ -124,6 +129,7 @@ impl From<anofox_regression::solvers::penalized_glm::GlmEngineError> for StatsEr
             G::InvalidValue { field, message } => StatsError::InvalidValue { field, message },
             G::SingularMatrix => StatsError::SingularMatrix,
             G::NumericalFailure(msg) => StatsError::NumericalFailure(msg),
+            G::AllCensored => StatsError::InsufficientDataMsg(G::AllCensored.to_string()),
             // `GlmEngineError` is `#[non_exhaustive]`; a variant added upstream is
             // surfaced as an error rather than silently degraded to NULL.
             other => StatsError::RegressError(other.to_string()),

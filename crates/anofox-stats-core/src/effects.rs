@@ -176,7 +176,9 @@ impl Effects {
         let mut spec = ModelSpec::new();
         let mut levels = Vec::with_capacity(predictors.len());
         for (k, (term, x)) in predictors.iter().zip(columns).enumerate() {
-            let name = format!("p{}", k);
+            // Upstream names the predictor in its errors (e.g. a value that is
+            // not a level): use the 1-based position the extension reports.
+            let name = format!("predictor {}", k + 1);
             // Data for the datadist limits; the design of new rows needs none,
             // a placeholder value keeps upstream's limits defined.
             let placeholder = [0.0];
@@ -332,7 +334,7 @@ impl Effects {
         Ok(out)
     }
 
-    fn check_values(&self, k: usize, values: &[f64]) -> StatsResult<()> {
+    fn check_finite(&self, k: usize, values: &[f64]) -> StatsResult<()> {
         if let Some(v) = values.iter().find(|v| !v.is_finite()) {
             return Err(invalid(format!(
                 "value {} of predictor {} is not finite",
@@ -340,6 +342,14 @@ impl Effects {
                 k + 1
             )));
         }
+        Ok(())
+    }
+
+    /// Finite values that are levels of a categorical predictor. Only the
+    /// design needs this check: upstream's `row` (contrasts, effect grids)
+    /// rejects a value that is not a level itself.
+    fn check_values(&self, k: usize, values: &[f64]) -> StatsResult<()> {
+        self.check_finite(k, values)?;
         if let Some(levels) = &self.levels[k] {
             if let Some(v) = values
                 .iter()
@@ -364,7 +374,7 @@ impl Effects {
                     k + 1
                 )));
             }
-            self.check_values(k, &[v])?;
+            self.check_finite(k, &[v])?;
         }
         Ok(())
     }
@@ -444,7 +454,7 @@ impl Effects {
         let (beta, vcov, crit) = self.model(m, true)?;
         self.check_setting(a)?;
         self.check_setting(b)?;
-        Ok(match second {
+        match second {
             None => self
                 .spec
                 .contrast(&beta, &vcov, m.intercept, a, b, crit, m.level),
@@ -454,7 +464,8 @@ impl Effects {
                 self.spec
                     .double_contrast(&beta, &vcov, m.intercept, a, b, a2, b2, crit, m.level)
             }
-        })
+        }
+        .map_err(StatsError::from)
     }
 
     /// `Predict(fit, x_k)`: the linear predictor over `values` of predictor
@@ -478,20 +489,23 @@ impl Effects {
                 if v.is_empty() {
                     return Err(invalid("values must not be empty".into()));
                 }
-                self.check_values(k, &v)?;
+                self.check_finite(k, &v)?;
                 Some(v)
             }
-            None => self.levels[k].clone(),
+            // Upstream's default: its 200-point grid, the levels of a
+            // categorical predictor.
+            None => None,
         };
-        Ok(if simultaneous {
+        if simultaneous {
             self.spec
                 .predict_grid_simultaneous(&beta, &vcov, m.intercept, k, values, crit, m.level)
+                .map_err(StatsError::from)
         } else {
             let (v, e) =
                 self.spec
-                    .predict_grid(&beta, &vcov, m.intercept, k, values, crit, m.level);
-            (v, e, f64::NAN)
-        })
+                    .predict_grid(&beta, &vcov, m.intercept, k, values, crit, m.level)?;
+            Ok((v, e, f64::NAN))
+        }
     }
 
     /// `rms::nomogram` of a main-effects model; `linear_predictors` are the

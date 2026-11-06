@@ -13,7 +13,7 @@
 use crate::errors::{StatsError, StatsResult};
 pub use anofox_regression::solvers::gls::GlsResidualType;
 use anofox_regression::solvers::gls::{
-    FittedGls, GlsCorrelation, GlsMethod, GlsRegressor, GlsVariance,
+    FittedGls, GlsCorrelation, GlsError, GlsMethod, GlsRegressor, GlsVariance,
 };
 use anofox_regression::solvers::{IterativeFit, RegressionError};
 use faer::{Col, Mat};
@@ -210,18 +210,16 @@ pub struct GlsAugment {
 /// design) becomes a degenerate error (NULL in SQL); the rest stay errors.
 fn map_err(e: RegressionError) -> StatsError {
     match e {
-        RegressionError::InvalidInput(msg)
-            if msg.contains("needs a group with two or more")
-                || msg.contains("needs two or more times") =>
-        {
-            StatsError::InsufficientDataMsg(msg)
+        RegressionError::Gls(g @ (GlsError::NoRepeatedMeasures | GlsError::TooFewTimes)) => {
+            StatsError::InsufficientDataMsg(g.to_string())
         }
-        RegressionError::InvalidInput(msg) if msg.contains("optimisation failed") => {
-            StatsError::ConvergenceFailure {
-                iterations: 0,
-                tolerance: f64::NAN,
-            }
-        }
+        RegressionError::Gls(GlsError::OptimisationFailed) => StatsError::ConvergenceFailure {
+            iterations: 0,
+            tolerance: f64::NAN,
+        },
+        // AR(1) with non-integer times, an invalid varPower covariate (and any
+        // variant added upstream) are input errors.
+        RegressionError::Gls(g) => StatsError::InvalidInput(g.to_string()),
         other => StatsError::from(other),
     }
 }

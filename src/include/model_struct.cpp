@@ -90,6 +90,7 @@ static_assert(offsetof(AnofoxPSplineOptions, lambda) == sizeof(double) &&
                   sizeof(AnofoxPSplineOptions) == 2 * sizeof(double),
               "AnofoxPSplineOptions must match PSplineOptionsFFI");
 static_assert(offsetof(AnofoxPSplineResult, coefficients) == 4 * sizeof(double) &&
+                  offsetof(AnofoxPSplineResult, coefficients_len) == 4 * sizeof(double) + 7 * sizeof(double *) &&
                   sizeof(AnofoxPSplineResult) == offsetof(AnofoxPSplineResult, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxPSplineResult must match PSplineResultFFI");
 

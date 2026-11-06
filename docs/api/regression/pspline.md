@@ -21,14 +21,14 @@ compares it with mgcv.
 | `pspline_fit_predict_agg` | Aggregate | Fit and predict every row of a group, with a prediction or confidence interval |
 | `pspline_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#pspline_fit_predict_by) |
 | `pspline_prediction_by` | Table macro | The same in the integration contract's `prediction` schema |
+| `predict(model, [x])` | Scalar | Evaluate a stored `pspline_fit_agg` model at a new `x`, with `se_fit` / intervals |
 
 As in isotonic regression, `x` is a single `DOUBLE`, not a list.
 
-The fitted basis (knots, coefficients, posterior covariance) is not exposed by
-the upstream crate, so the model cannot be stored and evaluated later with
-`predict`. To predict new points, add them to the group with a NULL `y` (or a
-non-`'train'` split) and use `pspline_fit_predict_agg` or
-`pspline_fit_predict_by`.
+The fit STRUCT carries the fitted smoother (knots, coefficients, Bayesian
+covariance, `sigma2`, `edf`), so a stored model is evaluated later with
+[`predict(model, [x])`](#predict): upstream rebuilds it
+(`FittedPSpline::from_parts`) and predicts as the fit.
 
 ## pspline_fit_agg
 
@@ -55,11 +55,13 @@ Options: `n_basis`, `penalty_order`, `lambda` (see [Options](#options)).
 | `n_basis` | `BIGINT` | Number of basis functions used |
 | `penalty_order` | `BIGINT` | Order of the difference penalty |
 | `n_observations` | `BIGINT` | Rows used in the fit |
+| `knots` | `DOUBLE[]` | The `n_basis + 4` knots of the cubic B-spline basis |
+| `covariance` | `DOUBLE[]` | Bayesian posterior covariance of the coefficients `sigma2 (B'B + lambda D'D)^-1` (mgcv's `Vp`), row-major `n_basis x n_basis` |
 
-The model-summary fields that every fit returns (`model_type` `'pspline'`,
-`family` `'gaussian'`, `link`) follow. The coefficient-inference fields and
-`log_likelihood`, `aic`, `bic` are NULL: the upstream fit does not report a
-likelihood.
+The model-summary fields that every fit returns follow: `log_likelihood`, `aic`
+and `bic` are mgcv's `logLik.gam`, `AIC` and `BIC` (the Gaussian log-likelihood
+at `RSS / n` with `edf + 1` degrees of freedom), `model_type` `'pspline'`,
+`family` `'gaussian'`, `link`. The coefficient-inference fields are NULL.
 
 Rows with a NULL or non-finite `y` or `x` are skipped. The result is NULL when
 fewer than 6 rows remain or `x` is constant.
@@ -145,6 +147,30 @@ level := 0.95, split := NULL)` returns the same fit in the contract's
 SELECT id, x, y, round(yhat, 3) AS yhat, round(yhat_lower, 3) AS lower, round(yhat_upper, 3) AS upper, split
 FROM pspline_prediction_by('pspline_demo', grp, x, y, level := 0.9)
 LIMIT 5;
+```
+
+## predict
+
+```text
+predict(model STRUCT, x DOUBLE[] [, options]) -> DOUBLE
+predict(model STRUCT, x DOUBLE[], {'se_fit': true | 'interval': ... [, 'level': ...]})
+    -> STRUCT(yhat DOUBLE, se_fit DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE)
+```
+
+Evaluates a stored `pspline_fit_agg` model at the single value `x[1]`: the
+smoother is rebuilt upstream from the STRUCT's `knots`, `coefficients`,
+`covariance`, `sigma2`, `edf` and `n_observations` (`FittedPSpline::from_parts`)
+and predicts as the fit (`predict.gam(se.fit = TRUE)`), extended linearly
+outside the training range. `interval` `'confidence'` (the mean) or
+`'prediction'` (a new observation) at `level` (default 0.95) uses
+`n - edf` degrees of freedom, as `pspline_fit_predict_agg`. NULL when the model
+or `x` is NULL or `x` holds a NULL; an `x` with more than one value is an error.
+
+```sql
+WITH fit AS (SELECT pspline_fit_agg(y, x, {'n_basis': 20}) AS m FROM pspline_demo)
+SELECT round(predict(m, [5.05]), 4) AS yhat,
+       round(predict(m, [11.0], {'interval': 'prediction', 'level': 0.9}).yhat_upper, 4) AS upper
+FROM fit;
 ```
 
 ## Options

@@ -92,6 +92,7 @@ returned with `converged = false`.
 | `iterations` | INTEGER | Newton iterations performed |
 | `converged` | BOOLEAN | Whether the score reached the tolerance |
 | `model_type`, `link` | VARCHAR | `'ordinal'` and the link |
+| `information` | STRUCT | The observed information (the inverse of the covariance) in upstream's compact block form, which `ordinal_predict` rebuilds the model from: `intercept_diagonal` (`k - 1`) and `intercept_off_diagonal` (`k - 2`) of the tridiagonal intercept block, `intercept_slope` (row-major `(k - 1) x p`) and `slopes` (row-major `p x p`). O(k p) values, so a continuous response with one level per distinct value stays small |
 
 **Example:**
 
@@ -177,11 +178,21 @@ from an `ordinal_fit_agg` or `continuation_ratio_fit_agg` model.
 | `'prob'` | DOUBLE[] | `P(Y = y_j \| x)` in the order of `levels` (`predict.orm(type = "fitted.ind")`) |
 | `'exceedance'` | DOUBLE[] | `P(Y >= y_{j+1} \| x)` for `j = 1, ..., k - 1` (`predict.orm(type = "fitted")`) |
 | `'mean'` | DOUBLE | The predicted mean `sum_j y_j P(Y = y_j \| x)` (`rms::Mean.orm`) |
+| `'quantile'` | STRUCT(yhat, yhat_lower, yhat_upper) | The predicted `q`-quantile of `Y` with pointwise confidence limits (`rms::Quantile.orm(q, X =, conf.int = level, method =)`); `ordinal_fit_agg` models only |
 
-An offset column is added to the linear predictor (as `predict.glm`;
+Options of `'quantile'`: `q` (default 0.5), `level` (0.95), `method`
+(`'interpolated'`, the rms default, or `'discrete'`: the smallest level whose
+predicted CDF reaches `q`). The limits move each `alpha_j + x'beta` by
+`-/+ z SE` (delta method).
+
+The model is rebuilt upstream from the stored `levels`, `intercepts`,
+`coefficients` and `information` (`FittedOrdinal::from_information`; a
+continuation-ratio model from its `coefficients` with
+`FittedContinuationRatio::from_parts`), so the predictions equal the fit's. A
+model STRUCT without `information` (written by hand or by an earlier version) is
+an error. An offset column is added to the linear predictor (as `predict.glm`;
 `predict.orm` ignores an offset in new data). NULL when the model or `x` is
-NULL or `x` holds a NULL. Predicted quantiles (`rms::Quantile.orm`) are not
-available from a stored model.
+NULL or `x` holds a NULL.
 
 ```sql
 WITH fit AS (SELECT ordinal_fit_agg(rating, [age, dose]) AS m FROM ratings)
@@ -189,6 +200,12 @@ SELECT predict(m, [50, 1]) AS most_probable,
        ordinal_predict(m, [50, 1], {'type': 'prob'}) AS probabilities,
        ordinal_predict(m, [50, 1], {'type': 'exceedance'}) AS exceedance,
        round(ordinal_predict(m, [50, 1], {'type': 'mean'}), 4) AS mean
+FROM fit;
+
+-- The predicted median rating with its 95% confidence limits, and the 90th percentile
+WITH fit AS (SELECT ordinal_fit_agg(rating, [age, dose]) AS m FROM ratings)
+SELECT ordinal_predict(m, [50, 1], {'type': 'quantile'}) AS median,
+       ordinal_predict(m, [50, 1], {'type': 'quantile', 'q': 0.9, 'level': 0.9}).yhat AS p90
 FROM fit;
 ```
 

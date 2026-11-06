@@ -4,7 +4,7 @@
 
 use super::*;
 use anofox_stats_core::multinomial::{
-    fit_multinomial, most_probable_class, multinomial_predict_proba, MultinomialOptions,
+    fit_multinomial, multinomial_predict_proba, MultinomialOptions,
 };
 
 /// Fit options of `anofox_multinomial_fit`.
@@ -212,9 +212,9 @@ pub unsafe extern "C" fn anofox_multinomial_predict_proba(
         let b = view(intercepts, n_rows);
         let row = view(x, x_len);
         match multinomial_predict_proba(&rows, &b, n_classes, &row) {
-            Ok(p) => {
+            Ok((p, class)) => {
                 std::ptr::copy_nonoverlapping(p.as_ptr(), out_proba, p.len());
-                *out_class = most_probable_class(&p);
+                *out_class = class;
                 true
             }
             Err(e) => {

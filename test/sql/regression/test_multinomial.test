@@ -198,7 +198,7 @@ the model's classes must be VARCHAR or integer labels
 statement error
 SELECT multinomial_predict({'classes': ['a', 'b', 'c'], 'coefficients': [[1.0]], 'intercepts': [0.0]}, [1.0]);
 ----
-a model of 3 classes needs 3 coefficient rows and intercepts
+3 classes need 3 coefficient rows and intercepts
 
 # ---- NULL handling ------------------------------------------------------------
 

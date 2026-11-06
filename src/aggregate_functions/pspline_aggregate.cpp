@@ -8,8 +8,9 @@
 // smoothing parameter fixed (lambda) or chosen by GCV, Bayesian standard errors of the mean
 // and a linear extension outside the data range.
 //
-// Upstream keeps the fitted basis private, so a stored model cannot be evaluated at new x:
-// predictions come from fitting and predicting in one aggregate (as isotonic_fit_predict_agg).
+// The fit STRUCT carries the smoother's parts (knots, coefficients, covariance, sigma2, edf,
+// n_observations); predict(model, [x]) rebuilds upstream's FittedPSpline::from_parts from them
+// and evaluates the smooth (with se_fit / interval) at a new x.
 //
 // Options: n_basis (alias k; 0 = automatic, the default), penalty_order (default 2),
 // lambda (default: GCV); fit_predict also confidence_level (default 0.95) and interval
@@ -24,6 +25,8 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 #include "duckdb/planner/expression.hpp"
+#include "duckdb/planner/expression/bound_cast_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/fit_predict_state.hpp"
@@ -35,6 +38,8 @@
 #include "telemetry.hpp"
 #include "xy_rows_aggregate.hpp"
 #include "../include/canonical_order.hpp"
+#include "../include/list_input.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -227,6 +232,10 @@ LogicalType PSplineFitResultType() {
 	c.push_back(make_pair("n_basis", LogicalType::BIGINT));
 	c.push_back(make_pair("penalty_order", LogicalType::BIGINT));
 	c.push_back(make_pair("n_observations", LogicalType::BIGINT));
+	// The smoother's parts for predict(model, x): the n_basis + 4 knots and the Bayesian
+	// covariance of the coefficients (row-major n_basis x n_basis, mgcv's Vp).
+	c.push_back(make_pair("knots", list));
+	c.push_back(make_pair("covariance", list));
 	// Stable shape (#152): no coefficient inference, those fields are NULL.
 	AppendModelSummaryFields(c);
 	return LogicalType::STRUCT(std::move(c));
@@ -276,6 +285,9 @@ void PSplineFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.coefficients_len);
 		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.penalty_order);
 		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.n_observations);
+		XyRowsSetDoubleList(StructEntry(entries[k++]), row, fit.knots, static_cast<idx_t>(fit.coefficients_len + 4));
+		XyRowsSetDoubleList(StructEntry(entries[k++]), row, fit.covariance,
+		                    static_cast<idx_t>(fit.coefficients_len * fit.coefficients_len));
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_pspline_result(&fit);
@@ -401,7 +413,231 @@ unique_ptr<FunctionData> PSplinePredictBind(ClientContext &context, AggregateBin
 	return std::move(bind);
 }
 
+//===--------------------------------------------------------------------===//
+// predict(model, x) for a pspline_fit_agg model
+//===--------------------------------------------------------------------===//
+struct PSplinePredictModelBindData : public FunctionData {
+	idx_t knots_idx = DConstants::INVALID_INDEX;
+	idx_t coef_idx = DConstants::INVALID_INDEX;
+	idx_t cov_idx = DConstants::INVALID_INDEX;
+	idx_t sigma2_idx = DConstants::INVALID_INDEX;
+	idx_t edf_idx = DConstants::INVALID_INDEX;
+	idx_t n_idx = DConstants::INVALID_INDEX;
+	bool with_se = false;
+	int32_t interval = PSPLINE_NONE;
+	double level = 0.95;
+
+	unique_ptr<FunctionData> Copy() const override {
+		return make_uniq<PSplinePredictModelBindData>(*this);
+	}
+	bool Equals(const FunctionData &other_p) const override {
+		auto &o = other_p.Cast<PSplinePredictModelBindData>();
+		return knots_idx == o.knots_idx && coef_idx == o.coef_idx && cov_idx == o.cov_idx &&
+		       sigma2_idx == o.sigma2_idx && edf_idx == o.edf_idx && n_idx == o.n_idx && with_se == o.with_se &&
+		       interval == o.interval && level == o.level;
+	}
+};
+
+void PSplinePredictModelFunction(DataChunk &args, ExpressionState &state, Vector &result);
+
+//! The doubles of one list row; a NULL element is an error.
+vector<double> PSplineModelList(Vector &list_vec, idx_t row, const char *field) {
+	auto e = FlatDataMut<list_entry_t>(list_vec)[row];
+	auto &child = ListVector::GetEntry(list_vec);
+	if (ListHasNullElement(FlatValidityMut(child), e)) {
+		throw InvalidInputException("predict: the P-spline model's %s must not hold NULLs", field);
+	}
+	auto d = FlatDataMut<double>(child);
+	return vector<double>(d + e.offset, d + e.offset + e.length);
+}
+
+void PSplinePredictModelImpl(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
+	auto &bind = BindInfoOf(func_expr)->Cast<PSplinePredictModelBindData>();
+	const idx_t count = args.size();
+	args.Flatten();
+	auto &model_vec = args.data[0];
+	auto &x_vec = args.data[1];
+	auto &entries = StructVector::GetEntries(model_vec);
+	auto &knots_vec = StructEntry(entries[bind.knots_idx]);
+	auto &coef_vec = StructEntry(entries[bind.coef_idx]);
+	auto &cov_vec = StructEntry(entries[bind.cov_idx]);
+	auto &sigma2_vec = StructEntry(entries[bind.sigma2_idx]);
+	auto &edf_vec = StructEntry(entries[bind.edf_idx]);
+	auto &n_vec = StructEntry(entries[bind.n_idx]);
+	auto x_lists = FlatDataMut<list_entry_t>(x_vec);
+	auto &x_child = ListVector::GetEntry(x_vec);
+	auto x_data = FlatDataMut<double>(x_child);
+	auto &x_validity = FlatValidityMut(x_child);
+	for (idx_t row = 0; row < count; row++) {
+		if (FlatVector::IsNull(model_vec, row) || FlatVector::IsNull(x_vec, row) ||
+		    FlatVector::IsNull(knots_vec, row) || FlatVector::IsNull(coef_vec, row) ||
+		    FlatVector::IsNull(cov_vec, row) || FlatVector::IsNull(sigma2_vec, row) ||
+		    FlatVector::IsNull(edf_vec, row) || FlatVector::IsNull(n_vec, row)) {
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		auto x_entry = x_lists[row];
+		if (ListHasNullElement(x_validity, x_entry)) {
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		if (x_entry.length != 1) {
+			throw InvalidInputException("predict: a pspline_fit_agg model takes x with one value, got %llu",
+			                            (unsigned long long)x_entry.length);
+		}
+		auto knots = PSplineModelList(knots_vec, row, "knots");
+		auto coefficients = PSplineModelList(coef_vec, row, "coefficients");
+		auto covariance = PSplineModelList(cov_vec, row, "covariance");
+		const int64_t n_obs = FlatDataMut<int64_t>(n_vec)[row];
+		if (n_obs < 0) {
+			throw InvalidInputException("predict: the P-spline model's n_observations must be >= 0");
+		}
+		double fit = 0, se = 0, lower = 0, upper = 0;
+		AnofoxError error;
+		if (!anofox_pspline_predict(knots.data(), knots.size(), coefficients.data(), coefficients.size(),
+		                            covariance.data(), covariance.size(), FlatDataMut<double>(sigma2_vec)[row],
+		                            FlatDataMut<double>(edf_vec)[row], static_cast<size_t>(n_obs),
+		                            x_data + x_entry.offset, 1, bind.interval, bind.level, &fit, &se, &lower, &upper,
+		                            &error)) {
+			ThrowUnlessDegenerate("predict", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		if (!bind.with_se) {
+			XyRowsSetDouble(result, row, fit);
+			continue;
+		}
+		auto &out = StructVector::GetEntries(result);
+		XyRowsSetDouble(StructEntry(out[0]), row, fit);
+		XyRowsSetDouble(StructEntry(out[1]), row, se);
+		XyRowsSetDouble(StructEntry(out[2]), row, lower);
+		XyRowsSetDouble(StructEntry(out[3]), row, upper);
+	}
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+}
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding asserts this in debug builds).
+void PSplinePredictModelFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	const bool all_constant = args.AllConstant();
+	PSplinePredictModelImpl(args, state, result);
+	if (all_constant) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
 } // namespace
+
+//! A pspline_fit_agg model: the smoother's parts knots, covariance, edf and sigma2.
+bool IsPSplineModelType(const LogicalType &type) {
+	if (type.id() != LogicalTypeId::STRUCT) {
+		return false;
+	}
+	int found = 0;
+	for (auto &child : StructType::GetChildTypes(type)) {
+		auto &name = NameString(child.first);
+		found += name == "knots" || name == "covariance" || name == "edf" || name == "sigma2";
+	}
+	return found == 4;
+}
+
+//! predict(model, x [, options]) for a pspline_fit_agg model (dispatched from predict.cpp):
+//! the smooth at x[1], or with se_fit / interval STRUCT(yhat, se_fit, yhat_lower, yhat_upper).
+unique_ptr<FunctionData> PSplinePredictModelBind(ClientContext &context, ScalarBindFunction &bound_function,
+                                                 vector<unique_ptr<Expression>> &arguments) {
+	auto &in_type = ReturnTypeOf(*arguments[0]);
+	auto data = make_uniq<PSplinePredictModelBindData>();
+	child_list_t<LogicalType> cast_children;
+	auto &children = StructType::GetChildTypes(in_type);
+	for (idx_t i = 0; i < children.size(); i++) {
+		auto &name = NameString(children[i].first);
+		auto type = children[i].second;
+		auto dlist = LogicalType::LIST(LogicalType::DOUBLE);
+		if (name == "knots") {
+			data->knots_idx = i;
+			type = dlist;
+		} else if (name == "coefficients") {
+			data->coef_idx = i;
+			type = dlist;
+		} else if (name == "covariance") {
+			data->cov_idx = i;
+			type = dlist;
+		} else if (name == "sigma2") {
+			data->sigma2_idx = i;
+			type = LogicalType::DOUBLE;
+		} else if (name == "edf") {
+			data->edf_idx = i;
+			type = LogicalType::DOUBLE;
+		} else if (name == "n_observations") {
+			data->n_idx = i;
+			type = LogicalType::BIGINT;
+		}
+		cast_children.push_back(MakeChild(name, type));
+	}
+	if (data->coef_idx == DConstants::INVALID_INDEX || data->n_idx == DConstants::INVALID_INDEX) {
+		throw InvalidInputException("predict(model, x): a P-spline model needs the fields knots, coefficients, "
+		                            "covariance, sigma2, edf and n_observations of pspline_fit_agg, got %s",
+		                            in_type.ToString());
+	}
+	auto target = LogicalType::STRUCT(std::move(cast_children));
+	if (target != in_type) {
+		arguments[0] = BoundCastExpression::AddCastToType(context, std::move(arguments[0]), target);
+	}
+	if (arguments.size() >= 3) {
+		bool se_fit = false;
+		VisitPSplineOptions(
+		    EvaluateConstantOptions(context, *arguments[2], "predict"), [&](const string &key, const Value &v) {
+			    if (v.IsNull()) {
+				    return;
+			    }
+			    if (key == "se_fit") {
+				    se_fit = v.DefaultCastAs(LogicalType::BOOLEAN).GetValue<bool>();
+			    } else if (key == "interval") {
+				    auto s = StringUtil::Lower(v.ToString());
+				    if (s == "none") {
+					    data->interval = PSPLINE_NONE;
+				    } else if (s == "confidence") {
+					    data->interval = PSPLINE_CONFIDENCE;
+				    } else if (s == "prediction") {
+					    data->interval = PSPLINE_PREDICTION;
+				    } else {
+					    throw InvalidInputException("predict: option 'interval' must be 'none', "
+					                                "'confidence' or 'prediction', got '%s'",
+					                                v.ToString());
+				    }
+			    } else if (key == "level") {
+				    data->level = v.DefaultCastAs(LogicalType::DOUBLE).GetValue<double>();
+				    if (!(data->level > 0.0 && data->level < 1.0)) {
+					    throw InvalidInputException("predict: option 'level' must be in (0, 1), got %s", v.ToString());
+				    }
+			    } else if (key == "type") {
+				    if (StringUtil::Lower(v.ToString()) != "response") {
+					    throw InvalidInputException("predict: option 'type' of a P-spline model must "
+					                                "be 'response', got '%s'",
+					                                v.ToString());
+				    }
+			    } else {
+				    throw InvalidInputException("predict: unknown option '%s' for a P-spline model "
+				                                "(supported: se_fit, interval, level)",
+				                                key);
+			    }
+		    });
+		data->with_se = se_fit || data->interval != PSPLINE_NONE;
+	}
+	if (data->with_se) {
+		child_list_t<LogicalType> c;
+		c.push_back(MakeChild("yhat", LogicalType::DOUBLE));
+		c.push_back(MakeChild("se_fit", LogicalType::DOUBLE));
+		c.push_back(MakeChild("yhat_lower", LogicalType::DOUBLE));
+		c.push_back(MakeChild("yhat_upper", LogicalType::DOUBLE));
+		SetReturnTypeOf(bound_function, LogicalType::STRUCT(std::move(c)));
+	} else {
+		SetReturnTypeOf(bound_function, LogicalType::DOUBLE);
+	}
+	SetFunctionCallbackOf(bound_function, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PSplinePredictModelFunction));
+	PostHogTelemetry::Instance().RecordFunctionCall("predict");
+	return std::move(data);
+}
 
 void RegisterPSplineAggregateFunctions(ExtensionLoader &loader) {
 	const vector<string> categories = {"regression", "smoothing"};
@@ -427,8 +663,10 @@ void RegisterPSplineAggregateFunctions(ExtensionLoader &loader) {
 		    "difference penalty, smoothing parameter by GCV unless lambda is given) and returns the smooth at the "
 		    "distinct x values (x increasing, fitted, se_fit: Bayesian standard error of the mean), the B-spline "
 		    "coefficients, lambda, edf (effective degrees of freedom), sigma2 (residual variance), r_squared, "
-		    "n_basis, penalty_order and n_observations. Options: n_basis (alias k, 0 = automatic), penalty_order "
-		    "(default 2), lambda. Rows with a NULL or non-finite x or y are skipped.";
+		    "n_basis, penalty_order, n_observations, the basis knots and the Bayesian covariance of the "
+		    "coefficients (predict(model, [x]) evaluates the stored smoother at a new x), and mgcv's "
+		    "log_likelihood / aic / bic. Options: n_basis (alias k, 0 = automatic), penalty_order (default 2), "
+		    "lambda. Rows with a NULL or non-finite x or y are skipped.";
 		const vector<vector<string>> names = {{"y", "x"}, {"y", "x", "options"}};
 		const vector<string> examples = {"pspline_fit_agg(y, x)",
 		                                 "pspline_fit_agg(y, x, {'n_basis': 20, 'penalty_order': 2})"};

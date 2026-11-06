@@ -10,17 +10,16 @@
 //! maps its labels onto their sorted order), fits upstream and hands back
 //! the coefficient matrix, the intercepts and the fit statistics.
 //!
-//! [`multinomial_predict_proba`] scores a row from a model's coefficient
-//! matrix and intercepts. Upstream's `FittedMultinomialLogistic` cannot be
-//! rebuilt from its parts (its fields are private and it has no
-//! constructor), so the stored model's class probabilities are the inverse
-//! link of its linear predictors here, as `predict(model, x)` applies a GLM's
-//! inverse link: the logistic function of the single predictor for two
-//! classes, the softmax otherwise (upstream's `predict_proba`). The unit
-//! tests check it against upstream's `predict_proba` on the fitted model.
+//! [`multinomial_predict_proba`] scores a row from a stored model: it
+//! rebuilds upstream's `FittedMultinomialLogistic` from the coefficient
+//! matrix and intercepts (`from_parts`, classes `0..K`) and returns its
+//! `predict_proba` and `predict`, so a stored model predicts exactly as the
+//! fit.
 
 use crate::{StatsError, StatsResult};
-use anofox_regression::solvers::{IterativeFit, MultinomialLogisticRegressor};
+use anofox_regression::solvers::{
+    FittedMultinomialLogistic, IterativeFit, MultinomialLogisticRegressor,
+};
 use faer::{Col, Mat};
 
 /// Fit options (sklearn `LogisticRegression` names in brackets).
@@ -146,21 +145,15 @@ pub fn fit_multinomial(
 
 /// Class probabilities (in class order) of one row `x` under a model with
 /// `n_classes` classes, its coefficient rows and intercepts as
-/// [`MultinomialFit`]: one row for two classes, `n_classes` rows otherwise.
+/// [`MultinomialFit`] (one row for two classes, `n_classes` rows otherwise),
+/// and the index of the most probable class (the first on ties). Upstream's
+/// model rebuilt from these parts does the scoring.
 pub fn multinomial_predict_proba(
     coefficients: &[Vec<f64>],
     intercepts: &[f64],
     n_classes: usize,
     x: &[f64],
-) -> StatsResult<Vec<f64>> {
-    let m = if n_classes == 2 { 1 } else { n_classes };
-    if n_classes < 2 || coefficients.len() != m || intercepts.len() != m {
-        return Err(StatsError::InvalidInput(format!(
-            "a model of {n_classes} classes needs {m} coefficient rows and intercepts, got {} and {}",
-            coefficients.len(),
-            intercepts.len()
-        )));
-    }
+) -> StatsResult<(Vec<f64>, usize)> {
     if let Some(row) = coefficients.iter().find(|r| r.len() != x.len()) {
         return Err(StatsError::DimensionMismatchMsg(format!(
             "the model has {} coefficients per class but x has {} values",
@@ -168,31 +161,19 @@ pub fn multinomial_predict_proba(
             x.len()
         )));
     }
-    let eta: Vec<f64> = coefficients
-        .iter()
-        .zip(intercepts)
-        .map(|(row, b)| b + row.iter().zip(x).map(|(c, v)| c * v).sum::<f64>())
-        .collect();
-    if m == 1 {
-        let e = eta[0];
-        let p1 = if e >= 0.0 {
-            1.0 / (1.0 + (-e).exp())
-        } else {
-            let z = e.exp();
-            z / (1.0 + z)
-        };
-        return Ok(vec![1.0 - p1, p1]);
-    }
-    let max = eta.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let exp: Vec<f64> = eta.iter().map(|e| (e - max).exp()).collect();
-    let total: f64 = exp.iter().sum();
-    Ok(exp.into_iter().map(|e| e / total).collect())
-}
-
-/// The index of the most probable class (the first on ties, as upstream's
-/// `predict`).
-pub fn most_probable_class(proba: &[f64]) -> usize {
-    (0..proba.len()).fold(0, |b, k| if proba[k] > proba[b] { k } else { b })
+    let p = x.len();
+    let coef = Mat::from_fn(coefficients.len(), p, |k, j| coefficients[k][j]);
+    let icpt = Col::from_fn(intercepts.len(), |k| intercepts[k]);
+    let classes: Vec<f64> = (0..n_classes).map(|k| k as f64).collect();
+    let model = FittedMultinomialLogistic::from_parts(classes, coef, icpt)?;
+    let xm = Mat::from_fn(1, p, |_, j| x[j]);
+    let proba = model.predict_proba(&xm);
+    let class = model.predict(&xm)[0];
+    Ok((
+        (0..n_classes).map(|k| proba[(0, k)]).collect(),
+        // Classes are the indices 0..K.
+        class as usize,
+    ))
 }
 
 #[cfg(test)]
@@ -241,7 +222,7 @@ mod tests {
             let proba = up.predict_proba(&xm);
             let pred = up.predict(&xm);
             for i in 0..n {
-                let p = multinomial_predict_proba(
+                let (p, class) = multinomial_predict_proba(
                     &fit.coefficients,
                     &fit.intercepts,
                     3,
@@ -251,7 +232,7 @@ mod tests {
                 for (k, pk) in p.iter().enumerate() {
                     assert!((pk - proba[(i, k)]).abs() < 1e-12);
                 }
-                assert_eq!(most_probable_class(&p) as f64, pred[i]);
+                assert_eq!(class as f64, pred[i]);
             }
         }
     }
@@ -263,7 +244,7 @@ mod tests {
         let fit = fit_multinomial(&yb, &x, None, &MultinomialOptions::default()).unwrap();
         assert_eq!(fit.n_classes, 2);
         assert_eq!(fit.coefficients.len(), 1);
-        let p =
+        let (p, _) =
             multinomial_predict_proba(&fit.coefficients, &fit.intercepts, 2, &[0.2, -0.1]).unwrap();
         let eta = fit.intercepts[0] + 0.2 * fit.coefficients[0][0] - 0.1 * fit.coefficients[0][1];
         assert!((p[1] - 1.0 / (1.0 + (-eta).exp())).abs() < 1e-14);

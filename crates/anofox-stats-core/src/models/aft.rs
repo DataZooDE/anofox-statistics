@@ -89,17 +89,18 @@ pub struct AftAugment {
 
 /// Fit the same model as [`fit_aft`] and return its per-row residuals.
 ///
-/// The fit goes through [`fit_aft`] first so that a degenerate input fails
-/// with exactly the error (and SQL NULL / error policy) of `aft_fit_agg`;
-/// the residuals then come from upstream's [`aft::AftRegressor`] on the rows
-/// that fit used (finite time, event and features).
+/// The fit goes through [`fit_aft`], so that a degenerate input fails with
+/// exactly the error (and SQL NULL / error policy) of `aft_fit_agg`; the
+/// residuals come from upstream's fitted model of that result
+/// (`FittedAft::from_result`) on the rows the fit used (finite time, event
+/// and features).
 pub fn aft_augment(
     time: &[f64],
     x: &[Vec<f64>],
     event: &[f64],
     options: &AftOptions,
 ) -> StatsResult<AftAugment> {
-    fit_aft(time, x, event, options)?;
+    let result = fit_aft(time, x, event, options)?;
     let n = time.len();
     let used: Vec<usize> = (0..n)
         .filter(|&i| {
@@ -110,17 +111,7 @@ pub fn aft_augment(
     let t = Col::from_fn(used.len(), |r| time[used[r]]);
     // fit_aft accepted the rows, so every used event is 0 or 1.
     let ev: Vec<bool> = used.iter().map(|&i| event[i] == 1.0).collect();
-    let fitted = aft::AftRegressor::builder()
-        .distribution(options.dist)
-        .with_intercept(options.with_intercept)
-        .max_iterations(options.max_iterations)
-        .tolerance(options.tolerance)
-        .compute_inference(false)
-        .confidence_level(options.confidence_level)
-        .priors(options.priors.clone())
-        .vcov_type(options.vcov)
-        .build()
-        .fit(&xm, &t, &ev)?;
+    let fitted = aft::FittedAft::from_result(result)?;
     let lp = fitted.predict_linear(&xm);
     let z = fitted.standardized_residuals(&xm, &t);
     let cs = fitted.cox_snell_residuals(&xm, &t);
