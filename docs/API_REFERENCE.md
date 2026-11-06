@@ -1291,9 +1291,9 @@ FROM reg_data;
 |----------|-----------|---------|---------|
 | `diebold_mariano_agg` **MAP** | `(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE [, options])` | `loss` (squared; `'absolute'`), `horizon` (1), `var_estimator` (`'bartlett'`), `alternative` | `statistic, p_value, n, method` |
 | `clark_west_agg` **MAP** | `(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE [, options])` | `horizon` (1) | `statistic, p_value, n, method` |
-| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] ORDER BY t [, options])` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_lower, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
-| `mspe_adjusted_spa_agg` | `(benchmark_error DOUBLE, model_errors DOUBLE[] ORDER BY t [, options])` | as `spa_test_agg` | as `spa_test_agg` |
-| `model_confidence_set_agg` | `(model_losses DOUBLE[] ORDER BY t [, options])` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `method` (`'stationary'`; `'moving_block'` = R `MCSprocedure(k)`, `'circular_block'`, `'iid'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, mcs_p_values, elimination_order, elimination_steps, ...` |
+| `spa_test_agg` | `(benchmark_loss DOUBLE, model_losses DOUBLE[] [, options] ORDER BY t)` | `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `statistic, p_value, p_value_lower, p_value_consistent, p_value_upper, best_model, n_models, n, ...` |
+| `mspe_adjusted_spa_agg` | `(benchmark_error DOUBLE, model_errors DOUBLE[] [, options] ORDER BY t)` | as `spa_test_agg` | as `spa_test_agg` |
+| `model_confidence_set_agg` | `(model_losses DOUBLE[] [, options] ORDER BY t)` | `alpha` (0.1), `statistic` (`'range'`; `'max'`), `method` (`'stationary'`; `'moving_block'` = R `MCSprocedure(k)`, `'circular_block'`, `'iid'`), `n_bootstrap` (1000), `block_length` (T^(1/3)), `seed` (42) | `included_models, eliminated_models, mcs_p_value, mcs_p_values, elimination_order, elimination_steps, ...` |
 
 ```sql
 SELECT (diebold_mariano_agg(y, y + sin(id), y + 2 * cos(id))).p_value AS dm_p,

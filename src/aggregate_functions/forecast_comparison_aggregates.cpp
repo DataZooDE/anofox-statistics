@@ -629,7 +629,7 @@ void RegisterForecastComparisonAggregateFunctions(ExtensionLoader &loader) {
 	                           SpaAggBind),
 	    "Hansen's (2005) Superior Predictive Ability test: is any competing model better than the benchmark?",
 	    {"benchmark_loss", "model_losses"}, {dbl, dbl_list},
-	    "spa_test_agg(benchmark_loss, [loss_a, loss_b] ORDER BY t, {'n_bootstrap': 999, 'block_length': 5, 'seed': 1})",
+	    "spa_test_agg(benchmark_loss, [loss_a, loss_b], {'n_bootstrap': 999, 'block_length': 5, 'seed': 1} ORDER BY t)",
 	    "spa_test_agg(benchmark_loss, [loss_a, loss_b] ORDER BY t)");
 
 	RegisterForecastComparisonSet(
@@ -641,7 +641,7 @@ void RegisterForecastComparisonAggregateFunctions(ExtensionLoader &loader) {
 	    "MSPE-adjusted SPA test (Clark-McCracken): SPA bootstrap on Clark-West adjusted differentials of forecast "
 	    "errors, for a benchmark nested in each alternative.",
 	    {"benchmark_error", "model_errors"}, {dbl, dbl_list},
-	    "mspe_adjusted_spa_agg(benchmark_error, [error_a, error_b] ORDER BY t, {'n_bootstrap': 999})",
+	    "mspe_adjusted_spa_agg(benchmark_error, [error_a, error_b], {'n_bootstrap': 999} ORDER BY t)",
 	    "mspe_adjusted_spa_agg(benchmark_error, [error_a, error_b] ORDER BY t)");
 
 	RegisterForecastComparisonSet(
@@ -654,8 +654,8 @@ void RegisterForecastComparisonAggregateFunctions(ExtensionLoader &loader) {
 	    "confidence 1 - alpha, with the elimination order and the MCS p-values. Bootstrap 'method': 'stationary' "
 	    "(default), 'moving_block' (R MCS::MCSprocedure(k = block_length)), 'circular_block' or 'iid'.",
 	    {"model_losses"}, {dbl_list},
-	    "model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t, {'alpha': 0.1, 'statistic': 'max', "
-	    "'method': 'moving_block', 'block_length': 3})",
+	    "model_confidence_set_agg([loss_a, loss_b, loss_c], {'alpha': 0.1, 'statistic': 'max', "
+	    "'method': 'moving_block', 'block_length': 3} ORDER BY t)",
 	    "model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t)");
 }
 

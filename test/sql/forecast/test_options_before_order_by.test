@@ -1,0 +1,77 @@
+# name: test/sql/forecast/test_options_before_order_by.test
+# description: The options of an order-sensitive aggregate go BEFORE its ORDER BY. In `f(a, b ORDER BY t, {...})` DuckDB parses the STRUCT as a second sort key and the options are silently ignored; the duckdb_functions() examples of spa_test_agg, mspe_adjusted_spa_agg and model_confidence_set_agg used that form.
+# group: [forecast]
+
+require anofox_statistics
+
+# The column names of the duckdb_functions() examples, so the examples below run as written.
+statement ok
+CREATE TABLE fc AS
+SELECT t,
+    2.0 + 0.5 * abs(sin(t * 0.7)) AS benchmark_loss,
+    1.0 + 0.3 * abs(sin(t * 0.7 + 1.0)) AS loss_a,
+    3.0 + 0.4 * abs(cos(t * 0.3)) AS loss_b,
+    1.0 + 0.3 * abs(sin(t * 0.7)) AS loss_c,
+    sin(t / 4.0) + 0.2 * cos(t * 1.3) AS benchmark_error,
+    0.1 * sin(t / 4.0) + 0.2 * cos(t * 1.3) AS error_a,
+    sin(t / 4.0) + 0.25 * cos(t * 1.3) AS error_b
+FROM range(1, 61) r(t);
+
+# --- the documented examples, options before ORDER BY: the options apply ----
+
+query II
+SELECT r.n_bootstrap, r.block_length
+FROM (SELECT spa_test_agg(benchmark_loss, [loss_a, loss_b], {'n_bootstrap': 999, 'block_length': 5, 'seed': 1} ORDER BY t) AS r FROM fc);
+----
+999	5.0
+
+query II
+SELECT r.n_bootstrap, r.block_length
+FROM (SELECT mspe_adjusted_spa_agg(benchmark_error, [error_a, error_b], {'n_bootstrap': 999, 'block_length': 5} ORDER BY t) AS r FROM fc);
+----
+999	5.0
+
+query IIIIII
+SELECT r.alpha, r.statistic_type, r.bootstrap_method, r.block_length, r.n_bootstrap, r.n
+FROM (SELECT model_confidence_set_agg([loss_a, loss_b, loss_c], {'alpha': 0.1, 'statistic': 'max', 'method': 'moving_block', 'block_length': 3, 'n_bootstrap': 499} ORDER BY t) AS r FROM fc);
+----
+0.1	max	moving_block	3.0	499	60
+
+# --- options after ORDER BY: a second sort key, the defaults are used -------
+# Pins the DuckDB parse that made the old examples wrong: n_bootstrap is the
+# default 1000 and block_length the automatic T^(1/3), whatever was passed.
+
+query II
+SELECT r.n_bootstrap, abs(r.block_length - pow(60, 1.0 / 3)) < 1e-12
+FROM (SELECT spa_test_agg(benchmark_loss, [loss_a, loss_b] ORDER BY t, {'n_bootstrap': 499, 'block_length': 5, 'seed': 42}) AS r FROM fc);
+----
+1000	true
+
+query II
+SELECT r.n_bootstrap, abs(r.block_length - pow(60, 1.0 / 3)) < 1e-12
+FROM (SELECT mspe_adjusted_spa_agg(benchmark_error, [error_a, error_b] ORDER BY t, {'n_bootstrap': 499, 'block_length': 5, 'seed': 42}) AS r FROM fc);
+----
+1000	true
+
+query II
+SELECT r.n_bootstrap, r.bootstrap_method
+FROM (SELECT model_confidence_set_agg([loss_a, loss_b, loss_c] ORDER BY t, {'n_bootstrap': 499, 'method': 'iid'}) AS r FROM fc);
+----
+1000	stationary
+
+# --- no aggregate example documents the ignored form -------------------------
+# duckdb_functions() examples feed LLM search vocabularies: an argument after
+# the ORDER BY inside the call is a sort key, never an option.
+
+query I
+SELECT count(*) FROM (SELECT unnest(examples) AS ex FROM duckdb_functions() WHERE function_name LIKE '%\_agg' ESCAPE '\')
+WHERE regexp_matches(ex, 'ORDER BY [^)]*,');
+----
+0
+
+query I
+SELECT list_sort(list(DISTINCT function_name)) FROM (SELECT function_name, unnest(examples) AS ex FROM duckdb_functions()
+    WHERE function_name IN ('spa_test_agg', 'mspe_adjusted_spa_agg', 'model_confidence_set_agg'))
+WHERE regexp_matches(ex, ', \{[^}]*\} ORDER BY t\)$');
+----
+[model_confidence_set_agg, mspe_adjusted_spa_agg, spa_test_agg]
