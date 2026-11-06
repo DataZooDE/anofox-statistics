@@ -10876,3 +10876,7 @@ pub use model_validation_ffi::*;
 // Data reduction and transforms (#320)
 mod reduction_ffi;
 pub use reduction_ffi::*;
+
+// Multiple imputation (aregImpute) and Rubin pooling (#321).
+mod imputation_ffi;
+pub use imputation_ffi::*;

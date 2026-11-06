@@ -327,3 +327,18 @@ generator, not R's RNG; the script recomputes those draws for each seed (a small
 Python helper, exact 64-bit arithmetic) and feeds them to `rms` through a `sample()`
 injected into `predab.resample` and `bootcov`, so the tables are compared exactly rather
 than up to Monte-Carlo error.
+
+## `make_reference_imputation.R`
+
+```bash
+Rscript validation/generators/make_reference_imputation.R
+```
+
+Requires `Hmisc`, `mice` and `mitml` (taken from `~/R/userlib` when not installed
+system-wide). It (re)writes `test/sql/reference/imputation_reference.test`:
+`areg_impute_agg` / `areg_impute_by` (#321) against `Hmisc::aregImpute` on
+upstream's validation data (weighted and closest matching, `I(x)`, `tlinear = FALSE`,
+`burnin`; the imputations replay R's random draws, compared to 1e-12), and
+`pool_rubin_agg` over OLS and logistic fits to the imputed data sets against
+`mice::pool` / `summary(conf.int = TRUE)` (Barnard-Rubin and Rubin d.f., `dfcom`)
+and `mice::D1` (Reiter's d.f.).

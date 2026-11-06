@@ -251,6 +251,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterOrdinalFunctions(loader);
     // Principal component analysis: pca_agg, pca_transform, pca_by (#303)
     RegisterPcaFunctions(loader);
+    // Multiple imputation and Rubin pooling: areg_impute_agg/_by, pool_rubin_agg (#321)
+    RegisterImputationFunctions(loader);
     // Multinomial logistic regression (#314)
     RegisterMultinomialFunctions(loader);
     // Resampling model validation and calibration (#318)

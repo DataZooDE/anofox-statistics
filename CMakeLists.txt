@@ -267,6 +267,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/quantile_fit_predict_aggregate.cpp
     src/aggregate_functions/ordinal_aggregate.cpp
     src/aggregate_functions/pca_aggregate.cpp
+    src/aggregate_functions/imputation_aggregate.cpp
     src/aggregate_functions/multinomial_aggregate.cpp
     src/aggregate_functions/model_validation_aggregate.cpp
     src/aggregate_functions/reduction_aggregates.cpp
