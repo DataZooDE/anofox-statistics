@@ -229,11 +229,10 @@ static void LrTestFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 	idx_t count = args.size();
 	args.Flatten();
 	auto &entries = StructVector::GetEntries(result);
-	auto &validity = FlatValidityMut(result);
 
 	for (idx_t row = 0; row < count; row++) {
 		if (FlatVector::IsNull(args.data[0], row) || (bind.has_reduced && FlatVector::IsNull(args.data[1], row))) {
-			validity.SetInvalid(row);
+			FlatVector::SetNull(result, row, true);
 			continue;
 		}
 		auto full = ReadModel(args.data[0], bind.full, row);
@@ -245,7 +244,7 @@ static void LrTestFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 		AnofoxError error;
 		if (!anofox_lr_test(full, bind.has_reduced ? &reduced : nullptr, &res, &error)) {
 			ThrowUnlessDegenerate(kName, error);
-			validity.SetInvalid(row);
+			FlatVector::SetNull(result, row, true);
 			continue;
 		}
 		idx_t k = 0;

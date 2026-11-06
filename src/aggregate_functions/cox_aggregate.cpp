@@ -826,6 +826,7 @@ void CoxSurvivalFunctionImpl(DataChunk &args, ExpressionState &, Vector &result)
 		auto x_value = args.data[1].GetValue(i);
 		auto times_value = args.data[2].GetValue(i);
 		if (model.IsNull() || x_value.IsNull() || times_value.IsNull()) {
+			list_data[i] = list_entry_t(0, 0);
 			mask.SetInvalid(i);
 			continue;
 		}

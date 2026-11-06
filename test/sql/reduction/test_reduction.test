@@ -41,10 +41,10 @@ STRUCT(variables VARCHAR[], kept VARCHAR[], removed VARCHAR[], r_squared DOUBLE[
 
 # --- unified test fields -----------------------------------------------------
 
-query TRRIT
-SELECT s.method, s.estimate = s.rho2, s.statistic, s.n, s.effect_name FROM (SELECT spearman2_agg(b, a) AS s FROM d)
+query TTTIT
+SELECT s.method, s.estimate = s.rho2, s.statistic IS NOT NULL, s.n, s.effect_name FROM (SELECT spearman2_agg(b, a) AS s FROM d)
 ----
-Spearman rho^2	true	<REGEX>:.*	40	rho2
+Spearman rho^2	true	true	40	rho2
 
 query TIII
 SELECT h.method, h.statistic = h.d, h.n, h.alternative IS NULL FROM (SELECT hoeffding_d_agg(a, b) AS h FROM d)
