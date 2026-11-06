@@ -101,6 +101,7 @@ static const struct {
     {"ols_rolling_tidy_by", "terms"}, {"wls_rolling_tidy_by", "terms"}, {"ridge_rolling_tidy_by", "terms"},
     {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
     {"partial_cor_agg", "test"}, {"semi_partial_cor_agg", "test"},
+    {"calibrate_by", "curve"}, {"bootcov_by", "terms"},
     {nullptr, nullptr}
 };
 // clang-format on

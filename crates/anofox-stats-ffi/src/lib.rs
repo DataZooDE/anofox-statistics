@@ -10845,3 +10845,7 @@ pub use wald_ffi::*;
 // Cox proportional hazards regression (#312)
 mod cox_ffi;
 pub use cox_ffi::*;
+
+// Resampling model validation and calibration (#318).
+mod model_validation_ffi;
+pub use model_validation_ffi::*;

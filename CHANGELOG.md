@@ -12,6 +12,19 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Model validation and calibration (#318).** `validate_agg(y, x [, options])` is `rms::validate`
+  (`validate.ols` / `validate.lrm`) for a linear or binary logistic model: the apparent, training,
+  test, optimism and bias-corrected indexes (R-square, MSE, g, calibration intercept / slope; Dxy,
+  R2, Emax, D, U, Q, Brier, g, gp) by the optimism bootstrap, cross-validation or the .632
+  bootstrap. `calibrate_agg` is `rms::calibrate` (the overfitting-corrected lowess calibration
+  curve with its mean / 0.9 quantile absolute error), `calibrate_cph_agg(time, x, event, options)`
+  `rms::calibrate.cph(cmethod = "KM")` (predicted survival at `u` against Kaplan-Meier per group)
+  and `bootcov_agg(y, x [, cluster], [options])` `rms::bootcov` (bootstrap covariance, standard
+  errors and percentile intervals; ordinary or cluster bootstrap). Seeded and independent of the
+  thread count and row order. Table macros `validate_by`, `calibrate_by` (`curve`),
+  `calibrate_cph_by` and `bootcov_by` (`terms`). All computed by anofox-regression's `validation`
+  module; reference values from `rms` replaying the extension's resamples
+  (`validation/generators/make_reference_validate.R`).
 - **`multinomial_fit_agg(y, x [, weight] [, options])`, `multinomial_predict(model, x [, options])`
   and `multinomial_fit_predict_by` (#314).** Multinomial (softmax) logistic regression with a
   ridge, lasso or elastic-net penalty from anofox-regression `MultinomialLogisticRegressor`,

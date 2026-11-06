@@ -1,0 +1,285 @@
+#!/usr/bin/env Rscript
+# =============================================================================
+# make_reference_validate.R
+#
+# Generates test/sql/reference/validate_calibrate.test: validate_agg,
+# calibrate_agg, calibrate_cph_agg and bootcov_agg (#318) against
+#
+#   rms::validate    validate.ols / validate.lrm with method "boot",
+#                    "crossvalidation" and ".632"
+#   rms::calibrate   calibrate.default for ols and lrm (default and user grid)
+#   rms::calibrate   calibrate.cph(cmethod = "KM")
+#   rms::bootcov     ordinary bootstrap (ols) and cluster bootstrap (lrm)
+#
+#   Rscript validation/generators/make_reference_validate.R      # from repo root
+#
+# Exact replay of the resamples. rms draws its resamples with R's RNG;
+# anofox-regression draws seeded resamples with its own SplitMix64 generator
+# (validation::Resamples::*_seeded, bootstrap_rows, cluster_bootstrap_rows) and
+# does not reproduce R's draws for a seed. So this script recomputes upstream's
+# SplitMix64 draws for the seed each SQL call uses (python3, exact 64-bit
+# arithmetic) and hands them to rms through a sample() that predab.resample and
+# bootcov see in place of base::sample. rms then resamples exactly the rows the
+# extension does, and the whole table - apparent, training, test, optimism and
+# corrected indexes, the calibration curves and the bootstrap covariance - is
+# compared at a tight tolerance, not only up to Monte-Carlo error.
+#
+# The extension resamples the rows in its canonical order (lexicographic by x,
+# then y / time / event / cluster), so the data are sorted that way here before
+# the draws are applied; the SQL table holds them in a shuffled order.
+# =============================================================================
+suppressPackageStartupMessages(library(rms))
+
+out_dir <- "test/sql/reference"
+num <- function(v) ifelse(is.na(v), "NULL", sprintf("%.17g", v))
+values_sql <- function(df) {
+  rows <- apply(df, 1, function(r) paste0("(", paste(num(as.numeric(r)), collapse = ", "), ")"))
+  paste(rows, collapse = ",\n")
+}
+checks <- function(comment, from, exprs, refs, tol) {
+  stopifnot(length(exprs) == length(refs))
+  out <- character()
+  idx <- seq_along(exprs)
+  for (chunk in split(idx, ceiling(idx / 6))) {
+    cols <- vapply(chunk, function(i) {
+      if (is.na(refs[i])) sprintf("(%s) IS NULL", exprs[i])
+      else sprintf("abs((%s) - (%s)) <= %g * (1 + abs(%s))", exprs[i], num(refs[i]), tol, num(refs[i]))
+    }, "")
+    out <- c(out, paste0("# ", comment), paste0("query ", strrep("I", length(chunk))),
+             paste0("SELECT\n    ", paste(cols, collapse = ",\n    ")), paste0("FROM ", from, ";"), "----",
+             paste(rep("true", length(chunk)), collapse = "\t"), "")
+  }
+  out
+}
+
+# ---------------------------------------------------------------------------
+# Upstream's SplitMix64 resamples (anofox-regression validation.rs), 1-based
+# ---------------------------------------------------------------------------
+splitmix_py <- '
+import sys
+M = (1 << 64) - 1
+kind, n, b, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+state = seed
+def nxt():
+    global state
+    state = (state + 0x9E3779B97F4A7C15) & M
+    z = state
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & M
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & M
+    return z ^ (z >> 31)
+def below(k):
+    return nxt() % k
+if kind == "boot":      # draw(n, b, seed): b samples of n rows
+    for _ in range(b):
+        print(" ".join(str(below(n) + 1) for _ in range(n)))
+elif kind == "perm":    # crossvalidation_seeded: Fisher-Yates permutation
+    perm = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = below(i + 1)
+        perm[i], perm[j] = perm[j], perm[i]
+    print(" ".join(str(v + 1) for v in perm))
+elif kind == "cluster": # cluster_bootstrap_rows: b draws of n clusters
+    for _ in range(b):
+        print(" ".join(str(below(n) + 1) for _ in range(n)))
+'
+py_file <- tempfile(fileext = ".py")
+writeLines(splitmix_py, py_file)
+draws <- function(kind, n, b, seed) {
+  out <- system2("python3", c(py_file, kind, n, b, seed), stdout = TRUE)
+  lapply(strsplit(out, " "), as.integer)
+}
+
+# The replacement sample(): returns the queued draws in order.
+queue <- list()
+fake_sample <- function(x, size, replace = FALSE, prob = NULL) {
+  if (length(queue) == 0) stop("resample queue exhausted")
+  v <- queue[[1]]
+  queue <<- queue[-1]
+  v
+}
+for (fn in c("predab.resample", "bootcov")) {
+  f <- get(fn, envir = asNamespace("rms"))
+  e <- new.env(parent = environment(f))
+  e$sample <- fake_sample
+  environment(f) <- e
+  assignInNamespace(fn, f, "rms")
+}
+run <- function(q, expr) {
+  queue <<- q
+  r <- expr
+  stopifnot(length(queue) == 0)
+  r
+}
+
+lines <- c(
+  "# name: test/sql/reference/validate_calibrate.test",
+  "# description: validate_agg / calibrate_agg / calibrate_cph_agg / bootcov_agg against rms::validate, calibrate, calibrate.cph, bootcov (#318)",
+  "# group: [reference]",
+  "#",
+  "# GENERATED by validation/generators/make_reference_validate.R -- do not edit",
+  "# by hand; change the generator and re-run it instead.",
+  sprintf("# Reference: %s, rms %s, survival %s", R.version.string, packageVersion("rms"),
+          packageVersion("survival")),
+  "# rms replays the extension's own seeded (SplitMix64) resamples, so the tables match exactly.",
+  "",
+  "require anofox_statistics",
+  "")
+
+# ---------------------------------------------------------------------------
+# Data: linear / binary outcome (as upstream's validate fixture), clusters of 5
+# ---------------------------------------------------------------------------
+set.seed(20261028)
+n <- 150
+x1 <- rnorm(n); x2 <- rnorm(n); x3 <- runif(n)
+yb <- rbinom(n, 1, plogis(-0.4 + 0.9 * x1 - 0.6 * x2 + 0.5 * x3))
+yc <- 1 + 0.8 * x1 - 0.5 * x2 + 0.3 * x3 + rnorm(n)
+cl <- sample(rep(1:30, each = 5))
+raw <- data.frame(rid = seq_len(n), x1, x2, x3, yc, yb, cl)
+# Canonical order (x1 is continuous, so it decides the order).
+d <- raw[order(raw$x1), ]
+rownames(d) <- NULL
+lines <- c(lines, "statement ok",
+  "CREATE TABLE d (rid INTEGER, x1 DOUBLE, x2 DOUBLE, x3 DOUBLE, yc DOUBLE, yb DOUBLE, cl INTEGER);",
+  "", "statement ok", "INSERT INTO d VALUES", paste0(values_sql(raw), ";"), "")
+
+fo <- ols(yc ~ x1 + x2 + x3, data = d, x = TRUE, y = TRUE)
+fl <- lrm(yb ~ x1 + x2 + x3, data = d, x = TRUE, y = TRUE)
+cols <- c("index.orig", "training", "test", "optimism", "index.corrected", "n")
+sqlcols <- c("index_orig", "training", "test", "optimism", "index_corrected", "n")
+
+validate_checks <- function(label, v, table, tol) {
+  out <- character()
+  for (idx in rownames(v)) {
+    out <- c(out, checks(sprintf("%s: %s", label, idx), sprintf("%s WHERE index_name = '%s'", table, idx),
+                         sqlcols, unname(unclass(v)[idx, cols]), tol))
+  }
+  out
+}
+validate_case <- function(label, table, sql, fit, method, B, seed, tol) {
+  q <- switch(method,
+              boot = draws("boot", n, B, seed),
+              crossvalidation = draws("perm", n, B, seed),
+              `.632` = draws("boot", n, B, seed))
+  v <- run(q, validate(fit, method = method, B = B))
+  c("statement ok", sprintf("CREATE TABLE %s AS SELECT unnest(%s, recursive := true) FROM d;", table, sql), "",
+    validate_checks(label, v, table, tol))
+}
+
+lines <- c(lines,
+  validate_case("validate(ols, B = 30), seed 11", "v_ols_boot",
+                "validate_agg(yc, [x1, x2, x3], {'B': 30, 'seed': 11})", fo, "boot", 30, 11, 1e-9),
+  validate_case("validate(lrm, B = 30), seed 11", "v_lrm_boot",
+                "validate_agg(yb, [x1, x2, x3], {'model': 'logistic', 'B': 30, 'seed': 11})", fl, "boot", 30, 11, 1e-6),
+  validate_case("validate(ols, method = 'crossvalidation', B = 10), seed 12", "v_ols_cv",
+                "validate_agg(yc, [x1, x2, x3], {'method': 'crossvalidation', 'B': 10, 'seed': 12})", fo,
+                "crossvalidation", 10, 12, 1e-9),
+  # Seed 13, not 12: with seed 12 one held-out group is perfectly separated (test Dxy = 1), where
+  # the recalibration intercept / slope have no finite MLE and rms and upstream stop at different
+  # (arbitrary) iterates.
+  validate_case("validate(lrm, method = 'crossvalidation', B = 10), seed 13", "v_lrm_cv",
+                "validate_agg(yb, [x1, x2, x3], {'model': 'logistic', 'method': 'crossvalidation', 'B': 10, 'seed': 13})",
+                fl, "crossvalidation", 10, 13, 1e-6),
+  validate_case("validate(ols, method = '.632', B = 30), seed 13", "v_ols_632",
+                "validate_agg(yc, [x1, x2, x3], {'method': '.632', 'B': 30, 'seed': 13})", fo, ".632", 30, 13, 1e-9),
+  validate_case("validate(lrm, method = '.632', B = 30), seed 13", "v_lrm_632",
+                "validate_agg(yb, [x1, x2, x3], {'model': 'logistic', 'method': '.632', 'B': 30, 'seed': 13})",
+                fl, ".632", 30, 13, 1e-6))
+
+# The failed-fit count and the labels
+lines <- c(lines, "query IIII",
+  "SELECT count(*), sum(n_failed), any_value(model), any_value(method) FROM v_lrm_cv;", "----",
+  "11\t0\tlogistic\tcrossvalidation", "")
+
+# ---------------------------------------------------------------------------
+# calibrate
+# ---------------------------------------------------------------------------
+cal_case <- function(label, table, sql, fit, B, seed, predy = NULL, tol) {
+  q <- draws("boot", n, B, seed)
+  cal <- run(q, if (is.null(predy)) calibrate(fit, B = B) else calibrate(fit, B = B, predy = predy))
+  predicted <- attr(cal, "predicted")
+  s <- !is.na(cal[, "predy"] + cal[, "calibrated.corrected"])
+  err <- predicted - approx(cal[s, "predy"], cal[s, "calibrated.corrected"], xout = predicted, ties = mean)$y
+  out <- c("statement ok",
+           sprintf("CREATE TABLE %s AS SELECT row_number() OVER () AS k, * FROM (SELECT unnest(%s, recursive := true) FROM d);",
+                   table, sql), "",
+           "query I", sprintf("SELECT count(*) FROM %s;", table), "----", nrow(cal), "")
+  for (k in seq_len(nrow(cal))) {
+    out <- c(out, checks(sprintf("%s: grid point %d", label, k), sprintf("%s WHERE k = %d", table, k),
+                         c("predy", "calibrated_orig", "calibrated_corrected", "optimism", "n"),
+                         unname(cal[k, c("predy", "calibrated.orig", "calibrated.corrected", "optimism", "n")]), tol))
+  }
+  c(out, checks(sprintf("%s: mean / mean squared / 0.9 quantile absolute error (print.calibrate)", label),
+                sprintf("%s WHERE k = 1", table), c("mean_abs_error", "mean_squared_error", "quantile90_abs_error"),
+                c(mean(abs(err), na.rm = TRUE), mean(err^2, na.rm = TRUE), unname(quantile(abs(err), 0.9, na.rm = TRUE))),
+                tol))
+}
+lines <- c(lines,
+  cal_case("calibrate(lrm, B = 30), seed 11", "c_lrm",
+           "calibrate_agg(yb, [x1, x2, x3], {'model': 'logistic', 'B': 30, 'seed': 11})", fl, 30, 11, tol = 1e-6),
+  cal_case("calibrate(ols, B = 20, predy = seq(-0.5, 2.5, by = 0.25)), seed 14", "c_ols",
+           "calibrate_agg(yc, [x1, x2, x3], {'B': 20, 'seed': 14, 'predy': [-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5]})",
+           fo, 20, 14, predy = seq(-0.5, 2.5, by = 0.25), tol = 1e-9))
+
+# ---------------------------------------------------------------------------
+# bootcov: ordinary bootstrap of ols, cluster bootstrap of lrm
+# ---------------------------------------------------------------------------
+boot_checks <- function(label, table, b, tol) {
+  k <- length(coef(b))
+  q <- apply(b$boot.Coef, 2, quantile, probs = c(0.025, 0.975))
+  out <- character()
+  for (j in seq_len(k)) {
+    ref <- c(unname(coef(b)[j]), sqrt(b$var[j, j]), q[1, j], q[2, j], mean(b$boot.Coef[, j]), b$var[j, ])
+    exprs <- c("estimate", "std_error", "conf_low", "conf_high", "boot_mean", sprintf("vcov[%d]", seq_len(k)))
+    out <- c(out, checks(sprintf("%s: %s", label, names(coef(b))[j]), sprintf("%s WHERE k = %d", table, j),
+                         exprs, ref, tol))
+  }
+  c(out, "query II", sprintf("SELECT any_value(n_boot), any_value(n_failed) FROM %s;", table), "----",
+    sprintf("%d\t0", nrow(b$boot.Coef)), "")
+}
+b1 <- run(draws("boot", n, 50, 5), rms:::bootcov(fo, B = 50, seed = 1))
+lines <- c(lines, "statement ok",
+  "CREATE TABLE b_ols AS SELECT row_number() OVER () AS k, * FROM (SELECT unnest(bootcov_agg(yc, [x1, x2, x3], {'B': 50, 'seed': 5}), recursive := true) FROM d);",
+  "", boot_checks("bootcov(ols, B = 50), seed 5", "b_ols", b1, 1e-9))
+# Cluster bootstrap: the clusters are 1..30, so the codes the extension gives them
+# (their sorted order) are the values themselves. bootcov draws cluster labels
+# (as.character(cluster)) and takes their rows by name.
+cq <- lapply(draws("cluster", 30, 40, 6), as.character)
+b2 <- run(cq, rms:::bootcov(fl, cluster = d$cl, B = 40, seed = 1))
+lines <- c(lines, "statement ok",
+  "CREATE TABLE b_lrm AS SELECT row_number() OVER () AS k, * FROM (SELECT unnest(bootcov_agg(yb, [x1, x2, x3], cl, {'model': 'logistic', 'B': 40, 'seed': 6}), recursive := true) FROM d);",
+  "", boot_checks("bootcov(lrm, cluster = cl, B = 40), seed 6", "b_lrm", b2, 1e-5))
+
+# ---------------------------------------------------------------------------
+# calibrate.cph (cmethod = "KM"), as upstream's calibrate_cph fixture
+# ---------------------------------------------------------------------------
+set.seed(20261106)
+ns <- 300
+s1 <- rnorm(ns); s2 <- rbinom(ns, 1, 0.4); s3 <- runif(ns)
+h <- 0.1 * exp(0.7 * s1 - 0.5 * s2 + 0.8 * s3)
+tt <- rexp(ns, h); cens <- runif(ns, 2, 15)
+time <- round(pmin(tt, cens), 2); event <- as.numeric(tt <= cens)
+sraw <- data.frame(rid = seq_len(ns), s1, s2, s3, time, event)
+sd <- sraw[order(sraw$s1), ]
+rownames(sd) <- NULL
+lines <- c(lines, "statement ok",
+  "CREATE TABLE s (rid INTEGER, s1 DOUBLE, s2 DOUBLE, s3 DOUBLE, time DOUBLE, event DOUBLE);",
+  "", "statement ok", "INSERT INTO s VALUES", paste0(values_sql(sraw), ";"), "")
+u <- 5; B <- 25
+fc <- cph(Surv(time, event) ~ s1 + s2 + s3, data = sd, x = TRUE, y = TRUE, surv = TRUE, time.inc = u)
+cal <- run(draws("boot", ns, B, 21),
+           { invisible(capture.output(r <- calibrate(fc, cmethod = "KM", u = u, m = 60, B = B))); r })
+cc <- unclass(cal)
+lines <- c(lines, "statement ok",
+  "CREATE TABLE c_cph AS SELECT unnest(calibrate_cph_agg(time, [s1, s2, s3], event, {'u': 5, 'm': 60, 'B': 25, 'seed': 21, 'tolerance': 1e-4, 'max_iterations': 10}), recursive := true) FROM s;",
+  "", "query I", "SELECT count(*) FROM c_cph;", "----", nrow(cc), "")
+cph_cols <- c("index.orig", "training", "test", "mean.optimism", "mean.corrected", "n", "mean.predicted", "KM",
+              "KM.corrected", "std.err")
+cph_sql <- c("index_orig", "training", "test", "optimism", "index_corrected", "n", "mean_predicted", "km",
+             "km_corrected", "std_err")
+for (g in seq_len(nrow(cc))) {
+  lines <- c(lines, checks(sprintf("calibrate(cph, cmethod = 'KM', u = 5, m = 60, B = 25), seed 21: group %d", g),
+                           sprintf("c_cph WHERE group_index = %d", g), cph_sql, unname(cc[g, cph_cols]), 1e-8))
+}
+
+writeLines(lines, file.path(out_dir, "validate_calibrate.test"))
+cat("wrote", file.path(out_dir, "validate_calibrate.test"), "\n")

@@ -268,3 +268,19 @@ data, ridge, robust and cluster variance), `cox_zph_agg`, `cox_survival`,
 `cox_augment_by` / `cox_augment_agg` and `cox_tidy_by` (#312) against
 `survival::coxph`, `cox.zph`, `survfit.coxph`, `residuals.coxph` and `rms::cph`
 on `survival::lung` and `survival::heart`.
+
+## `make_reference_validate.R`
+
+```bash
+Rscript validation/generators/make_reference_validate.R
+```
+
+Requires `rms` and `python3`. It (re)writes `test/sql/reference/validate_calibrate.test`:
+`validate_agg` (ols and logistic; bootstrap, cross-validation, .632), `calibrate_agg`
+(default and user grid), `calibrate_cph_agg` and `bootcov_agg` (ordinary and cluster
+bootstrap) (#318) against `rms::validate`, `rms::calibrate`, `rms::calibrate.cph` and
+`rms::bootcov`. The extension draws its resamples with anofox-regression's SplitMix64
+generator, not R's RNG; the script recomputes those draws for each seed (a small embedded
+Python helper, exact 64-bit arithmetic) and feeds them to `rms` through a `sample()`
+injected into `predab.resample` and `bootcov`, so the tables are compared exactly rather
+than up to Monte-Carlo error.

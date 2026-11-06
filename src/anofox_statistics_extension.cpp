@@ -247,6 +247,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPcaFunctions(loader);
     // Multinomial logistic regression (#314)
     RegisterMultinomialFunctions(loader);
+    // Resampling model validation and calibration (#318)
+    RegisterModelValidationFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

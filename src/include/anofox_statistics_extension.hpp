@@ -181,6 +181,9 @@ void RegisterPcaFunctions(ExtensionLoader &loader);
 // Multinomial logistic regression: multinomial_fit_agg, multinomial_predict,
 // multinomial_fit_predict_by (#314)
 void RegisterMultinomialFunctions(ExtensionLoader &loader);
+// Resampling validation / calibration: validate_agg, calibrate_agg, calibrate_cph_agg, bootcov_agg
+// and their _by macros (#318)
+void RegisterModelValidationFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking
