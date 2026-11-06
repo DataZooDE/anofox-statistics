@@ -4,6 +4,7 @@
 //! designed for use via FFI in a DuckDB extension.
 
 pub mod diagnostics;
+pub mod effects;
 pub mod errors;
 pub mod models;
 pub mod multivariate;

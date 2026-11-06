@@ -10837,3 +10837,7 @@ pub use likelihood_ffi::*;
 // Regression-spline bases (#317).
 mod splines_ffi;
 pub use splines_ffi::*;
+
+// Effects, contrasts, effect grids and nomograms (#319).
+mod effects_ffi;
+pub use effects_ffi::*;

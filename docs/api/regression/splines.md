@@ -101,7 +101,7 @@ spline_basis(x DOUBLE, spec STRUCT) -> DOUBLE[]
 
 `spline_spec` validates a basis and returns its definition, the stable
 representation of a spline term that downstream functions (effects and
-contrasts, #319) consume. `kind` is a constant `'rcs'`, `'lsp'` or
+contrasts, [effects.md](effects.md)) consume. `kind` is a constant `'rcs'`, `'lsp'` or
 `'bspline'`; options `norm` (rcs), `degree`, `extrapolation`, `include_bias`
 (bspline).
 

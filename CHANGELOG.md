@@ -12,6 +12,18 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- **Effects, contrasts, effect grids and nomograms (#319).** `effects_term(name, kind [, levels])` /
+  `effects_term(name, spline_spec(...))` and `effects_interaction(a, b [, restricted])` describe how each
+  predictor enters a model (linear, rcs, lsp, categorical with treatment contrasts, `a * b` or `%ia%`);
+  `effects_design(x, terms)` builds the design row to fit any `*_fit_agg` on. Over the data rows
+  (the `datadist` limits come from them), `effects_summary_agg(x, model, terms)` is `rms::summary`
+  (inter-quartile-range and factor-level effects, odds / rate ratios for logit / log links),
+  `contrast_agg(x, model, terms, a, b)` / `double_contrast_agg(..., a, b, a2, b2)` are
+  `rms::contrast`, `predict_grid_agg(x, model, terms, term [, {'values', 'simultaneous'}])` is
+  `rms::Predict` (pointwise or simultaneous bands) and `nomogram_agg(x, lp, model, terms [, {'fun'}])`
+  is `rms::nomogram`; `predict_grid_by` returns the grid per group in the `prediction` schema. All
+  from anofox-regression `effects::ModelSpec`. Reference values: rms / multcomp
+  (`validation/generators/make_reference_effects.R`).
 - **Regression-spline bases (#317).** `rcs(x, knots [, {'norm'}])` (restricted cubic spline,
   `Hmisc::rcspline.eval(inclx = TRUE)` / `rms::rcs`), `lsp(x, knots)` (`rms::lsp`),
   `bspline(x, knots [, degree [, {'extrapolation', 'include_bias'}]])` (sklearn

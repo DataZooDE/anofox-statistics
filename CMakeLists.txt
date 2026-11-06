@@ -271,6 +271,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/null_distributions.cpp
     src/scalar_functions/splines.cpp
     src/aggregate_functions/spline_knots_aggregate.cpp
+    src/aggregate_functions/effects_aggregate.cpp
     src/window_functions/ols_fit_predict.cpp
     src/window_functions/huber_fit_predict.cpp
     src/window_functions/ransac_fit_predict.cpp

@@ -103,6 +103,7 @@ void RegisterJarqueBeraFunction(ExtensionLoader &loader);
 void RegisterNullDistributionFunctions(ExtensionLoader &loader);
 void RegisterSplineFunctions(ExtensionLoader &loader);              // rcs, lsp, bspline, ... (#317)
 void RegisterSplineKnotsAggregateFunctions(ExtensionLoader &loader); // rcs_knots_agg, bspline_knots_agg (#317)
+void RegisterEffectsFunctions(ExtensionLoader &loader); // effects_summary_agg, contrast_agg, predict_grid_agg, ... (#319)
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);
