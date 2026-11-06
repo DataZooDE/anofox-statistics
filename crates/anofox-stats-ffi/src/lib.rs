@@ -10868,3 +10868,7 @@ pub use effects_ffi::*;
 // Penalized ML a la rms: pentrace and penalized OLS (#323).
 mod pentrace_ffi;
 pub use pentrace_ffi::*;
+
+// Resampling model validation and calibration (#318).
+mod model_validation_ffi;
+pub use model_validation_ffi::*;

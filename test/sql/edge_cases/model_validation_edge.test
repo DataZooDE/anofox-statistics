@@ -1,0 +1,218 @@
+# name: test/sql/edge_cases/model_validation_edge.test
+# description: validate_agg / calibrate_agg / calibrate_cph_agg / bootcov_agg (#318): NULL handling, degenerate data (NULL), invalid options (errors)
+# group: [edge_cases]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS SELECT i, (i % 2) AS g, ((i * 37) % 23)::DOUBLE / 7 AS x1, ((i * 11) % 17)::DOUBLE / 5 AS x2,
+  1 + 0.8 * (((i * 37) % 23)::DOUBLE / 7) + ((i * 7) % 13)::DOUBLE / 6 AS y, ((i * 7) % 3 = 0)::DOUBLE AS yb,
+  1 + ((i * 13) % 29)::DOUBLE AS tm, (i % 4 <> 0)::DOUBLE AS ev
+FROM range(60) r(i);
+
+# ==== NULL handling: rows with a NULL y, x list or list element are skipped ====
+statement ok
+CREATE TABLE tn AS SELECT i, CASE WHEN i % 5 = 0 THEN NULL ELSE y END AS y,
+  CASE WHEN i % 7 = 0 THEN NULL ELSE [x1, CASE WHEN i % 11 = 0 THEN NULL ELSE x2 END] END AS x,
+  CASE WHEN i % 13 = 0 THEN NULL ELSE ev END AS ev, tm, x1, x2
+FROM t;
+
+query I
+SELECT (SELECT validate_agg(y, x, {'B': 20}) FROM tn)
+     = (SELECT validate_agg(y, x, {'B': 20}) FROM tn WHERE y IS NOT NULL AND x IS NOT NULL AND x[2] IS NOT NULL);
+----
+true
+
+query I
+SELECT (SELECT bootcov_agg(y, x, {'B': 20}) FROM tn)
+     = (SELECT bootcov_agg(y, x, {'B': 20}) FROM tn WHERE y IS NOT NULL AND x IS NOT NULL AND x[2] IS NOT NULL);
+----
+true
+
+# calibrate_cph_agg skips a NULL event
+query I
+SELECT (SELECT calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 20, 'B': 5}) FROM tn)
+     = (SELECT calibrate_cph_agg(tm, [x1, x2], ev, {'u': 10, 'm': 20, 'B': 5}) FROM tn WHERE ev IS NOT NULL);
+----
+true
+
+# a NaN row is skipped like a NULL row
+query I
+SELECT (SELECT validate_agg(y, [x1, x2], {'B': 20}) FROM (SELECT * FROM t UNION ALL SELECT 99, 0, 'NaN'::DOUBLE, 1, 1, 0, 1, 1))
+     = (SELECT validate_agg(y, [x1, x2], {'B': 20}) FROM t);
+----
+true
+
+# ==== Degenerate data: NULL ====
+# empty input
+query IIII
+SELECT validate_agg(y, [x1, x2]) IS NULL, calibrate_agg(y, [x1, x2]) IS NULL,
+       calibrate_cph_agg(tm, [x1], ev, {'u': 5}) IS NULL, bootcov_agg(y, [x1, x2]) IS NULL
+FROM t WHERE false;
+----
+true	true	true	true
+
+# all rows NULL
+query I
+SELECT validate_agg(NULL::DOUBLE, [x1, x2]) IS NULL FROM t;
+----
+true
+
+# too few rows for the model
+query II
+SELECT validate_agg(y, [x1, x2]) IS NULL, bootcov_agg(y, [x1, x2]) IS NULL FROM t WHERE i < 3;
+----
+true	true
+
+# a constant column: the model cannot be fitted on the full data
+query II
+SELECT validate_agg(y, [x1, 1.0]) IS NULL, bootcov_agg(y, [x1, 1.0], {'B': 10}) IS NULL FROM t;
+----
+true	true
+
+# more cross-validation groups than n / 2
+query I
+SELECT validate_agg(y, [x1, x2], {'method': 'crossvalidation', 'B': 40}) IS NULL FROM t;
+----
+true
+
+# calibrate's default grid needs more than 10 rows
+query I
+SELECT calibrate_agg(y, [x1, x2]) IS NULL FROM t WHERE i < 10;
+----
+true
+
+# every row censored
+query I
+SELECT calibrate_cph_agg(tm, [x1], 0.0, {'u': 5}) IS NULL FROM t;
+----
+true
+
+# empty groups of a GROUP BY: one NULL per group with too few rows
+query II
+SELECT g, validate_agg(y, [x1, x2], {'B': 10}) IS NULL FROM t WHERE g = 1 OR i < 2 GROUP BY g ORDER BY g;
+----
+0	true
+1	false
+
+# ==== Invalid input: errors ====
+statement error
+SELECT validate_agg(y, [x1, x2], {'model': 'logistic'}) FROM t;
+----
+the logistic model needs y in {0, 1}
+
+statement error
+SELECT validate_agg(yb, [x1, x2], {'model': 'probit'}) FROM t;
+----
+unknown model 'probit'
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'method': 'jackknife'}) FROM t;
+----
+unknown method 'jackknife'
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'B': 0}) FROM t;
+----
+must be an integer between 1
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'B': 2.5}) FROM t;
+----
+must be an integer between 1
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'method': 'cv', 'B': 1}) FROM t;
+----
+cross-validation needs B >= 2 groups
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'seed': -1}) FROM t;
+----
+option 'seed' must be an integer
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'predy': [1, 2]}) FROM t;
+----
+unknown option 'predy'
+
+statement error
+SELECT validate_agg(y, [x1, x2], {'bogus': 1}) FROM t;
+----
+Supported options: model, method, B, seed
+
+# .632 with too few samples to leave every row out once
+statement error
+SELECT validate_agg(y, [x1, x2], {'method': '.632', 'B': 2}) FROM t;
+----
+every observation must be omitted from at least one sample
+
+statement error
+SELECT validate_agg(y, [x1, x2], 'B=10') FROM t;
+----
+Expected MAP or STRUCT
+
+statement error
+SELECT calibrate_agg(y, [x1, x2], {'predy': []}) FROM t;
+----
+option 'predy' must not be empty
+
+statement error
+SELECT calibrate_agg(y, [x1, x2], {'predy': [1, NULL]}) FROM t;
+----
+must not hold NULLs
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], ev, {'m': 5}) FROM t;
+----
+option 'u' (the time at which survival is calibrated) is required
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], ev, {'u': -1}) FROM t;
+----
+u must be a positive time
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], ev, {'u': 5, 'cuts': [0.5]}) FROM t;
+----
+cuts needs at least two boundaries
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], ev, {'u': 5, 'ties': 'exact'}) FROM t;
+----
+unknown ties 'exact'
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], ev, {'u': 5, 'model': 'ols'}) FROM t;
+----
+unknown option 'model'
+
+statement error
+SELECT calibrate_cph_agg(tm, [x1], 2.0, {'u': 5}) FROM t;
+----
+event must be 1 (event) or 0 (censored)
+
+statement error
+SELECT bootcov_agg(y, [x1, x2], {'B': 1}) FROM t;
+----
+B must be at least 2
+
+statement error
+SELECT bootcov_agg(y, [x1, x2], {'conf_level': 1.5}) FROM t;
+----
+conf_level must be in (0, 1)
+
+statement error
+SELECT bootcov_agg(y, [x1, x2], {'method': 'cv'}) FROM t;
+----
+unknown option 'method'
+
+statement error
+SELECT bootcov_agg(y, [x1, x2], {'feature_names': ['a']}) FROM t;
+----
+feature_names has 1 entries but x has 2 features
+
+statement error
+SELECT validate_agg(y, CASE WHEN i = 3 THEN [x1] ELSE [x1, x2] END) FROM t;
+----
+Inconsistent feature count

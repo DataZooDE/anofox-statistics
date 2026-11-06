@@ -104,6 +104,7 @@ static const struct {
     {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
     {"partial_cor_agg", "test"}, {"semi_partial_cor_agg", "test"},
     {"predict_grid_by", "prediction"},
+    {"calibrate_by", "curve"}, {"bootcov_by", "terms"},
     {nullptr, nullptr}
 };
 // clang-format on

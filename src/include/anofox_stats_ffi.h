@@ -5332,6 +5332,105 @@ bool anofox_penalized_ols(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_
                           AnofoxError *out_error);
 void anofox_free_penalized_ols(AnofoxPenalizedOlsResult *result);
 
+/* ===== Resampling model validation and calibration (#318) =====
+ * rms::validate / calibrate / calibrate.cph / bootcov through anofox-regression's
+ * validation module. Must match crates/anofox-stats-ffi/src/model_validation_ffi.rs.
+ * Every array of a result is allocated by the call; release it with the matching
+ * anofox_free_* function. */
+
+#define ANOFOX_VALIDATION_NAME_LEN 32
+
+/** model: 0 = ols, 1 = logistic (lrm); method: 0 = boot, 1 = crossvalidation, 2 = .632. */
+typedef struct {
+	int32_t model;
+	int32_t method;
+	uint32_t b;
+	uint64_t seed;
+} AnofoxResampleOptions;
+
+typedef struct {
+	char *names; /* n_indexes NUL-terminated names of ANOFOX_VALIDATION_NAME_LEN bytes */
+	double *index_orig;
+	double *training;
+	double *test;
+	double *optimism;
+	double *corrected;
+	uint64_t *n;
+	size_t n_indexes;
+	size_t failed;
+} AnofoxValidationResult;
+
+typedef struct {
+	double *predy;
+	double *calibrated_orig;
+	double *calibrated_corrected;
+	double *optimism;
+	uint64_t *n;
+	size_t len;
+	double mean_abs_error;
+	double mean_squared_error;
+	double quantile90_abs_error;
+} AnofoxCalibrationResult;
+
+/** ties: 0 = efron, 1 = breslow; cuts NULL = quantile groups of about m subjects. */
+typedef struct {
+	double u;
+	size_t m;
+	const double *cuts;
+	size_t cuts_len;
+	int32_t ties;
+	uint32_t max_iterations;
+	double tolerance;
+} AnofoxCalibrateCphOptions;
+
+/** One entry per group of predicted survival; cuts holds n_groups + 1 boundaries. */
+typedef struct {
+	double *cuts;
+	double *index_orig;
+	double *training;
+	double *test;
+	double *optimism;
+	double *corrected;
+	uint64_t *n;
+	double *mean_predicted;
+	double *km;
+	double *km_corrected;
+	double *std_err;
+	size_t n_groups;
+} AnofoxSurvivalCalibrationResult;
+
+/** n_coefficients coefficients (intercept first); vcov is row-major k * k. */
+typedef struct {
+	double *estimate;
+	double *boot_mean;
+	double *std_error;
+	double *conf_low;
+	double *conf_high;
+	double *vcov;
+	size_t n_coefficients;
+	size_t n_boot;
+	size_t failed;
+} AnofoxBootcovResult;
+
+/** x is column-major n_rows * n_features (no intercept column). */
+bool anofox_validate(const double *y, const double *x, size_t n_rows, size_t n_features,
+                     AnofoxResampleOptions options, AnofoxValidationResult *out_result, AnofoxError *out_error);
+void anofox_free_validation_result(AnofoxValidationResult *result);
+/** predy NULL: the default grid of 50 points. */
+bool anofox_calibrate(const double *y, const double *x, size_t n_rows, size_t n_features,
+                      AnofoxResampleOptions options, const double *predy, size_t predy_len,
+                      AnofoxCalibrationResult *out_result, AnofoxError *out_error);
+void anofox_free_calibration_result(AnofoxCalibrationResult *result);
+bool anofox_calibrate_cph(const double *time, const double *x, const double *event, size_t n_rows, size_t n_features,
+                          AnofoxResampleOptions options, AnofoxCalibrateCphOptions cph,
+                          AnofoxSurvivalCalibrationResult *out_result, AnofoxError *out_error);
+void anofox_free_survival_calibration_result(AnofoxSurvivalCalibrationResult *result);
+/** cluster NULL: ordinary bootstrap; else n_rows dense cluster codes (cluster bootstrap). */
+bool anofox_bootcov(const double *y, const double *x, const uint64_t *cluster, size_t n_rows, size_t n_features,
+                    AnofoxResampleOptions options, double conf_level, AnofoxBootcovResult *out_result,
+                    AnofoxError *out_error);
+void anofox_free_bootcov_result(AnofoxBootcovResult *result);
+
 #ifdef __cplusplus
 }
 #endif
