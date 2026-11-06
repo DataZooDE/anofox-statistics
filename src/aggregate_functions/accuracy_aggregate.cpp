@@ -253,7 +253,7 @@ static inline void SetDoubleOrNull(Vector &vec, idx_t idx, double v) {
 
 //! Sequential writer of the STRUCT children of one result row.
 struct StructRowWriter {
-	vector<unique_ptr<Vector>> &entries;
+	StructEntries &entries;
 	idx_t row;
 	idx_t k = 0;
 

@@ -522,7 +522,7 @@ void CoxFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 
 		if (bind.compute_inference) {
 			AnofoxFitResultInference view = {fit.std_errors, fit.z_values, fit.p_values, fit.conf_low,
-			                                 fit.conf_high,  p,           fit.confidence_level, NAN, NAN};
+			                                 fit.conf_high,  static_cast<size_t>(p), fit.confidence_level, NAN, NAN};
 			writer.WriteInference(row, &view);
 			SetList(field("hr_conf_low"), row, fit.hr_conf_low, p);
 			SetList(field("hr_conf_high"), row, fit.hr_conf_high, p);
