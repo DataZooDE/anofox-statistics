@@ -722,7 +722,7 @@ static unique_ptr<FunctionData> DriftBind(ClientContext &context, AggregateBindF
                                           vector<unique_ptr<Expression>> &arguments) {
 	// category_proportions_agg: the categories keep the value type (the
 	// arguments are not cast to the overload's types yet).
-	auto value_type = arguments[0]->return_type.id() == LogicalTypeId::VARCHAR ? LogicalType::VARCHAR
+	auto value_type = ReturnTypeOf(*arguments[0]).id() == LogicalTypeId::VARCHAR ? LogicalType::VARCHAR
 	                                                                           : LogicalType::DOUBLE;
 	SetReturnTypeOf(function, KIND == DRIFT_PROPORTIONS ? ProportionsResultType(value_type) : DriftResultType(KIND));
 	auto bind = make_uniq<DriftBindData>();

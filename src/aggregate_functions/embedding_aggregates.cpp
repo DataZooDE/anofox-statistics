@@ -388,7 +388,7 @@ static unique_ptr<FunctionData> EmbeddingBind(ClientContext &context, AggregateB
 	auto bind = make_uniq<EmbeddingBindData>();
 	bind->kind = KIND;
 	bind->name = EmbeddingName(KIND);
-	bind->boolean_group = arguments[1]->return_type.id() == LogicalTypeId::BOOLEAN;
+	bind->boolean_group = ReturnTypeOf(*arguments[1]).id() == LogicalTypeId::BOOLEAN;
 	if (arguments.size() >= 3) {
 		Value options = EvaluateConstantOptions(context, *arguments[2], bind->name);
 		if (KIND == EMB_DRIFT) {
