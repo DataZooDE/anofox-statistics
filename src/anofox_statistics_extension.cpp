@@ -211,6 +211,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterClassifierAggregateFunctions(loader);
     // Predictive accuracy indexes (#308)
     RegisterAccuracyFunctions(loader);
+    // Metric pack and ranking metrics (#368, #369)
+    RegisterMetricsFunctions(loader);
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);

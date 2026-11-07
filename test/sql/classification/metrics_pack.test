@@ -1,0 +1,261 @@
+# name: test/sql/classification/metrics_pack.test
+# description: #368/#369 classification_metrics_agg, regression_metrics_agg, ranking_metrics_agg and their _by macros: NULLs, empty groups, options, errors, parallel and window use
+# group: [classification]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE c AS SELECT * FROM (VALUES
+ ('a', 1, 1, 0.9), ('a', 0, 0, 0.2), ('a', 1, 0, 0.4), ('a', 0, 1, 0.7), ('a', 1, 1, 0.8),
+ ('b', 0, 0, 0.1), ('b', 1, 1, 0.6), ('b', 0, 0, 0.3), ('b', NULL, 1, 0.5), ('b', 1, NULL, NULL)
+) t(g, y, p, s);
+
+# NULL rows are skipped.
+query TII
+SELECT g, (classification_metrics_agg(y, p)).n, (classification_metrics_agg(y, p)).confusion
+FROM c GROUP BY g ORDER BY g;
+----
+a	5	[[1, 1], [1, 2]]
+b	3	[[2, 0], [0, 1]]
+
+# No rows (or only NULL rows) gives NULL.
+query III
+SELECT classification_metrics_agg(y, p) FILTER (WHERE false) IS NULL,
+       regression_metrics_agg(s, s) FILTER (WHERE false) IS NULL,
+       ranking_metrics_agg(y, s, s) FILTER (WHERE false) IS NULL
+FROM c;
+----
+true	true	true
+
+query I
+SELECT classification_metrics_agg(y, p) IS NULL FROM c WHERE y IS NULL;
+----
+true
+
+# Integer and BOOLEAN labels; average is echoed.
+query TT
+SELECT (classification_metrics_agg(y = 1, p = 1)).labels, (classification_metrics_agg(y, p, {'average': 'micro'})).average FROM c;
+----
+[false, true]	micro
+
+# A single class: kappa is undefined (NULL), MCC 0.
+query III
+SELECT m.accuracy, m.cohen_kappa IS NULL, m.mcc
+FROM (SELECT classification_metrics_agg(x, x) AS m FROM (VALUES (1), (1), (1)) t(x));
+----
+1.0	true	0.0
+
+# A NaN score gives NULL.
+query I
+SELECT classification_metrics_agg(y, s, {'threshold': 0.5}) IS NULL
+FROM (VALUES (1, 0.9), (0, 'nan'::DOUBLE)) t(y, s);
+----
+true
+
+# MAP options work too.
+query I
+SELECT (classification_metrics_agg(y, p, MAP {'average': 'weighted'})).average FROM c;
+----
+weighted
+
+# ---------------------------------------------------------------------------
+# Invalid options and data
+# ---------------------------------------------------------------------------
+statement error
+SELECT classification_metrics_agg(y, p, {'avg': 'macro'}) FROM c;
+----
+unknown option 'avg'
+
+statement error
+SELECT classification_metrics_agg(y, p, {'average': 'samples'}) FROM c;
+----
+invalid average 'samples'
+
+statement error
+SELECT classification_metrics_agg(y, s) FROM c;
+----
+set options.threshold
+
+statement error
+SELECT classification_metrics_agg(y, p, {'threshold': 0.5}) FROM c;
+----
+threshold applies only to a DOUBLE score
+
+statement error
+SELECT classification_metrics_agg(y, p, {'pos_label': 0}) FROM c;
+----
+pos_label applies only to average = 'binary'
+
+statement error
+SELECT classification_metrics_agg(y::VARCHAR, p::VARCHAR, {'average': 'binary'}) FROM c;
+----
+needs options.pos_label
+
+statement error
+SELECT classification_metrics_agg(x, x, {'average': 'binary'}) FROM (VALUES (0), (1), (2)) t(x);
+----
+binary averaging needs at most two labels
+
+statement error
+SELECT classification_metrics_agg(x, 0.5, {'threshold': 0.5}) FROM (VALUES (0), (1), (2)) t(x);
+----
+y_true must be BOOLEAN or 0/1, got 2
+
+statement error
+SELECT classification_metrics_agg(y, p, {'threshold': 0.5, 'average': 'binary'}) FROM c;
+----
+threshold applies only
+
+statement error
+SELECT ranking_metrics_agg(y, s, s, {'k': 0}) FROM c;
+----
+k must be at least 1
+
+statement error
+SELECT ranking_metrics_agg(y, s, s, {'cutoff': 3}) FROM c;
+----
+unknown option 'cutoff'
+
+statement error
+SELECT ranking_metrics_agg(1, -1.0, 0.5);
+----
+relevance must be non-negative
+
+# Negative relevance is fine with min_relevance (binary relevance).
+query I
+SELECT (ranking_metrics_agg(1, r, s, {'min_relevance': 0})).hit_rate FROM (VALUES (-1.0, 0.5), (1.0, 0.2)) t(r, s);
+----
+1.0
+
+# No relevant item at all: NULL (nothing to average over).
+query I
+SELECT ranking_metrics_agg(q, 0.0, s) IS NULL FROM (VALUES (1, 0.3), (2, 0.1)) t(q, s);
+----
+true
+
+# ---------------------------------------------------------------------------
+# regression_metrics_agg
+# ---------------------------------------------------------------------------
+# A single row: r2 and explained variance are undefined (NULL).
+query IIII
+SELECT m.n, m.mae, m.r2 IS NULL, m.explained_variance IS NULL FROM (SELECT regression_metrics_agg(2.0, 1.5) AS m);
+----
+1	0.5	true	true
+
+# A NaN or infinite value gives NULL; NULL rows are skipped.
+query II
+SELECT regression_metrics_agg(y, p) IS NULL, (regression_metrics_agg(y, p) FILTER (WHERE y < 10)).n
+FROM (VALUES (1.0, 1.5), (2.0, NULL), ('inf'::DOUBLE, 1.0), (3.0, 2.0)) t(y, p);
+----
+true	2
+
+# Constant y_true and perfect predictions: r2 = 1 (scikit-learn force_finite).
+query II
+SELECT m.r2, m.explained_variance FROM (SELECT regression_metrics_agg(y, y) AS m FROM (VALUES (2.0), (2.0)) t(y));
+----
+1.0	1.0
+
+# ---------------------------------------------------------------------------
+# Table macros match the aggregates
+# ---------------------------------------------------------------------------
+query TIIT
+SELECT g, n, abs(f1 - (SELECT (classification_metrics_agg(y, p)).f1 FROM c c2 WHERE c2.g = m.g)) < 1e-15, confusion
+FROM classification_metrics_by('c', g, y, p) m ORDER BY g;
+----
+a	5	true	[[1, 1], [1, 2]]
+b	3	true	[[2, 0], [0, 1]]
+
+query TT
+SELECT g, average FROM classification_metrics_by('c', g, y, s, options := {'threshold': 0.5, 'average': 'binary'}) ORDER BY g;
+----
+a	binary
+b	binary
+
+query TII
+SELECT g, n, abs(mae - (SELECT (regression_metrics_agg(y, s)).mae FROM c c2 WHERE c2.g = m.g)) < 1e-15
+FROM regression_metrics_by('c', g, y, s) m ORDER BY g;
+----
+a	5	true
+b	3	true
+
+statement ok
+CREATE TABLE rk AS SELECT * FROM (VALUES
+ ('m1', 1, 1.0, 0.9), ('m1', 1, 0.0, 0.8), ('m1', 2, 0.0, 0.7), ('m1', 2, 2.0, 0.1),
+ ('m2', 1, 1.0, 0.1), ('m2', 1, 0.0, 0.8), ('m2', 2, 2.0, 0.9), ('m2', 2, 0.0, 0.2)
+) t(model, q, rel, score);
+
+query TIIRRR
+SELECT model, n_queries, k, mrr, hit_rate, precision FROM ranking_metrics_by('rk', model, q, rel, score, options := {'k': 1}) ORDER BY model;
+----
+m1	2	1	0.5	0.5	0.5
+m2	2	1	0.5	0.5	0.5
+
+# ---------------------------------------------------------------------------
+# Parallel and window use: the result does not depend on the thread count
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE big AS SELECT i, i % 7 AS g, (i * 7919) % 5 AS y, (i * 104729) % 5 AS p,
+       ((i * 31) % 1000) / 1000.0 AS s, (i * 13) % 3 AS rel, i % 211 AS q
+FROM range(200000) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE one AS SELECT g, classification_metrics_agg(y, p) AS c, regression_metrics_agg(y, s) AS r,
+       ranking_metrics_agg(q, rel, s, {'k': 5}) AS k FROM big GROUP BY g;
+
+statement ok
+SET threads = 4;
+
+query I
+SELECT count(*) FROM one JOIN (
+    SELECT g, classification_metrics_agg(y, p) AS c, regression_metrics_agg(y, s) AS r,
+           ranking_metrics_agg(q, rel, s, {'k': 5}) AS k FROM big GROUP BY g) four USING (g)
+WHERE one.c = four.c AND one.r = four.r AND one.k = four.k;
+----
+7
+
+statement ok
+RESET threads;
+
+query TI
+SELECT g, (classification_metrics_agg(y, p) OVER (PARTITION BY g)).n FROM c WHERE g = 'a' LIMIT 1;
+----
+a	5
+
+query II
+SELECT i, (regression_metrics_agg(y, p) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).n
+FROM (VALUES (1, 1.0, 1.5), (2, 2.0, 2.5), (3, 3.0, 2.0)) t(i, y, p) ORDER BY i;
+----
+1	1
+2	2
+3	3
+
+# Many query ids (> 32) go through GroupCoder's hash index. Coded across parallel states, each id
+# type gives bitwise the single-thread result; integer and string ids (other canonical query
+# order, so another summation order) agree to rounding.
+statement ok
+CREATE TABLE many_q AS SELECT i // 4 AS q, 'q' || (i // 4) AS qs, (hash(i) % 4)::DOUBLE AS rel,
+    ((hash(i * 31) % 1000) / 1000.0)::DOUBLE AS s FROM range(40000) t(i);
+
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE many_par AS SELECT ranking_metrics_agg(q, rel, s) AS a, ranking_metrics_agg(qs, rel, s) AS b FROM many_q;
+
+statement ok
+SET threads = 1;
+
+query IIII
+SELECT p.a = (SELECT ranking_metrics_agg(q, rel, s) FROM many_q),
+       p.b = (SELECT ranking_metrics_agg(qs, rel, s) FROM many_q),
+       p.a.n_queries = p.b.n_queries AND abs(p.a.ndcg - p.b.ndcg) < 1e-12 AND abs(p.a.mrr - p.b.mrr) < 1e-12,
+       p.a.n_queries > 9900
+FROM many_par p;
+----
+true	true	true	true
+
+statement ok
+RESET threads;

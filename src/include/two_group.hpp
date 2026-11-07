@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <numeric>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -122,17 +123,56 @@ private:
 //! Dense numeric codes for arbitrary group labels (k-sample tests, #186). The
 //! codes are what the FFI groups by. They are handed out in first-seen order,
 //! which depends on the row order; Canonicalize renumbers them by label before
-//! the FFI call. Relocatable (a plain vector).
+//! the FFI call. Relocatable (a vector plus a heap-held index).
+//!
+//! Few labels are found by a linear scan. Past kIndexThreshold labels a hash
+//! index takes over, so coding many distinct keys (e.g. query ids) stays linear
+//! in the row count. The index lazily catches up with `labels`, which callers may
+//! assign directly (Combine into an empty target), and is rebuilt when `labels`
+//! shrinks or is reordered.
 struct GroupCoder {
 	vector<GroupLabel> labels;
 
+	GroupCoder() = default;
+	GroupCoder(const GroupCoder &other) : labels(other.labels) {
+	}
+	GroupCoder &operator=(const GroupCoder &other) {
+		labels = other.labels;
+		index.reset();
+		return *this;
+	}
+	GroupCoder(GroupCoder &&) = default;
+	GroupCoder &operator=(GroupCoder &&) = default;
+
+	//! Replace or drop all labels. Use these instead of writing `labels` directly,
+	//! so the index never describes a stale label set.
+	void Assign(vector<GroupLabel> new_labels) {
+		labels = std::move(new_labels);
+		index.reset();
+	}
+	void Clear() {
+		labels.clear();
+		index.reset();
+	}
+
 	double Code(const GroupLabel &label) {
-		for (idx_t k = 0; k < labels.size(); k++) {
-			if (labels[k] == label) {
-				return static_cast<double>(k);
+		if (labels.size() < kIndexThreshold) {
+			for (idx_t k = 0; k < labels.size(); k++) {
+				if (labels[k] == label) {
+					return static_cast<double>(k);
+				}
+			}
+		} else {
+			SyncIndex();
+			auto found = index->Find(label);
+			if (found != DConstants::INVALID_INDEX) {
+				return static_cast<double>(found);
 			}
 		}
 		labels.push_back(label);
+		if (index) {
+			index->Insert(labels.back(), labels.size() - 1);
+		}
 		return static_cast<double>(labels.size() - 1);
 	}
 
@@ -162,6 +202,43 @@ struct GroupCoder {
 			code = rank[static_cast<idx_t>(code)];
 		}
 		labels = std::move(sorted);
+		index.reset();
+	}
+
+private:
+	static constexpr idx_t kIndexThreshold = 32;
+
+	struct Index {
+		std::unordered_map<int64_t, idx_t> ints;
+		std::unordered_map<std::string, idx_t> strings;
+		idx_t covered = 0; //!< labels[0, covered) are indexed
+
+		idx_t Find(const GroupLabel &label) const {
+			if (label.is_string) {
+				auto it = strings.find(*label.str_value);
+				return it == strings.end() ? DConstants::INVALID_INDEX : it->second;
+			}
+			auto it = ints.find(label.int_value);
+			return it == ints.end() ? DConstants::INVALID_INDEX : it->second;
+		}
+		void Insert(const GroupLabel &label, idx_t k) {
+			if (label.is_string) {
+				strings.emplace(*label.str_value, k);
+			} else {
+				ints.emplace(label.int_value, k);
+			}
+			covered = k + 1;
+		}
+	};
+	unique_ptr<Index> index;
+
+	void SyncIndex() {
+		if (!index || index->covered > labels.size()) {
+			index = make_uniq<Index>();
+		}
+		for (idx_t k = index->covered; k < labels.size(); k++) {
+			index->Insert(labels[k], k);
+		}
 	}
 };
 

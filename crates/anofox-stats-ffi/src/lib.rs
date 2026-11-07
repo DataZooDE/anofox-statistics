@@ -10899,3 +10899,6 @@ pub use reconstruction_ffi::*;
 // Confidence-based performance estimation, NannyML CBPE (#365)
 mod cbpe_ffi;
 pub use cbpe_ffi::*;
+// Metric pack: classification, regression and ranking metrics (#368, #369)
+mod metrics_ffi;
+pub use metrics_ffi::*;

@@ -203,6 +203,9 @@ void RegisterReconstructionFunctions(ExtensionLoader &loader);
 // CBPE performance estimation: cbpe_fit_agg, cbpe_estimate_agg, cbpe_realized_agg, cbpe_by (#365)
 void RegisterCbpeFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
+// Metric pack: classification_metrics_agg, regression_metrics_agg, ranking_metrics_agg,
+// their _by macros and data_quality_by (#368, #369)
+void RegisterMetricsFunctions(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {
