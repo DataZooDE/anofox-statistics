@@ -217,8 +217,10 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			has_inference = anofox_quantile_process(y, x.data(), x.size(), &bind.tau, 1, bind.fit_intercept,
 			                                        bind.se_type, bind.seed, bind.n_boot, bind.confidence_level,
 			                                        &inf, &error);
-			if (!has_inference) {
-				ThrowUnlessDegenerate("quantile_fit_agg", error);
+			if (!has_inference && ClassifyFfiError(error.code) != FfiErrorKind::DEGENERATE) {
+				// fit owns Rust-allocated arrays: free them, the throw skips the free below.
+				anofox_free_quantile_result(&fit);
+				ThrowFromFfiError("quantile_fit_agg", error);
 			}
 		}
 		if (has_inference && inf.k == fit.coefficients_len + (bind.fit_intercept ? 1 : 0)) {
