@@ -34,20 +34,24 @@ description: >
   pspline_fit_predict_by / pspline_prediction_by / pspline_fit_predict_agg,
   predict_grid_by, validate_by / calibrate_by / calibrate_cph_by / bootcov_by,
   pentrace_by / penalized_ols_fit_by, glm_score_test_by, areg_impute_by,
-  pca_by and dataset_drift_by. Use when the task is "fit one model per group" at scale,
+  pca_by and dataset_drift_by; since 0.17.0 the monitoring macros cbpe_by,
+  pca_reconstruction_drift_by, alert_band_by, classification_metrics_by,
+  regression_metrics_by, ranking_metrics_by and data_quality_by. Use when the task is "fit one model per group" at scale,
   or "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
-version: 0.16.0
+version: 0.17.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.17.0 | **DuckDB:** v1.5.6 / v2.0
 
 > **New in 0.15.0:** contract `*_by` outputs end with `row_order BIGINT` (display order per group). For incremental per-partition fits, store `ls_state_agg` states and refit with `*_fit_from_state(ls_state_combine_agg(state))`.
 >
 > **New in 0.16.0:** per-group Cox (`cox_*_by`), GLS (`gls_*_by`), AFT residuals (`aft_augment_by`), ordinal / continuation-ratio / multinomial and P-spline `*_fit_predict_by`, `predict_grid_by`, rms validation (`validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by`), `pentrace_by` / `penalized_ols_fit_by`, `glm_score_test_by`, `areg_impute_by`, `pca_by`, `dataset_drift_by` (Pattern 1, 1b, 1c). Behaviour changes that reach the `_by` outputs: with `hc_type`, the OLS / WLS `vcov` (and so the `predict(model, x, {'se_fit': true})` intervals) is now the HC covariance; `wls_*` with `hc_type` now uses the weights.
+>
+> **New in 0.17.0 (model monitoring, NannyML / evidently):** `cbpe_by` (performance estimated without labels), `pca_reconstruction_drift_by`, `alert_band_by`, `classification_metrics_by` / `regression_metrics_by` / `ranking_metrics_by` and `data_quality_by` (Pattern 1c). Here the group is a monitoring **chunk** (e.g. a week), and `is_reference` marks the reference period.
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
@@ -279,6 +283,12 @@ Same `source`-string convention; one row per group and result element.
 | `areg_impute_by` | `(source, group_col, id_col, x_cols, options := …)` | `Hmisc::aregImpute` per group: one row per imputation and id with the completed `x`; constant `group_col` (e.g. `1`) imputes the whole table. Pool fits with `pool_rubin_agg` |
 | `pca_by` | `(source, group_col, x_cols, options := {'n_components': k, 'scale': …})` | every source row with its group's PCA `scores DOUBLE[]` |
 | `dataset_drift_by` | `(source, group_col, columns, options := …, drift_share := 0.5)` | evidently dataset drift: one row per column name in `columns` (a list of strings). Here `group_col` is the **reference vs current** split, not a segment: loop segments with a `WHERE` / view |
+| `cbpe_by` | `(source, chunk_col, y_col, score_col, is_reference, options := {'calibration': …, 'threshold': 0.5}, prediction := col)` | NannyML CBPE: one row per chunk and metric (`roc_auc`, `f1`, `precision`, `recall`, `specificity`, `accuracy`, confusion counts) with `estimate`, `sampling_error`, `lower_confidence` / `upper_confidence` and `realized` where labels exist; calibrated on the `is_reference` rows |
+| `pca_reconstruction_drift_by` | `(source, chunk_col, x_cols, is_reference, options := {'variance': 0.65, 'scale': true}, threshold := {…})` | NannyML multivariate drift: one row per chunk with `reconstruction_error`, sampling error, `lower_threshold` / `upper_threshold`, `alert`, `is_reference` |
+| `alert_band_by` | `(source, chunk_col, metric_col, is_reference, options := {'method': 'std' \| 'constant' \| 'relative', …})` | Reference-band alert thresholds for any chunked metric (default mean ± 3 SD of the reference chunks): `value`, `lower_threshold`, `upper_threshold`, `alert` |
+| `classification_metrics_by` / `regression_metrics_by` | `(source, group_col, y_true_col, y_pred_col[, options := {'average': …, 'threshold': …}])` | Accuracy, precision, recall, F1, MCC, kappa + confusion matrix / MAE, RMSE, MAPE, sMAPE, R², … per group |
+| `ranking_metrics_by` | `(source, group_col, query_col, relevance_col, score_col, options := {'k': 10})` | NDCG@k, MAP@k, MRR, precision@k, recall@k, hit rate per group |
+| `data_quality_by` | `(source, columns, reference := '<table>')` | One row per column: missing share, distinct count, basic stats; against the reference the out-of-range share and new / dropped categories |
 
 All resampling macros are seeded (`'seed'`) and independent of thread count and row order; keep `'B'` small in exploratory runs.
 

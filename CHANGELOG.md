@@ -10,6 +10,15 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-07
+
+This release adds NannyML- and evidently-style model monitoring from anofox-statistics 0.10
+(#376): CBPE estimates a binary classifier's performance without labels, PCA reconstruction-error
+drift detects multivariate drift, and reference-band alert thresholds work on any chunked metric.
+It also adds a metric pack (classification, regression and ranking metrics) and a SQL-only
+data-quality summary. All values are checked against NannyML 0.13.1 and scikit-learn 1.9.1. No
+behaviour changes to existing functions.
+
 ### Added
 
 - Multivariate drift by PCA reconstruction error, as NannyML's `DataReconstructionDriftCalculator`
@@ -52,11 +61,28 @@ Breaking changes are called out explicitly.
   the `ridge_fit_predict` window) can no longer leak the fit's FFI result arrays when a follow-up
   FFI call (coefficient inference, conditioning-aware lambda) fails with an input or internal
   error after the fit succeeded. Hardening only; no test reaches these paths today.
+- `profile_ci` together with `vcov = 'cluster'` is rejected at bind time, before any fit, so the
+  error no longer leaks the cluster fit's FFI arrays (the last ASAN leak, #374).
+- A v1.5.6 build no longer picks up DuckDB 2.0's vector headers from a system DuckDB install
+  (`/usr/include/duckdb`): `duckdb_compat.hpp` includes them without a `__has_include` probe, and a
+  CI audit (`scripts/check_compat_stray_headers.sh`) guards against such probes (#379).
+
+### Performance
+
+- Group labels with many distinct values (more than 32) are now coded through a hash index
+  instead of a linear scan. `ranking_metrics_agg` with 80k query ids: 4 s → 0.14 s; the k-sample
+  tests (`one_way_anova_agg`, `kruskal_wallis_agg`, `brown_forsythe_agg`, `factorial_anova_agg`)
+  with many groups benefit too. Results are unchanged.
 
 ### Changed
 
 - CI: the ASAN + UBSAN sqllogictests job is now blocking (no longer `continue-on-error`); the
   leaks that kept it red were fixed in #363 and #374.
+- CI: a non-vcpkg `make release` + `make test` job on GitHub's ubuntu-26.04 image (GCC 15,
+  CMake 4) catches image-only build breaks early (#383).
+- Tests: the WASM runtime harness compares results strictly (exact integers and text, 1e-9 for
+  doubles, result shape), and two expectations it exposed were corrected (#372). CI fails when a
+  generated guide drifts from its template (#375).
 
 ## [0.16.0] - 2026-11-06
 
@@ -1932,7 +1958,8 @@ Also: no telemetry from CI (detected CI environments send no events unless
 - Initial release: OLS, Ridge, WLS, RLS and Elastic Net regression as scalar
   and aggregate functions, plus diagnostics.
 
-[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.13.0...v0.14.0

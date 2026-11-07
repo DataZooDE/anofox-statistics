@@ -32,13 +32,13 @@ description: >
   SQL. For per-group long tables see the batch skill; for VIF / condition
   indexes / separation / accuracy indexes the diagnostics skill; for t / TOST
   / ANOVA / Kaplan-Meier style tests the tests skill.
-version: 0.16.0
+version: 0.17.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Regression Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.16.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.6 / v2.0 | **API:** unprefixed, MAP-style options
+**Extension:** `anofox_statistics` v0.17.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.6 / v2.0 | **API:** unprefixed, MAP-style options
 
 > **New in 0.15.0:** `ls_state_agg(y, x[, weight])` / `ls_state_combine_agg(state)` keep a compact, mergeable least-squares state; `ols_fit_from_state` / `wls_fit_from_state` / `ridge_fit_from_state` fit from it without the rows (incremental refits, one state for any ridge `alpha`; no `hc_type` / `compute_loo`). Options may be `MAP(VARCHAR, VARIANT)` and prepared-statement parameters.
 >
