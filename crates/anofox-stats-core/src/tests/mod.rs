@@ -5,6 +5,7 @@
 
 pub mod anova;
 pub mod categorical;
+pub mod cbpe;
 pub mod classification;
 pub mod correlation;
 pub mod distributional;
@@ -12,12 +13,14 @@ pub mod drift;
 pub mod embedding;
 pub mod equivalence;
 pub mod forecast;
+pub mod metrics;
 pub mod modern;
 pub mod nonparametric;
 pub mod null_distributions;
 pub mod parametric;
 pub mod partial_correlation;
 pub mod posthoc;
+pub mod reconstruction;
 pub mod resampling;
 pub mod survival;
 pub mod timeseries;

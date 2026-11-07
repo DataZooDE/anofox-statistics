@@ -211,6 +211,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterClassifierAggregateFunctions(loader);
     // Predictive accuracy indexes (#308)
     RegisterAccuracyFunctions(loader);
+    // Metric pack and ranking metrics (#368, #369)
+    RegisterMetricsFunctions(loader);
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
@@ -259,6 +261,10 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterModelValidationFunctions(loader);
     // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
     RegisterReductionFunctions(loader);
+    // PCA reconstruction-error drift and reference-band alert thresholds (#366, #367)
+    RegisterReconstructionFunctions(loader);
+    // CBPE performance estimation without labels (#365)
+    RegisterCbpeFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

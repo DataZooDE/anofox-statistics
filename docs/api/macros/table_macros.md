@@ -54,6 +54,8 @@ passed through and the prediction columns appended.
 | `ridge_augment_by` | `ridge_augment_agg` | one row per input row (`obs`: fitted, residual, the ridge `leverage`, exact `loo_residual`, `loo_fitted`; no standardised residuals / Cook's distance), see [Model tools](../regression/model_tools.md#ridge) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
+| `classification_metrics_by`, `regression_metrics_by`, `ranking_metrics_by` | `classification_metrics_agg`, `regression_metrics_agg`, `ranking_metrics_agg` | one row per group (the metrics as columns), see [Metrics](../statistics/metrics.md) |
+| `data_quality_by` | (SQL only) | one row per column (missing share, distinct count, stats, out-of-range share and new categories against `reference :=`), see [Metrics](../statistics/metrics.md#data_quality_by) |
 | `validate_by`, `calibrate_by`, `calibrate_cph_by`, `bootcov_by` | `validate_agg`, `calibrate_agg`, `calibrate_cph_agg`, `bootcov_agg` | one row per index / grid point (`curve`) / survival group / term (`terms`), see [Validation](../regression/validation.md#table-macros) |
 | `<model>_prediction_by` | `<model>_fit_predict_by` | one row per input row (`prediction` schema), see [Model tools](../regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_effects_by` | `<model>_fit_agg` + `predict` | one row per grid point of the focal feature (`prediction` schema) |

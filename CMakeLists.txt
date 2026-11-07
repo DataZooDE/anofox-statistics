@@ -235,6 +235,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/dagostino_k2_aggregate.cpp
     src/aggregate_functions/energy_distance_aggregate.cpp
     src/aggregate_functions/drift_aggregates.cpp
+    src/aggregate_functions/metrics_aggregates.cpp
     src/aggregate_functions/embedding_aggregates.cpp
     src/aggregate_functions/mmd_aggregate.cpp
     src/aggregate_functions/tost_t_test_aggregate.cpp
@@ -271,6 +272,8 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/multinomial_aggregate.cpp
     src/aggregate_functions/model_validation_aggregate.cpp
     src/aggregate_functions/reduction_aggregates.cpp
+    src/aggregate_functions/reconstruction_aggregates.cpp
+    src/aggregate_functions/cbpe_aggregates.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/tidy_glance.cpp
     src/scalar_functions/lr_test.cpp

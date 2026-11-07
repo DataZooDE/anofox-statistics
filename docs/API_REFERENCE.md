@@ -147,6 +147,7 @@ fitted model struct).
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Data drift | `ks_test_agg`, `ad_test_agg`, `cvm_test_agg`, `epps_singleton_agg`, `wasserstein_agg`, `psi_agg`, `kl_divergence_agg`, `jensen_shannon_agg`, `hellinger_agg`, `tvd_agg`, `category_proportions_agg`, `z_drift_agg`, `chisq_drift_agg`, `g_drift_agg`, `column_drift_agg`, `dataset_drift_agg`, `dataset_drift_by` | [Hypothesis tests](api/statistics/hypothesis.md#data-drift) |
 | Embedding drift, multivariate two-sample tests | `embedding_drift_agg`, `energy_distance_test_agg`, `mmd_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md#embedding_drift_agg-energy_distance_test_agg-mmd_test_agg) |
+| Monitoring: reconstruction-error drift, alert bands (NannyML) | `pca_reconstruction_fit_agg`, `pca_reconstruction_error`, `pca_reconstruction_chunk_agg`, `pca_reconstruction_threshold_agg`, `pca_reconstruction_drift_by`, `alert_band_agg`, `alert_band_by` | [Monitoring drift](api/statistics/monitoring_drift.md) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg`, `tost_one_sample_agg`, `tost_prop_one_agg`, `tost_prop_two_agg`, `tost_wilcoxon_paired_agg`, `tost_wilcoxon_agg`, `tost_yuen_agg`, `tost_bootstrap_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg`, `spa_test_agg`, `mspe_adjusted_spa_agg`, `model_confidence_set_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
@@ -159,6 +160,8 @@ fitted model struct).
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
+| Performance estimation without labels (NannyML CBPE) | `cbpe_fit_agg`, `cbpe_estimate_agg`, `cbpe_realized_agg`, `cbpe_by` | [CBPE](api/statistics/cbpe.md) |
+| Performance metrics | `classification_metrics_agg`, `regression_metrics_agg`, `ranking_metrics_agg`, `classification_metrics_by`, `regression_metrics_by`, `ranking_metrics_by`, `data_quality_by` | [Metrics](api/statistics/metrics.md) |
 | Predictive accuracy (rms) | `concordance_agg`, `somers2_agg`, `rcorr_cens_agg`, `lrm_stats_agg`, `val_prob_agg`, `gini_md_agg`, `r2_measures` | [Accuracy indexes](api/statistics/accuracy.md) |
 | Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
 | Principal components | `pca_agg`, `pca_transform`, `pca_by` (R's `prcomp` / `predict.prcomp`) | [Multivariate](api/statistics/multivariate.md) |
