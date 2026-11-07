@@ -51,8 +51,11 @@ for header in $(printf '%s\n' $known $probed | sort -u); do
 	fi
 done
 
-if [ "$planted" -eq 0 ]; then
-	echo "warning: no stray headers planted; the check below tests nothing" >&2
+# With nothing planted the compile below tests nothing, so that is a failure: point
+# DUCKDB_INCLUDE at a DuckDB tree that lacks the probed headers (e.g. v1.5.6).
+if [ "$planted" -eq 0 ] && [ "${ALLOW_NO_STRAY:-0}" != 1 ]; then
+	echo "error: no stray headers planted, so this check would test nothing; set DUCKDB_INCLUDE to a DuckDB v1.5.6 tree (or ALLOW_NO_STRAY=1)" >&2
+	exit 1
 fi
 
 # The TU lives outside $stray: a quoted include searches the includer's directory first.
