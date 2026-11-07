@@ -326,6 +326,10 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
+        // The lambda the fit uses (conditioning-aware lambda, #305). Looked up before the fit:
+        // it may throw, and after the fit that would skip freeing the fit's FFI arrays.
+        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_agg");
+
         bool success = anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
                                         state.compute_inference ? &inference_result : nullptr, &error);
 
@@ -354,9 +358,6 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
         // the inference fields are NULL (the Rust core reports NaN for them).
         // alpha == 0 is OLS and keeps its inference.
-        // The lambda the fit used: alpha, or with conditioning-aware lambda (#305)
-        // upstream's choice for this design.
-        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_agg");
         writer.WriteInference(result_idx, state.compute_inference && lambda == 0 ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
         // Ridge sandwich covariance with the effective (raw) penalty, as the fit-predict intervals.

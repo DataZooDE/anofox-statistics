@@ -286,6 +286,10 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
+        // The lambda the fit uses (conditioning-aware lambda, #305). Looked up before the fit:
+        // it may throw, and after the fit that would skip freeing the fit's FFI arrays.
+        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict");
+
         bool success =
             anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
@@ -296,8 +300,6 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
         }
 
         AnofoxPredictionResult pred_result;
-        // The lambda the fit used (conditioning-aware lambda, #305).
-        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict");
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
                                     nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? ridge_lambda * (double)core_result.n_observations : ridge_lambda));
