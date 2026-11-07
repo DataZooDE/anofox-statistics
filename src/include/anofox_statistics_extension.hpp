@@ -198,6 +198,8 @@ void RegisterModelValidationFunctions(ExtensionLoader &loader);
 // Data reduction and transforms: spearman2_agg, hoeffding_d_agg, box_cox_agg,
 // box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
 void RegisterReductionFunctions(ExtensionLoader &loader);
+// CBPE performance estimation: cbpe_fit_agg, cbpe_estimate_agg, cbpe_realized_agg, cbpe_by (#365)
+void RegisterCbpeFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

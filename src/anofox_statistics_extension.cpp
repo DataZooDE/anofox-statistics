@@ -259,6 +259,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterModelValidationFunctions(loader);
     // Data reduction and transforms: spearman2, hoeffding_d, box_cox, varclus, redun (#320)
     RegisterReductionFunctions(loader);
+    // CBPE performance estimation without labels (#365)
+    RegisterCbpeFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

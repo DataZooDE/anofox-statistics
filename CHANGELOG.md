@@ -10,6 +10,17 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+- **CBPE: classification performance without labels (#365).** NannyML's confidence-based
+  performance estimation of a binary classifier, from upstream anofox-statistics 0.10
+  `monitoring::cbpe`. `cbpe_fit_agg(y_true, score [, prediction], options)` calibrates the scores
+  on a labelled reference period (isotonic, Platt or none) and returns the model as a STRUCT of
+  its parts; `cbpe_estimate_agg(model, score [, prediction])` estimates ROC AUC, F1, precision,
+  recall, specificity, accuracy and the expected confusion matrix of an unlabelled chunk with
+  NannyML's sampling-error bands; `cbpe_realized_agg(model, y_true, score [, prediction])` gives
+  the realized metrics; `cbpe_by(source, chunk_col, y_col, score_col, is_reference)` returns one row
+  per chunk and metric with both. Validated against NannyML 0.13.1. See
+  [CBPE](docs/api/statistics/cbpe.md).
+
 ## [0.16.0] - 2026-11-06
 
 This release closes about 31 issues (#293–#323) that expose the remaining functionality of
