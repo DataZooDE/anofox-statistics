@@ -1,0 +1,38 @@
+# Static audits: no build, no secrets.
+#
+# The compat-stray-headers job compiles src/include/duckdb_compat.hpp (syntax
+# only) against the bundled DuckDB headers with stray headers from another
+# DuckDB version on a later include path, as a system DuckDB package puts them
+# (scripts/check_compat_stray_headers.sh, ported from anofox-forecast#312). CI
+# runners have no system DuckDB, so without it a __has_include probe that finds
+# the wrong tree only breaks on developer machines.
+name: Static audits
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  compat-stray-headers:
+    name: duckdb_compat.hpp with stray DuckDB headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the bundled DuckDB headers
+        run: git submodule update --init --depth 1 duckdb
+
+      - name: Compile duckdb_compat.hpp with stray headers on the include path
+        run: scripts/check_compat_stray_headers.sh
