@@ -10892,3 +10892,7 @@ pub use imputation_ffi::*;
 // AFT residuals, extended survfit / survdiff (#322)
 mod survival_extras_ffi;
 pub use survival_extras_ffi::*;
+
+// Metric pack: classification, regression and ranking metrics (#368, #369)
+mod metrics_ffi;
+pub use metrics_ffi::*;

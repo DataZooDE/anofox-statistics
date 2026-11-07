@@ -199,6 +199,9 @@ void RegisterModelValidationFunctions(ExtensionLoader &loader);
 // box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
 void RegisterReductionFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
+// Metric pack: classification_metrics_agg, regression_metrics_agg, ranking_metrics_agg,
+// their _by macros and data_quality_by (#368, #369)
+void RegisterMetricsFunctions(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {

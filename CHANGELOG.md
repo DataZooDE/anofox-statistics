@@ -10,6 +10,23 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Metric pack** (#368, anofox-statistics 0.10 `metrics`): `classification_metrics_agg(y_true,
+  y_pred [, options])` returns accuracy, precision, recall, F1, specificity (binary, macro, micro
+  or weighted averaging, `pos_label`, `zero_division`), balanced accuracy, MCC, Cohen's kappa, the
+  sorted labels and the confusion matrix, for BIGINT, VARCHAR or BOOLEAN labels (multiclass) or a
+  DOUBLE score with `options.threshold`; `regression_metrics_agg(y_true, y_pred)` returns MAE,
+  MSE, RMSE, MAPE, sMAPE (fractions), median AE, R², explained variance and max error; table
+  macros `classification_metrics_by` and `regression_metrics_by`. Validated against scikit-learn.
+- **Ranking metrics and a data-quality summary** (#369): `ranking_metrics_agg(query_id,
+  relevance, score [, options])` returns NDCG@k (scikit-learn `ndcg_score`), MAP@k, MRR,
+  precision@k, recall@k and hit rate (evidently) averaged over queries (`k`, `min_relevance`,
+  `include_no_feedback`), with the table macro `ranking_metrics_by`; `data_quality_by(source,
+  columns, reference := NULL)` returns per column the missing share, distinct count, basic
+  statistics and, against a reference table, the out-of-range share and the new / dropped
+  categories. See [Performance metrics](docs/api/statistics/metrics.md).
+
 ## [0.16.0] - 2026-11-06
 
 This release closes about 31 issues (#293–#323) that expose the remaining functionality of

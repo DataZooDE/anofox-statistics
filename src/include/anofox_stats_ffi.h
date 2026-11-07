@@ -5855,6 +5855,88 @@ void anofox_free_survfit_result(AnofoxSurvfitResult *result);
 bool anofox_survdiff(AnofoxDataArray time, AnofoxDataArray event, const uint64_t *groups, const double *strata,
                      double rho, AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
 
+
+/* ============================================================================
+ * Metric pack (issues #368, #369): classification, regression and ranking
+ * metrics (upstream anofox-statistics 0.10 metrics)
+ * ============================================================================ */
+
+/** Result of anofox_classification_metrics. Must match ClassificationMetricsFFI. */
+typedef struct {
+	double accuracy;
+	double precision;
+	double recall;
+	double f1;
+	double specificity;
+	double balanced_accuracy;
+	double mcc;
+	double cohen_kappa; /* NaN when undefined */
+	size_t n;
+} AnofoxClassificationMetricsResult;
+
+/** average argument of anofox_classification_metrics. */
+typedef enum {
+	ANOFOX_AVERAGE_BINARY = 0,
+	ANOFOX_AVERAGE_MACRO = 1,
+	ANOFOX_AVERAGE_MICRO = 2,
+	ANOFOX_AVERAGE_WEIGHTED = 3,
+} AnofoxAverage;
+
+/**
+ * Classification metrics of len predicted against true label codes 0..n_labels
+ * (label order, each occurring in y_true or y_pred). Binary averaging reports the
+ * class coded pos_label (a code outside 0..n_labels: the positive class never
+ * occurs). Writes n_labels * n_labels confusion counts to out_counts, row-major
+ * with the true labels as rows.
+ */
+bool anofox_classification_metrics(const int64_t *y_true, const int64_t *y_pred, size_t len, int32_t average,
+                                   int64_t pos_label, double zero_division, size_t n_labels, uint64_t *out_counts,
+                                   AnofoxClassificationMetricsResult *out_result, AnofoxError *out_error);
+
+/** Result of anofox_regression_metrics (MAPE / sMAPE as fractions). Must match RegressionMetricsFFI. */
+typedef struct {
+	double mae;
+	double mse;
+	double rmse;
+	double mape;
+	double smape;
+	double median_ae;
+	double r2;                 /* NaN for a single row */
+	double explained_variance; /* NaN for a single row */
+	double max_error;
+	size_t n;
+} AnofoxRegressionMetricsResult;
+
+bool anofox_regression_metrics(AnofoxDataArray y_true, AnofoxDataArray y_pred,
+                               AnofoxRegressionMetricsResult *out_result, AnofoxError *out_error);
+
+/** Options of anofox_ranking_metrics. Must match RankingOptionsFFI. */
+typedef struct {
+	double min_relevance; /* NaN: relevant when > 0, graded NDCG gain */
+	size_t k;
+	bool include_no_feedback;
+} AnofoxRankingOptions;
+
+/** Result of anofox_ranking_metrics. Must match RankingMetricsFFI. */
+typedef struct {
+	double ndcg;
+	double map;
+	double mrr;
+	double precision;
+	double recall;
+	double hit_rate;
+	size_t n_queries;
+} AnofoxRankingMetricsResult;
+
+/**
+ * Ranking metrics at options.k averaged over the queries coded in query (one code
+ * per item, relevance.len items); items ranked by decreasing score, ties in input
+ * order.
+ */
+bool anofox_ranking_metrics(const int64_t *query, AnofoxDataArray relevance, AnofoxDataArray score,
+                            AnofoxRankingOptions options, AnofoxRankingMetricsResult *out_result,
+                            AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

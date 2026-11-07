@@ -1,0 +1,56 @@
+# name: test/sql/macros/test_data_quality_by.test
+# description: #369 data_quality_by: per-column profile and comparison against a reference table
+# group: [macros]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE train AS SELECT * FROM (VALUES
+ (25, 'berlin', 1.5, true), (31, 'munich', 2.5, false), (47, 'berlin', NULL, true),
+ (52, 'hamburg', 4.0, true), (38, NULL, 3.0, false)
+) t(age, city, score, flag);
+
+statement ok
+CREATE TABLE today AS SELECT * FROM (VALUES
+ (29, 'berlin', 1.0, true), (61, 'cologne', 2.0, true), (NULL, 'munich', 5.0, true), (19, 'berlin', NULL, true)
+) t(age, city, score, flag);
+
+# Without a reference: profile only, the comparison columns are NULL; rows in the order of columns.
+query TTIIRIRRRR
+SELECT column_name, column_type, n, n_missing, missing_share, n_distinct, min, max, mean, round(sd, 6)
+FROM data_quality_by('train', ['city', 'age']);
+----
+city	VARCHAR	5	1	0.2	3	NULL	NULL	NULL	NULL
+age	INTEGER	5	0	0.0	5	25.0	52.0	38.6	11.104053
+
+query TIIII
+SELECT column_name, reference_min IS NULL, out_of_range_share IS NULL, new_categories IS NULL, dropped_categories IS NULL
+FROM data_quality_by('train', ['age', 'city']);
+----
+age	true	true	true	true
+city	true	true	true	true
+
+# Against the reference.
+query TRRRTT
+SELECT column_name, missing_share, reference_min, reference_max, out_of_range_share, new_categories
+FROM data_quality_by('today', ['age', 'city', 'score', 'flag'], reference := 'train');
+----
+age	0.25	25.0	52.0	0.6666666666666666	NULL
+city	0.0	NULL	NULL	NULL	[cologne]
+score	0.25	1.5	4.0	0.6666666666666666	NULL
+flag	0.0	NULL	NULL	NULL	[]
+
+query TT
+SELECT column_name, dropped_categories FROM data_quality_by('today', ['city', 'flag'], reference := 'train');
+----
+city	[hamburg]
+flag	[false]
+
+# A column with only NULLs.
+statement ok
+CREATE VIEW all_null AS SELECT NULL::DOUBLE AS x FROM range(3);
+
+query TIIR
+SELECT column_name, n, n_missing, missing_share FROM data_quality_by('all_null', ['x']);
+----
+x	3	3	1.0
