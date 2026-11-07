@@ -164,8 +164,8 @@ void TwoWayCombine(Vector &source_vector, Vector &target_vector, AggregateInputD
 			target.values = CombineTake(source.values, aggr_input_data);
 			target.codes_a = CombineTake(source.codes_a, aggr_input_data);
 			target.codes_b = CombineTake(source.codes_b, aggr_input_data);
-			target.coder_a.labels = CombineTake(source.coder_a.labels, aggr_input_data);
-			target.coder_b.labels = CombineTake(source.coder_b.labels, aggr_input_data);
+			target.coder_a.Assign(CombineTake(source.coder_a.labels, aggr_input_data));
+			target.coder_b.Assign(CombineTake(source.coder_b.labels, aggr_input_data));
 			target.initialized = true;
 			continue;
 		}

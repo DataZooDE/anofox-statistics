@@ -12,6 +12,7 @@ pub mod drift;
 pub mod embedding;
 pub mod equivalence;
 pub mod forecast;
+pub mod metrics;
 pub mod modern;
 pub mod nonparametric;
 pub mod null_distributions;

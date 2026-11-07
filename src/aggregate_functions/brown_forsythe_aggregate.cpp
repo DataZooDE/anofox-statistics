@@ -32,7 +32,7 @@ struct BrownForsytheAggregateState {
     void Reset() {
         values.clear();
         groups.clear();
-        coder.labels.clear();
+        coder.Clear();
         initialized = false;
     }
 };
@@ -141,7 +141,7 @@ static void BrownForsytheAggCombine(Vector &source_vector, Vector &target_vector
         if (!target.initialized) {
             target.values = CombineTake(source.values, aggr_input_data);
             target.groups = CombineTake(source.groups, aggr_input_data);
-            target.coder.labels = CombineTake(source.coder.labels, aggr_input_data);
+            target.coder.Assign(CombineTake(source.coder.labels, aggr_input_data));
             target.initialized = true;
             continue;
         }
