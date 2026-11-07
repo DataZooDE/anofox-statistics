@@ -24,13 +24,13 @@ description: >
   result plottable, asks "which table do I need for this chart", wants long /
   tidy tables instead of STRUCTs, or wants to combine several models or groups
   into one plot.
-version: 0.16.0
+version: 0.17.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.17.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 > **New in 0.15.0:** every contract producer `*_by` macro ends with `row_order BIGINT` (1..n per group in display order); collect rows with `list(t ORDER BY t.row_order)` instead of sorting by the struct.
 >

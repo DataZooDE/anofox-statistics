@@ -1,7 +1,7 @@
 {
   "name": "anofox-statistics",
   "description": "SQL-native statistical regression and inference skills for the anofox_statistics DuckDB extension — regression (OLS/robust/GLM/ordinal/multinomial/AFT/Cox PH/GLS/P-spline/mixed-effects, splines, Wald chunk tests, effects and nomograms, validate/calibrate/bootcov, multiple imputation, cluster-robust vcov, paths and CV, predictions with standard errors), hypothesis tests (TOST, ANOVA incl. two-way/repeated measures, drift and multivariate two-sample tests), post-hoc, time-series, survival tests and classifier evaluation, diagnostics (influence, residuals, autocorrelation, heteroskedasticity, VIF/GVIF, condition indexes, separation, accuracy indexes, variable clustering and redundancy), AI-ready batch per-group model fitting, and plot-ready long tables for anofox-visualization.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "author": {
     "name": "DataZoo GmbH",
     "url": "https://github.com/DataZooDE"

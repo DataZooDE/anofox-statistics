@@ -35,13 +35,13 @@ description: >
   discrimination / calibration of a prediction, when screening or clustering
   predictors before modelling, or classifying a series' demand regime before
   choosing a model.
-version: 0.16.0
+version: 0.17.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0
+**Extension:** `anofox_statistics` v0.17.0 | **DuckDB:** v1.5.6 / v2.0
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 

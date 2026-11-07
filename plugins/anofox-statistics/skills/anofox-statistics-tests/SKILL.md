@@ -28,7 +28,11 @@ description: >
   data drift (KS, Anderson-Darling, Cramér-von Mises, Epps-Singleton,
   Wasserstein, PSI, KL, Jensen-Shannon, Hellinger, TVD, z / chi-squared / G
   drift, column_drift_agg, dataset_drift_by, embedding_drift_agg,
-  category_proportions_agg), forecast-evaluation tests (Diebold-Mariano,
+  category_proportions_agg), NannyML-style model monitoring (CBPE
+  performance estimation without labels: cbpe_fit_agg / cbpe_estimate_agg /
+  cbpe_by; PCA reconstruction-error drift; alert_band_agg / alert_band_by
+  reference-band thresholds), performance metrics (classification_metrics_agg,
+  regression_metrics_agg, ranking_metrics_agg, data_quality_by), forecast-evaluation tests (Diebold-Mariano,
   Clark-West, Hansen SPA, MSPE-adjusted SPA, Model Confidence Set), residual
   autocorrelation and heteroskedasticity tests (Ljung-Box, Box-Pierce,
   Durbin-Watson with p-value, Breusch-Pagan, White), survival tests
@@ -41,15 +45,15 @@ description: >
   bitwise-reproducible Monte Carlo, bootstrap and permutation tests. Use when
   running a significance test, comparing many groups or repeated conditions,
   testing equivalence, measuring association/effect size, evaluating a
-  classifier or forecast models, detecting data or embedding drift, or
+  classifier or forecast models, detecting data or embedding drift, monitoring a deployed model, or
   comparing distributions or survival in SQL.
-version: 0.16.0
+version: 0.17.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.16.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.17.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 
@@ -191,6 +195,23 @@ The `_test_agg` forms: all vectors of a call must have the same length; group 1 
 | `embedding_drift_agg(embedding DOUBLE[], group \| is_reference[, opts])` | evidently embedding drift: `method` `'distance'` (default, `metric` euclidean / cosine / cityblock / chebyshev, threshold 0.2), `'ratio'` (share of drifted dimensions), `'mmd'` (median bandwidth); `'bootstrap': true` for a bootstrapped threshold. Returns `method, score, threshold, drifted, n1, n2, dim, bandwidth` |
 
 Use `column_drift_agg` / `dataset_drift_by` for monitoring dashboards (evidently-compatible verdicts); use the dedicated tests above when you need the full statistic. Mind multiple testing when many columns are tested.
+
+### Model monitoring and performance metrics (new in 0.17.0)
+NannyML / evidently-style monitoring over **chunks** (e.g. weeks). The reference period is a positional BOOLEAN expression (`is_reference`, e.g. `period = 'reference'`), not an option. Fitted models (CBPE calibrator, reconstruction PCA) are STRUCTs you can store in a table and reuse on later chunks.
+
+| Function | What it does |
+|---|---|
+| `cbpe_fit_agg(y_true, score[, prediction], {'calibration': 'isotonic' \| 'platt' \| 'none', 'threshold': 0.5})` | Calibrates a binary classifier's scores on the labelled reference; returns the model STRUCT (one-class reference → NULL) |
+| `cbpe_estimate_agg(model, score[, prediction])` / `cbpe_realized_agg(model, y_true, score[, prediction])` | Estimated (no labels) / realized ROC AUC, F1, precision, recall, specificity, accuracy, confusion counts; each `STRUCT(value, sampling_error, lower_confidence, upper_confidence)` |
+| `cbpe_by(source, chunk_col, y_col, score_col, is_reference)` | Long format: one row per chunk × metric with `estimate`, bands and `realized` |
+| `pca_reconstruction_fit_agg(x DOUBLE[][, {'variance': 0.65 \| 'n_components': k, 'scale': true}])`, `pca_reconstruction_chunk_agg(model, x)`, `pca_reconstruction_drift_by(source, chunk_col, x_cols, is_reference)` | Multivariate drift by mean PCA reconstruction error per chunk vs the reference band; NULL elements of `x` are imputed with the reference mean (NannyML), unlike `pca_agg` |
+| `alert_band_agg(value[, {'method': 'std', 'k': 3, 'lower_limit': 0, 'upper_limit': 1}])` / `alert_band_by(source, chunk_col, metric_col, is_reference)` | Alert thresholds for any chunked metric (drift score, PSI, CBPE estimate): `std` (mean ± k·SD of reference chunks), `constant`, `relative`; value limits; `alert` = strictly outside the band |
+| `classification_metrics_agg(y_true, y_pred[, {'average': 'macro' \| 'micro' \| 'weighted' \| 'binary', 'pos_label', 'threshold'}])` | Accuracy, precision, recall, F1, specificity, balanced accuracy, MCC, Cohen's kappa, `labels` and `confusion` (rows = true). Default `average` is **macro** (not scikit-learn's binary). A DOUBLE score needs an explicit `threshold` |
+| `regression_metrics_agg(y_true, y_pred)` | MAE, MSE, RMSE, MAPE / sMAPE (fractions), median AE, R², explained variance, max error |
+| `ranking_metrics_agg(query_id, relevance, score[, {'k': 10, 'min_relevance', 'include_no_feedback'}])` | NDCG@k (scikit-learn), MAP@k, MRR, precision@k, recall@k, hit rate, averaged over queries; no relevant item anywhere → NULL |
+| `data_quality_by(source, ['c1', …], reference := 'train')` | Per column: missing share, distinct count, min / max / mean / sd; vs the reference: out-of-range share, new / dropped categories |
+
+The bands from CBPE and reconstruction drift are sampling-error bands; the alert decision uses the thresholds from the reference chunks. Many chunks × metrics also means many alerts by chance.
 
 ### Forecast evaluation
 | Function | Test |
