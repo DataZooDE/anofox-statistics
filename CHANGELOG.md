@@ -46,6 +46,18 @@ Breaking changes are called out explicitly.
   statistics and, against a reference table, the out-of-range share and the new / dropped
   categories. See [Performance metrics](docs/api/statistics/metrics.md).
 
+### Fixed
+
+- `quantile_fit_agg` and the ridge fits (`ridge_fit_agg`, `ridge_fit_predict_agg`, `ridge_fit`,
+  the `ridge_fit_predict` window) can no longer leak the fit's FFI result arrays when a follow-up
+  FFI call (coefficient inference, conditioning-aware lambda) fails with an input or internal
+  error after the fit succeeded. Hardening only; no test reaches these paths today.
+
+### Changed
+
+- CI: the ASAN + UBSAN sqllogictests job is now blocking (no longer `continue-on-error`); the
+  leaks that kept it red were fixed in #363 and #374.
+
 ## [0.16.0] - 2026-11-06
 
 This release closes about 31 issues (#293–#323) that expose the remaining functionality of

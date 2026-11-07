@@ -369,6 +369,10 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
+        // The lambda the fit uses (conditioning-aware lambda, #305). Looked up before the fit:
+        // it may throw, and after the fit that would skip freeing the fit's FFI arrays.
+        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict_agg");
+
         bool success = anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
         if (!success) {
@@ -396,10 +400,6 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &yhat_lower_vec = StructEntry(struct_entries[2]);
         auto &yhat_upper_vec = StructEntry(struct_entries[3]);
         auto &is_training_vec = StructEntry(struct_entries[4]);
-
-        // The lambda the fit used (conditioning-aware lambda, #305).
-
-        const double ridge_lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit_predict_agg");
 
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
