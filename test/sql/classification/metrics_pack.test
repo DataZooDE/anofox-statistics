@@ -231,3 +231,31 @@ FROM (VALUES (1, 1.0, 1.5), (2, 2.0, 2.5), (3, 3.0, 2.0)) t(i, y, p) ORDER BY i;
 1	1
 2	2
 3	3
+
+# Many query ids (> 32) go through GroupCoder's hash index. Coded across parallel states, each id
+# type gives bitwise the single-thread result; integer and string ids (other canonical query
+# order, so another summation order) agree to rounding.
+statement ok
+CREATE TABLE many_q AS SELECT i // 4 AS q, 'q' || (i // 4) AS qs, (hash(i) % 4)::DOUBLE AS rel,
+    ((hash(i * 31) % 1000) / 1000.0)::DOUBLE AS s FROM range(40000) t(i);
+
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE many_par AS SELECT ranking_metrics_agg(q, rel, s) AS a, ranking_metrics_agg(qs, rel, s) AS b FROM many_q;
+
+statement ok
+SET threads = 1;
+
+query IIII
+SELECT p.a = (SELECT ranking_metrics_agg(q, rel, s) FROM many_q),
+       p.b = (SELECT ranking_metrics_agg(qs, rel, s) FROM many_q),
+       p.a.n_queries = p.b.n_queries AND abs(p.a.ndcg - p.b.ndcg) < 1e-12 AND abs(p.a.mrr - p.b.mrr) < 1e-12,
+       p.a.n_queries > 9900
+FROM many_par p;
+----
+true	true	true	true
+
+statement ok
+RESET threads;

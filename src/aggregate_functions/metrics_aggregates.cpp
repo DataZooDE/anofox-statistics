@@ -278,7 +278,7 @@ void ClassificationCombine(Vector &source_vector, Vector &target_vector, Aggrega
 			target.error_value = source.error_value;
 		}
 		if (target.labels.labels.empty() && target.codes.empty()) {
-			target.labels.labels = source.labels.labels;
+			target.labels.Assign(source.labels.labels);
 			target.codes = CombineTake(source.codes, aggr_input_data);
 			continue;
 		}
@@ -674,7 +674,7 @@ void RankingCombine(Vector &source_vector, Vector &target_vector, AggregateInput
 		auto &source = *sources[source_data.sel->get_index(i)];
 		auto &target = *targets[target_data.sel->get_index(i)];
 		if (target.query_codes.empty() && target.queries.labels.empty()) {
-			target.queries.labels = source.queries.labels;
+			target.queries.Assign(source.queries.labels);
 			target.query_codes = CombineTake(source.query_codes, aggr_input_data);
 			target.relevance = CombineTake(source.relevance, aggr_input_data);
 			target.score = CombineTake(source.score, aggr_input_data);
