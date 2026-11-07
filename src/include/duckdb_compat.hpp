@@ -18,16 +18,11 @@
 #include "duckdb/planner/expression.hpp"
 
 // DuckDB 2.0 split the vector helpers (ListVector, StructVector, ...) out of
-// vector.hpp into one header each.
-#if defined(__has_include)
-#if __has_include("duckdb/common/vector/list_vector.hpp")
-#include "duckdb/common/vector/constant_vector.hpp"
-#include "duckdb/common/vector/flat_vector.hpp"
-#include "duckdb/common/vector/list_vector.hpp"
-#include "duckdb/common/vector/string_vector.hpp"
-#include "duckdb/common/vector/struct_vector.hpp"
-#endif
-#endif
+// vector.hpp into one header each. generic_executor.hpp exists on 1.5 and 2.0 and
+// includes whatever declares ListVector/StructVector on that line (duckdb.hpp has
+// the rest), so no header probe is needed: __has_include would also find a system
+// DuckDB 2.0's headers (/usr/include/duckdb) from a 1.5 build.
+#include "duckdb/common/vector_operations/generic_executor.hpp"
 
 #include <string>
 #include <tuple>
