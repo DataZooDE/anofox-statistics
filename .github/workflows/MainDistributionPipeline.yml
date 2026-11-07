@@ -140,18 +140,18 @@ jobs:
       exclude_archs: "linux_amd64;linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads"
 
   sanitizer-tests:
-    name: ASAN + UBSAN sqllogictests (Linux debug, non-blocking)
+    name: ASAN + UBSAN sqllogictests (Linux debug)
     # Debug build of DuckDB + the extension with AddressSanitizer and
     # UndefinedBehaviorSanitizer (DuckDB's CMake enables both for
     # CMAKE_BUILD_TYPE=Debug by default via ENABLE_SANITIZER / ENABLE_UBSAN;
     # passed explicitly below so a future default change is visible). The
     # Rust FFI crate is built normally by Corrosion (uninstrumented) and linked
     # in; ASAN still catches C++-side misuse of FFI buffers.
-    # Separate from the release pipeline: nothing `needs` this job and it is
-    # continue-on-error, so it never blocks release artifacts.
+    # Blocking: a leak or UBSAN error fails the workflow (LeakSanitizer reports
+    # at process exit, so the test step aborts with exit code 134). Nothing
+    # `needs` this job, so it still does not hold back the deploy jobs.
     runs-on: ubuntu-24.04
     timeout-minutes: 300
-    continue-on-error: true
     env:
       GEN: ninja
       # CMAKE_CXX_STANDARD=17: the extension's CMakeLists compiles its sources
