@@ -1,0 +1,83 @@
+# Ubuntu 26.04 build guard: builds the extension the way a developer does on
+# the newest GitHub runner image. That means plain `make release` with the
+# image's own GCC, CMake and shared system OpenSSL, plus a Rust toolchain for
+# the FFI crate, and no vcpkg.
+#
+# Why: ubuntu-latest moved to 26.04 (GCC 15.2, CMake 4.x, OpenSSL 3.5.5), and
+# that image broke the static-OpenSSL builds of anofox-scenario (#49 there) and
+# anofox-forecast (#313 there). This extension links OpenSSL shared and builds
+# on 26.04 today. The distribution matrix never takes this path, because it
+# builds inside manylinux containers with vcpkg's OpenSSL. An image-only break
+# would stay invisible there, and developers would hit it first. This job is
+# the cheap guard against that. The image is pinned, not ubuntu-latest, so the
+# job keeps testing 26.04 after the next label move.
+#
+# Triggers: every PR, like the fast lane's single linux_amd64 build and the
+# sanitizer job (the `full-ci` label widens the distribution matrix only, and
+# this job is one Linux build). Also pushes to main and tags, manual dispatch,
+# and a weekly schedule. An image update reaches the runners without any
+# commit here, so the schedule catches it in a quiet week. Blocking (no
+# continue-on-error). It lives in its own workflow, so no other job can
+# `need` it and it never holds up a release.
+
+name: Ubuntu 26.04 build guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  linux-make-ubuntu-2604:
+    name: Linux non-vcpkg build (ubuntu-26.04, make release)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    env:
+      GEN: ninja
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      # What a developer installs on a fresh 26.04 machine. The README's
+      # "Building from source" section asks for a C++17 compiler, CMake and a
+      # Rust stable toolchain. Most of this ships with the runner image, but
+      # listing it keeps the job honest if the image gets slimmer.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build git ccache libssl-dev
+          gcc --version | head -1; cmake --version | head -1; openssl version
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-make-ubuntu-26.04-${{ github.job }}
+          max-size: 1G
+
+      - name: Build (release, no vcpkg)
+        run: make release
+
+      - name: Smoke test
+        run: ./build/release/duckdb -c "SELECT CASE WHEN loaded THEN 'anofox_statistics ' || extension_version || ', contract ' || anofox_contract_version() ELSE error('anofox_statistics not loaded') END FROM duckdb_extensions() WHERE extension_name = 'anofox_statistics'"
+
+      # The whole sqllogictest suite runs in a few minutes once the build is
+      # done. It catches a change in how a new compiler builds the numerics,
+      # which a load check alone would not.
+      - name: SQL tests
+        run: make test
