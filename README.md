@@ -170,6 +170,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | Effect size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Proportion | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg` | [classification](docs/api/statistics/classification.md) |
+| Performance metrics | `classification_metrics_agg`, `regression_metrics_agg`, `ranking_metrics_agg`, `data_quality_by` (and `_by` macros) | [metrics](docs/api/statistics/metrics.md) |
 
 Every test returns the [unified result fields](docs/api/statistics/hypothesis.md#unified-result-fields) (`method`, `statistic`, `p_value`, `estimate`, `conf_low`, `conf_high`, `effect_size`, …). The older names `ci_lower` / `ci_upper`, `df` and the ANOVA `f_statistic`, `df_between`, `df_within` are deprecated aliases and will be removed in the next minor release.
 

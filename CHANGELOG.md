@@ -10,6 +10,42 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- Multivariate drift by PCA reconstruction error, as NannyML's `DataReconstructionDriftCalculator`
+  (#366): `pca_reconstruction_fit_agg` (the model STRUCT; options `variance` / `n_components`,
+  `scale`, `impute_nan`), `pca_reconstruction_error`, `pca_reconstruction_chunk_agg`,
+  `pca_reconstruction_threshold_agg` and the `pca_reconstruction_drift_by` table macro (one row per
+  chunk: error, sampling error, confidence band, thresholds, alert). From upstream
+  anofox-statistics 0.10 `monitoring`; checked against NannyML 0.13.1 on its car-loan dataset.
+- Reference-band alert thresholds for chunked metrics (#367): `alert_band_agg` (methods `std`,
+  `constant` / `fixed`, `relative`; value limits with clamping or `override_with_none`, as
+  NannyML's `calculate_threshold_values`) and the `alert_band_by` table macro.
+- **CBPE: classification performance without labels (#365).** NannyML's confidence-based
+  performance estimation of a binary classifier, from upstream anofox-statistics 0.10
+  `monitoring::cbpe`. `cbpe_fit_agg(y_true, score [, prediction], options)` calibrates the scores
+  on a labelled reference period (isotonic, Platt or none) and returns the model as a STRUCT of
+  its parts; `cbpe_estimate_agg(model, score [, prediction])` estimates ROC AUC, F1, precision,
+  recall, specificity, accuracy and the expected confusion matrix of an unlabelled chunk with
+  NannyML's sampling-error bands; `cbpe_realized_agg(model, y_true, score [, prediction])` gives
+  the realized metrics; `cbpe_by(source, chunk_col, y_col, score_col, is_reference)` returns one row
+  per chunk and metric with both. Validated against NannyML 0.13.1. See
+  [CBPE](docs/api/statistics/cbpe.md).
+- **Metric pack** (#368, anofox-statistics 0.10 `metrics`): `classification_metrics_agg(y_true,
+  y_pred [, options])` returns accuracy, precision, recall, F1, specificity (binary, macro, micro
+  or weighted averaging, `pos_label`, `zero_division`), balanced accuracy, MCC, Cohen's kappa, the
+  sorted labels and the confusion matrix, for BIGINT, VARCHAR or BOOLEAN labels (multiclass) or a
+  DOUBLE score with `options.threshold`; `regression_metrics_agg(y_true, y_pred)` returns MAE,
+  MSE, RMSE, MAPE, sMAPE (fractions), median AE, R², explained variance and max error; table
+  macros `classification_metrics_by` and `regression_metrics_by`. Validated against scikit-learn.
+- **Ranking metrics and a data-quality summary** (#369): `ranking_metrics_agg(query_id,
+  relevance, score [, options])` returns NDCG@k (scikit-learn `ndcg_score`), MAP@k, MRR,
+  precision@k, recall@k and hit rate (evidently) averaged over queries (`k`, `min_relevance`,
+  `include_no_feedback`), with the table macro `ranking_metrics_by`; `data_quality_by(source,
+  columns, reference := NULL)` returns per column the missing share, distinct count, basic
+  statistics and, against a reference table, the out-of-range share and the new / dropped
+  categories. See [Performance metrics](docs/api/statistics/metrics.md).
+
 ## [0.16.0] - 2026-11-06
 
 This release closes about 31 issues (#293–#323) that expose the remaining functionality of

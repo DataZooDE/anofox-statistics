@@ -198,7 +198,14 @@ void RegisterModelValidationFunctions(ExtensionLoader &loader);
 // Data reduction and transforms: spearman2_agg, hoeffding_d_agg, box_cox_agg,
 // box_cox_transform / box_cox_inverse, varclus_agg, redun_agg (#320)
 void RegisterReductionFunctions(ExtensionLoader &loader);
+// PCA reconstruction-error drift and alert bands: pca_reconstruction_*, alert_band_agg, alert_band_by (#366, #367)
+void RegisterReconstructionFunctions(ExtensionLoader &loader);
+// CBPE performance estimation: cbpe_fit_agg, cbpe_estimate_agg, cbpe_realized_agg, cbpe_by (#365)
+void RegisterCbpeFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
+// Metric pack: classification_metrics_agg, regression_metrics_agg, ranking_metrics_agg,
+// their _by macros and data_quality_by (#368, #369)
+void RegisterMetricsFunctions(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {
