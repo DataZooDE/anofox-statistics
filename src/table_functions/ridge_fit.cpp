@@ -210,6 +210,10 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
+        // The lambda the fit uses (conditioning-aware lambda, #305). Looked up before the fit:
+        // it may throw, and after the fit that would skip freeing the fit's FFI arrays.
+        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit");
+
         bool success = anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
                                         bind_data.compute_inference ? &inference_result : nullptr, &error);
 
@@ -248,8 +252,6 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
         // the inference fields are NULL (the Rust core reports NaN for them).
         // alpha == 0 is OLS and keeps its inference.
-        // The lambda the fit used (conditioning-aware lambda, #305).
-        const double lambda = RidgeSelectedLambda(y_array, x_arrays, options, "ridge_fit");
         writer.WriteInference(row, bind_data.compute_inference && lambda == 0 ? &inference_result : nullptr);
         writer.WriteSummary(row, core_result.summary);
         if (bind_data.compute_inference) {
