@@ -10892,3 +10892,7 @@ pub use imputation_ffi::*;
 // AFT residuals, extended survfit / survdiff (#322)
 mod survival_extras_ffi;
 pub use survival_extras_ffi::*;
+
+// Confidence-based performance estimation, NannyML CBPE (#365)
+mod cbpe_ffi;
+pub use cbpe_ffi::*;
