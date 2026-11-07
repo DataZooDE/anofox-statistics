@@ -261,6 +261,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterReductionFunctions(loader);
     // PCA reconstruction-error drift and reference-band alert thresholds (#366, #367)
     RegisterReconstructionFunctions(loader);
+    // CBPE performance estimation without labels (#365)
+    RegisterCbpeFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

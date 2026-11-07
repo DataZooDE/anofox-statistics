@@ -1,0 +1,210 @@
+# name: test/sql/classification/test_cbpe.test
+# description: CBPE aggregates and cbpe_by (#365): options, calibrations, stored models, NULLs, edge cases
+# group: [classification]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE s AS
+SELECT i, i // 100 AS chunk, i < 200 AS is_ref,
+       pow((i * 37 % 100) / 100.0 + 0.005, 1 + 0.3 * (i // 100)) AS score,
+       ((i * 37 % 100) / 100.0 + 0.005) > ((i * 53 % 89) / 89.0) AS y_true
+FROM range(400) r(i);
+
+# Model STRUCTs of the three calibrations (stored in a table).
+statement ok
+CREATE TABLE models AS
+SELECT 'isotonic' AS c, cbpe_fit_agg(y_true, score) AS m FROM s WHERE is_ref
+UNION ALL SELECT 'platt', cbpe_fit_agg(y_true, score, {'calibration': 'platt'}) FROM s WHERE is_ref
+UNION ALL SELECT 'none', cbpe_fit_agg(y_true, score, MAP {'calibration': 'none'}) FROM s WHERE is_ref;
+
+query IIIIII
+SELECT c, (m).calibration, (m).isotonic_x IS NULL, (m).platt_a IS NULL, (m).n_reference,
+       (m).sampling.accuracy_std > 0
+FROM models ORDER BY c;
+----
+isotonic	isotonic	false	true	200	true
+none	none	true	true	200	true
+platt	platt	true	false	200	true
+
+# threshold option, labels as 0/1 numbers.
+query II
+SELECT (cbpe_fit_agg(y_true, score, {'threshold': 0.3})).threshold,
+       cbpe_fit_agg(y_true::INTEGER, score) = cbpe_fit_agg(y_true, score)
+FROM s WHERE is_ref;
+----
+0.3	true
+
+# A stored model estimates exactly like the inline one.
+query I
+SELECT (cbpe_estimate_agg(m, score)).accuracy.value = (
+    SELECT (cbpe_estimate_agg(m2, score)).accuracy.value
+    FROM s CROSS JOIN (SELECT cbpe_fit_agg(y_true, score, {'calibration': 'platt'}) AS m2 FROM s WHERE is_ref))
+FROM s CROSS JOIN models WHERE c = 'platt';
+----
+true
+
+# Identity calibration: the expected confusion matrix is the scores summed by prediction.
+query II
+SELECT abs((e).true_positive.value - tp) < 1e-9, abs((e).false_negative.value - fn) < 1e-9
+FROM (SELECT cbpe_estimate_agg(m, score) AS e,
+             sum(CASE WHEN score >= 0.5 THEN score ELSE 0 END) AS tp,
+             sum(CASE WHEN score < 0.5 THEN score ELSE 0 END) AS fn
+      FROM s, models WHERE c = 'none' AND chunk = 3);
+----
+true	true
+
+# Bands: value -/+ 3 sampling errors, clipped to [0, 1].
+query I
+SELECT bool_and(abs((e).accuracy.lower_confidence - greatest((e).accuracy.value - 3 * (e).accuracy.sampling_error, 0)) < 1e-12
+            AND abs((e).accuracy.upper_confidence - least((e).accuracy.value + 3 * (e).accuracy.sampling_error, 1)) < 1e-12)
+FROM (SELECT chunk, cbpe_estimate_agg(m, score) AS e FROM s, models WHERE c = 'isotonic' GROUP BY chunk);
+----
+true
+
+# Realized metrics equal the plain counts.
+query IIII
+SELECT (r).n, (r).true_positive = tp, (r).accuracy = avg_acc, (r).roc_auc = auc
+FROM (SELECT cbpe_realized_agg(m, y_true, score) AS r, avg(((score >= 0.5) = y_true)::INTEGER) AS avg_acc,
+             auc_agg(y_true, score) AS auc, sum(((score >= 0.5) AND y_true)::INTEGER) AS tp
+      FROM s, models WHERE c = 'isotonic' AND chunk = 2);
+----
+100	true	true	true
+
+# Predictions: all predictions = score >= threshold is the threshold path; a NULL falls back to it.
+query II
+SELECT cbpe_fit_agg(y_true, score, score >= 0.5, NULL) = cbpe_fit_agg(y_true, score),
+       cbpe_fit_agg(y_true, score, CASE WHEN i % 3 = 0 THEN NULL ELSE score >= 0.5 END, NULL) = cbpe_fit_agg(y_true, score)
+FROM s WHERE is_ref;
+----
+true	true
+
+query I
+SELECT (cbpe_estimate_agg(m, score, score >= 0.5)) = (cbpe_estimate_agg(m, score))
+FROM s, models WHERE c = 'isotonic';
+----
+true
+
+query I
+SELECT (cbpe_realized_agg(m, y_true, score, NOT (score >= 0.5))).true_positive = sum((score < 0.5 AND y_true)::INTEGER)
+FROM s, models WHERE c = 'isotonic' AND chunk = 2;
+----
+true
+
+# NULL handling: NULL scores / labels are skipped; no rows, no model or a one-class reference give NULL.
+query III
+SELECT (cbpe_fit_agg(y_true, CASE WHEN i % 10 = 0 THEN NULL ELSE score END)).n_reference,
+       (cbpe_fit_agg(CASE WHEN i % 10 = 1 THEN NULL ELSE y_true END, score)).n_reference,
+       cbpe_fit_agg(y_true, score) FILTER (WHERE false) IS NULL
+FROM s WHERE is_ref;
+----
+180	180	true
+
+query I
+SELECT cbpe_fit_agg(true, score) IS NULL FROM s;
+----
+true
+
+query II
+SELECT cbpe_estimate_agg(NULL, score) IS NULL, cbpe_realized_agg(NULL, y_true, score) IS NULL FROM s;
+----
+true	true
+
+query II
+SELECT (cbpe_estimate_agg(m, score)).n, (cbpe_realized_agg(m, CASE WHEN i % 2 = 0 THEN y_true END, score)).n
+FROM s, models WHERE c = 'isotonic' AND chunk = 1;
+----
+100	50
+
+# Realized: one label class gives NULL ROC AUC / F1 / precision / recall.
+query IIII
+SELECT (r).roc_auc IS NULL, (r).f1 IS NULL, (r).specificity IS NULL, (r).accuracy IS NOT NULL
+FROM (SELECT cbpe_realized_agg(m, true, score) AS r FROM s, models WHERE c = 'isotonic');
+----
+true	true	true	true
+
+# Per group and as a window aggregate.
+query I
+SELECT count(DISTINCT e) FROM (
+    SELECT cbpe_estimate_agg(m, score) OVER (PARTITION BY chunk) AS e FROM s, models WHERE c = 'isotonic');
+----
+4
+
+# cbpe_by: one row per chunk and metric; realized NULL without labels.
+query IIII
+SELECT count(*), count(DISTINCT chunk), count(realized), sum(is_reference::INTEGER)
+FROM cbpe_by('s', chunk, y_true, score, is_ref);
+----
+40	4	40	20
+
+statement ok
+CREATE TABLE s_unlabelled AS SELECT * REPLACE (CASE WHEN is_ref THEN y_true END AS y_true) FROM s;
+
+query IIII
+SELECT chunk, count(realized), min(n_labelled) IS NULL, min(n)
+FROM cbpe_by('s_unlabelled', chunk, y_true, score, is_ref, options := {'calibration': 'platt'})
+GROUP BY chunk ORDER BY chunk;
+----
+0	10	false	100
+1	10	false	100
+2	0	true	100
+3	0	true	100
+
+query II
+SELECT metric, estimate = (SELECT (cbpe_estimate_agg(m, score)).roc_auc.value FROM s, models WHERE c = 'isotonic' AND chunk = 3)
+FROM cbpe_by('s', chunk, y_true, score, is_ref) WHERE chunk = 3 AND metric = 'roc_auc';
+----
+roc_auc	true
+
+# No reference rows: every estimate is NULL.
+query I
+SELECT count(estimate) FROM cbpe_by('s', chunk, y_true, score, false);
+----
+0
+
+# Invalid input.
+statement error
+SELECT cbpe_fit_agg(y_true, score, {'calibration': 'beta'}) FROM s;
+----
+option 'calibration' must be 'isotonic', 'platt' or 'none'
+
+statement error
+SELECT cbpe_fit_agg(y_true, score, {'thresh': 0.5}) FROM s;
+----
+unknown option 'thresh'
+
+statement error
+SELECT cbpe_fit_agg(y_true, score, {'threshold': 'nan'::DOUBLE}) FROM s;
+----
+option 'threshold' must be finite
+
+statement error
+SELECT cbpe_fit_agg(2.0, score) FROM s;
+----
+y_true must be BOOLEAN or 0/1
+
+statement error
+SELECT cbpe_estimate_agg(42, score) FROM s;
+----
+model must be the STRUCT returned by cbpe_fit_agg
+
+statement error
+SELECT cbpe_estimate_agg({'calibration': 'isotonic'}, score) FROM s;
+----
+no field 'threshold'
+
+statement error
+SELECT cbpe_estimate_agg(struct_update(m, calibration := 'beta'), score) FROM s, models WHERE c = 'isotonic';
+----
+model must be the STRUCT returned by cbpe_fit_agg
+
+statement error
+SELECT cbpe_estimate_agg(struct_update(m, isotonic_x := [0.2, 0.1]), score) FROM s, models WHERE c = 'isotonic';
+----
+isotonic knots
+
+# Non-finite scores give NULL.
+query I
+SELECT cbpe_fit_agg(y_true, CASE WHEN i = 5 THEN 'inf'::DOUBLE ELSE score END) IS NULL FROM s WHERE is_ref;
+----
+true

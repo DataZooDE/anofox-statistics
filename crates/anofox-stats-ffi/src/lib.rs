@@ -10896,3 +10896,6 @@ pub use survival_extras_ffi::*;
 // PCA reconstruction-error drift and reference-band alert thresholds (#366, #367).
 mod reconstruction_ffi;
 pub use reconstruction_ffi::*;
+// Confidence-based performance estimation, NannyML CBPE (#365)
+mod cbpe_ffi;
+pub use cbpe_ffi::*;

@@ -200,6 +200,8 @@ void RegisterModelValidationFunctions(ExtensionLoader &loader);
 void RegisterReductionFunctions(ExtensionLoader &loader);
 // PCA reconstruction-error drift and alert bands: pca_reconstruction_*, alert_band_agg, alert_band_by (#366, #367)
 void RegisterReconstructionFunctions(ExtensionLoader &loader);
+// CBPE performance estimation: cbpe_fit_agg, cbpe_estimate_agg, cbpe_realized_agg, cbpe_by (#365)
+void RegisterCbpeFunctions(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

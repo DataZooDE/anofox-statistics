@@ -5,6 +5,7 @@
 
 pub mod anova;
 pub mod categorical;
+pub mod cbpe;
 pub mod classification;
 pub mod correlation;
 pub mod distributional;
