@@ -86,6 +86,18 @@ Rules for documentation SQL:
 - Use only option keys that the function reads, and the real result field names.
 - Don't link to files that don't exist. Check relative links when you move pages.
 
+**Claude Code plugin:** `python3 scripts/check_plugin.py` (`make check-plugin`,
+also in CI after the doc-SQL step) checks what running the blocks cannot:
+
+- every function name mentioned outside a sql block (an `anofox_stats_*` name,
+  or a backticked call such as `` `ols_fit_agg(` ``) is registered;
+- every function the extension registers is mentioned in at least one skill,
+  by its canonical name or an alias. A new function goes into the skill that
+  covers its family in the same PR;
+- `plugin.json` and every SKILL.md (`version:` and the `**Extension:**` header)
+  carry the newest `## [X.Y.Z]` in CHANGELOG.md. In the release commit, write
+  the CHANGELOG heading, then run `make bump-plugin`.
+
 **Guides:** `guides/0*.md` are generated from `guides/templates/*.md.in` by
 `scripts/build_docs.sh`. The pre-commit hook installed by
 `scripts/install_hooks.sh` runs that script. Edit the template and regenerate,

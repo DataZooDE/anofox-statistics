@@ -11,6 +11,17 @@ values, and the sqllogictests in `test/sql/reference/` hold them. Other implemen
 document the difference. Statistical methods live in the upstream crates
 (anofox-regression, anofox-statistics); this extension only maps them to SQL.
 
+## Claude Code plugin
+
+`plugins/anofox-statistics/` is a Claude Code plugin. Skills must not claim more
+than the code does; name the weak spots as the function descriptions do.
+
+- **A new or renamed function goes into a skill in the same PR.** `make check-plugin`
+  (scripts/check_plugin.py, run in the Doc-SQL Validation workflow) fails on a function no skill
+  mentions and on a function name in prose that is not registered.
+- **Release:** after writing the `## [X.Y.Z]` CHANGELOG heading, run `make bump-plugin`;
+  `check_plugin.py` fails while plugin.json or any SKILL.md version is behind.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

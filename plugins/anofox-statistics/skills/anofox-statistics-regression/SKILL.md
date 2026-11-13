@@ -40,7 +40,7 @@ user-invocable: false
 
 **Extension:** `anofox_statistics` v0.17.0 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.6 / v2.0 | **API:** unprefixed, MAP-style options
 
-> **New in 0.15.0:** `ls_state_agg(y, x[, weight])` / `ls_state_combine_agg(state)` keep a compact, mergeable least-squares state; `ols_fit_from_state` / `wls_fit_from_state` / `ridge_fit_from_state` fit from it without the rows (incremental refits, one state for any ridge `alpha`; no `hc_type` / `compute_loo`). Options may be `MAP(VARCHAR, VARIANT)` and prepared-statement parameters.
+> **New in 0.15.0:** `ls_state_agg(y, x[, weight])` / `ls_state_combine_agg(state)` keep a compact, mergeable least-squares state (`ls_state_info(state)` → `n_observations`, `n_features`, `weighted`); `ols_fit_from_state` / `wls_fit_from_state` / `ridge_fit_from_state` fit from it without the rows (incremental refits, one state for any ridge `alpha`; no `hc_type` / `compute_loo`). Options may be `MAP(VARCHAR, VARIANT)` and prepared-statement parameters.
 >
 > **New in 0.16.0:** Cox PH, ordinal / continuation-ratio, multinomial, GLS, P-splines, `areg`, rms penalized OLS / `pentrace`, cluster-robust GLM / AFT `vcov`, `lr_test` / score tests / `profile_ci`, `wald_anova` / `fastbw`, spline bases + effects, `validate` / `calibrate` / `bootcov`, `areg_impute` + `pool_rubin` (sections below). **Behaviour changes:** with `hc_type` the `vcov` of `ols_fit_agg` / `wls_fit_agg` is the HC covariance (was classical), so `predict(..., {'se_fit': true})` is robust too; `wls_fit_agg` + `hc_type` now honours the weights (`vcovHC(lm(weights = w))`); `aft_cdf` / `aft_quantile` / `aft_survival` give NaN for pieces that are not a model (e.g. `exponential` with scale ≠ 1).
 
@@ -134,6 +134,13 @@ Path options: `lambdas` (glmnet scale, default glmnet's grid), `n_lambda` (100),
 | Huber | `huber_fit`, `huber_fit_agg` | `epsilon` (default 1.35), `alpha` (1e-4), `max_iterations` (100), `scale_method` (`'mad'` default = `MASS::rlm`-style; `'joint'` = sklearn `HuberRegressor` joint coefficient / scale estimate); reports `scale`, `n_outliers` |
 | RANSAC | `ransac_fit`, `ransac_fit_agg` | `max_trials` (100), `residual_threshold` (default MAD of y), `min_samples` (default `n_features + 1`), `random_state`; reports `residual_threshold`, `n_inliers`, `n_trials` |
 | Theil-Sen | `theil_sen_fit`, `theil_sen_fit_agg` | Median of pairwise slopes (1 feature) / spatial median over subsamples; `n_subsamples`, `max_subpopulation`, `random_state` (alias `seed`). `compute_inference`: `ci_method` `'exact'` (default for 1 feature: Sen's slope CI + Kendall z in `t_values` / p-value, = R `trend::sens.slope`; `std_errors` / intercept CI NULL) or `'bootstrap'` (default otherwise: pairs bootstrap SDs + percentile CIs incl. intercept, `n_bootstrap` 999, deterministic per seed; `t_values`/`p_values` NULL; costs ~`n_bootstrap` point fits per group, ~8 s/group at 500 rows × 3 features). `theil_sen_tidy_by` defaults to `'exact_or_none'` (multi-feature intervals NULL, no bootstrap); opt in with `options := {'ci_method': 'bootstrap'}` (199 resamples there). No F-test (NULL) |
+
+**Outliers at high leverage (the ends of the x range) defeat Huber.** Huber is an M-estimator
+that starts from the least-squares fit; when the outliers pull that fit far enough, the MAD scale
+is inflated, no residual exceeds `epsilon`, and Huber returns the OLS line (`n_outliers = 0`), as
+R `MASS::rlm` does. Theil-Sen (a median of pairwise slopes) and RANSAC tolerate outliers in x as
+well; Huber with `scale_method := 'joint'` can recover but is not guaranteed to. See the worked
+example "Robust fits when the outliers sit at the end of the range".
 
 ### GLMs, ordinal, multiclass & survival (report `z_values`, no `r_squared`)
 
@@ -538,6 +545,39 @@ FROM range(1, 81) t(i);
 WITH imp AS (SELECT * FROM areg_impute_by('imp_demo', 1, id, [y, x1, x2], options := {'n_impute': 5, 'seed': 2026})),
      fits AS (SELECT imputation, ols_fit_agg(x[1], [x[2], x[3]], {'compute_inference': true}) AS fit FROM imp GROUP BY imputation)
 SELECT unnest(tidy(pool_rubin_agg(fit), ['x1', 'x2']), recursive := true) FROM fits;
+```
+
+### Robust fits when the outliers sit at the end of the range
+
+The true line is `y = 2x + 1`; the last four of 20 points are 60 too high. OLS and Huber both
+report slope 4.885 (R `lm` and `MASS::rlm` agree); Theil-Sen reports 2.039 with intercept 0.762,
+the median of the 190 pairwise slopes and of `y - slope·x`.
+
+```sql
+CREATE OR REPLACE TABLE sensor AS
+SELECT x::DOUBLE AS x,
+       CASE WHEN x >= 17 THEN 2.0 * x + 1.0 + 60.0 ELSE 2.0 * x + 1.0 + 0.3 * sin(x) END AS y
+FROM range(1, 21) t(x);
+
+SELECT 'ols' AS method, round(m.coefficients[1], 3) AS slope, round(m.intercept, 3) AS intercept, NULL AS n_outliers
+FROM (SELECT ols_fit_agg(y, [x]) AS m FROM sensor)
+UNION ALL
+SELECT 'huber', round(m.coefficients[1], 3), round(m.intercept, 3), m.n_outliers
+FROM (SELECT huber_fit_agg(y, [x]) AS m FROM sensor)
+UNION ALL
+SELECT 'theil_sen', round(m.coefficients[1], 3), round(m.intercept, 3), NULL
+FROM (SELECT theil_sen_fit_agg(y, [x]) AS m FROM sensor);
+```
+
+The fit-predict forms take the same arguments: `theil_sen_fit_predict_agg(y, [x])` returns the
+in-sample predictions as a list (intervals use the OLS-leverage approximation, so with outliers
+they are wide), and the window function `theil_sen_fit_predict(y, [x]) OVER (...)` predicts the
+last row of each frame.
+
+```sql
+SELECT p.y, round(p.yhat, 2) AS yhat
+FROM (SELECT unnest(theil_sen_fit_predict_agg(y, [x])) AS p FROM sensor)
+LIMIT 3;
 ```
 
 ```sql skip

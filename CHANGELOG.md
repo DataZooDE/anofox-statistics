@@ -10,6 +10,26 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/check_plugin.py` (`make check-plugin`, run in the Doc-SQL Validation workflow):
+  every function name the skills and docs mention in prose is registered, every function
+  is covered by at least one Claude Code skill, and `plugin.json` plus every SKILL.md
+  version equal the newest CHANGELOG release. `make bump-plugin`
+  (`scripts/bump_plugin_version.sh`) sets those versions in the release commit.
+- Claude Code skills now cover all 479 functions. The 21 they did not mention:
+  - The `*_augment_agg` and `*_partial_residuals_agg` aggregates behind the `_by` macros,
+    with a runnable example (diagnostics skill).
+  - `ls_state_info` (regression skill).
+  - `pca_reconstruction_error` and `pca_reconstruction_threshold_agg` (tests skill).
+- The regression skill has a runnable Theil-Sen example. When the outliers sit at the end of
+  the x range, Huber returns the OLS line, as R `MASS::rlm` does; Theil-Sen recovers the slope.
+
+### Fixed
+
+- `docs/PERFORMANCE.md` named workload 02's statement `predict_agg`, a name removed in 0.10.0;
+  it is `ols_fit_predict_agg`.
+
 ## [0.17.0] - 2026-11-07
 
 This release adds NannyML- and evidently-style model monitoring from anofox-statistics 0.10

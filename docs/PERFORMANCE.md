@@ -18,7 +18,7 @@ python3 scripts/bench_compare.py --cli v1.5.6=<duckdb 1.5.6> --cli v2.0.0=<duckd
 | Workload | Statement | v1.5.6 | v2.0.0 | v2.0 / v1.5.6 |
 |---|---|---|---|---|
 | 01 aggregate dispatch | `ols_fit_agg` GROUP BY, 10K groups / 1M rows (generated) | 0.180 | 0.135 | 0.75 |
-| 02 fit + predict | `predict_agg`, 10K groups / 1M rows (generated) | 0.714 | 0.621 | 0.87 |
+| 02 fit + predict | `ols_fit_predict_agg`, 10K groups / 1M rows (generated) | 0.714 | 0.621 | 0.87 |
 | 03 FFI micro | `compute_inference`, 500 groups / 50K rows | 0.009 | 0.012 | (too small to compare) |
 | 04 `_by` on Parquet | `ols_fit_predict_by`, 500K series / 10M rows | 7.079 | 3.505 | **0.50** |
 | 04 `_by` on Parquet | `ols_tidy_by`, 500K series | 1.099 | 1.188 | 1.08 |

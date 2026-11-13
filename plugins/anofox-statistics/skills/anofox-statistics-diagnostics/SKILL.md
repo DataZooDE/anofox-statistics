@@ -66,6 +66,8 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 | `cox_zph_agg(time, x, event[, weight][, options])` | aggregate | Grambsch-Therneau proportional-hazards test (`cox.zph`): `LIST<STRUCT(term, statistic, df, p_value)>`, per covariate and `GLOBAL` |
 | `aft_augment_by(source, group_col, time_col, x_cols, event_col)`, `gls_augment_by(...)` | table macro | `obs` rows for AFT (`standardized_residual`, `cox_snell_residual`, score contributions) and GLS (Pearson `std_residual`, `normalized_residual`, `se_fit`) — signatures in **anofox-statistics-regression** |
 | `<model>_partial_residuals_by` | table macro | `ols`, `wls`, six GLMs: one row per source row and term — `term_index`, `term`, `x`, `component`, `partial_residual` (crPlots), `x_residual`, `y_residual` (avPlots; NULL for GLMs) |
+| `ols_augment_agg`, `wls_augment_agg(y, x, weight)`, `ridge_augment_agg`, `binomial_augment_agg`, `logistic_augment_agg`, `poisson_augment_agg`, `negbinom_augment_agg`, `gamma_augment_agg`, `tweedie_augment_agg`, `glmm_augment_agg` | aggregate | The aggregates behind the `*_augment_by` macros: `(y, x[, options] ORDER BY …)` returns a LIST with one STRUCT of the `obs` columns per row, in `ORDER BY` order. Prefer the macro; use these inline (`GROUP BY`, or a window over the whole partition) |
+| `ols_partial_residuals_agg`, `wls_partial_residuals_agg`, `binomial_partial_residuals_agg`, `logistic_partial_residuals_agg`, `poisson_partial_residuals_agg`, `negbinom_partial_residuals_agg`, `gamma_partial_residuals_agg`, `tweedie_partial_residuals_agg` | aggregate | The aggregates behind `<model>_partial_residuals_by`: a LIST per row of a LIST with one STRUCT per term (`term_index`, `x`, `partial_residual`, `component`, `x_residual`, `y_residual`) |
 | `acf_agg(x[, max_lag] ORDER BY t)`, `pacf_agg(…)` | aggregate | `LIST<STRUCT(lag, acf\|pacf, conf_low, conf_high)>`; band = ±qnorm(0.975)/√n; `max_lag` default `floor(10·log10(n))` |
 | `acf_by`, `pacf_by` `(source, group_col, value_col, order_col[, max_lag := …])` | table macro | One ACF / PACF curve per group (`curve` schema, `curve_type` `'acf'` / `'pacf'`, `x` = lag, `y_low`/`y_high` = band) |
 | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | aggregate | Residual autocorrelation tests (unified test fields; see **anofox-statistics-tests**); `durbin_watson_agg(resid, x ORDER BY t)` adds the `dwtest` p-value |
@@ -182,6 +184,13 @@ WHERE grp = 'A' AND id > 30 ORDER BY id;
 SELECT grp, row_id, x, round(partial_residual, 3) AS partial_residual, round(component, 3) AS component
 FROM ols_partial_residuals_by('mt_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
 WHERE term = 'cycle' ORDER BY grp, row_id LIMIT 5;
+```
+
+```sql
+-- The aggregate behind ols_augment_by, inline: one list per group, rows in ORDER BY order
+SELECT grp, list_count(a) AS n_rows, round(a[1].leverage, 4) AS first_leverage, round(a[1].cooks_d, 4) AS first_cooks_d
+FROM (SELECT grp, ols_augment_agg(y, [x1, x2] ORDER BY id) AS a FROM mt_demo GROUP BY grp)
+ORDER BY grp;
 ```
 
 ```sql
