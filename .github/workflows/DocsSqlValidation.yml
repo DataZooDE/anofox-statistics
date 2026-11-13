@@ -82,3 +82,8 @@ jobs:
 
       - name: Run doc-SQL validation
         run: python3 scripts/validate_docs_sql.py
+
+      # Names in prose resolve, every function is covered by a skill, and the
+      # plugin's versions equal the newest CHANGELOG release.
+      - name: Check the Claude Code plugin
+        run: python3 scripts/check_plugin.py
